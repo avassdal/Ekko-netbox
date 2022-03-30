@@ -1,3 +1,4 @@
+from re import T
 from utilities.choices import ChoiceSet
 
 
@@ -826,6 +827,11 @@ class InterfaceTypeChoices(ChoiceSet):
     TYPE_SUMMITSTACK256 = 'extreme-summitstack-256'
     TYPE_SUMMITSTACK512 = 'extreme-summitstack-512'
 
+    # AV
+    TYPE_XLR3P = 'XLR3P'
+    TYPE_PHOENIX3P = 'Phoenix-3P'
+    TYPE_SPEAKERTERM = 'Speaker-Terminal'
+
     # Other
     TYPE_OTHER = 'other'
 
@@ -969,6 +975,14 @@ class InterfaceTypeChoices(ChoiceSet):
             'Other',
             (
                 (TYPE_OTHER, 'Other'),
+            )
+        ),
+        (
+            'AV',
+            (
+                (TYPE_XLR3P, 'XLR 3-Pin'),
+                (TYPE_PHOENIX3P, 'Phoenix Connector 3-Pin')
+                (TYPE_SPEAKERTERM, 'Speaker Terminal')
             )
         ),
     )
