@@ -836,7 +836,7 @@ class InterfaceTypeChoices(ChoiceSet):
     TYPE_DANTE = 'audinate-dante'
     TYPE_QLAN = 'qsc-qlan'
     TYPE_AVB = 'AVB'
-    
+
 
     # Other
     TYPE_OTHER = 'other'
@@ -1194,7 +1194,7 @@ class CableTypeChoices(ChoiceSet):
                 (TYPE_4X2MM2, '4x2mm2 Speaker Cable'),
                 (TYPE_BALAUDIO, 'Balanced Analog Audio Cable'),
             ),
-        )
+        ),
         (TYPE_POWER, 'Power'),
     )
 
