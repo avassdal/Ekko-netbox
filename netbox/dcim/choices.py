@@ -828,9 +828,15 @@ class InterfaceTypeChoices(ChoiceSet):
     TYPE_SUMMITSTACK512 = 'extreme-summitstack-512'
 
     # AV
-    TYPE_XLR3P = 'XLR3P'
-    TYPE_PHOENIX3P = 'Phoenix-3P'
-    TYPE_SPEAKERTERM = 'Speaker-Terminal'
+    TYPE_BALAUDIO = 'analogue-balanced-audio'
+    TYPE_UNBALAUDIO = 'analogue-unbalanced-audio'
+    TYPE_AES3 = 'AES3'
+    TYPE_SPEAKERHIGHZ = 'high-impedance-speaker-level-audio'
+    TYPE_SPEAKERLOWZ = 'low-impedance-speaker-level-audio'
+    TYPE_DANTE = 'audinate-dante'
+    TYPE_QLAN = 'qsc-qlan'
+    TYPE_AVB = 'AVB'
+    
 
     # Other
     TYPE_OTHER = 'other'
@@ -980,9 +986,14 @@ class InterfaceTypeChoices(ChoiceSet):
         (
             'AV',
             (
-                (TYPE_XLR3P, 'XLR 3-Pin'),
-                (TYPE_PHOENIX3P, 'Phoenix Connector 3-Pin'),
-                (TYPE_SPEAKERTERM, 'Speaker Terminal'),
+                (TYPE_BALAUDIO, 'Balanced Analoge Audio'),
+                (TYPE_UNBALAUDIO, 'Unbalanced Analogue Audio'),
+                (TYPE_SPEAKERHIGHZ, 'HighZ Speaker Level Audio'),
+                (TYPE_SPEAKERLOWZ, 'LowZ Speaker Level Audio'),
+                (TYPE_DANTE, 'Audinate Dante AV'),
+                (TYPE_AVB, 'Audio Video Bridge'),
+                (TYPE_QLAN, 'QSC QLAN'),
+                (TYPE_AES3, 'AES3 Digital Audio'),
             )
         ),
     )
@@ -1135,6 +1146,13 @@ class CableTypeChoices(ChoiceSet):
     TYPE_SMF_OS2 = 'smf-os2'
     TYPE_AOC = 'aoc'
     TYPE_POWER = 'power'
+    TYPE_2X1_5MM2 = '2x1,5mm2-speaker'
+    TYPE_2X2MM2 = '2x2mm2-speaker'
+    TYPE_2X4MM2 = '2x4mm2-speaker'
+    TYPE_4X1_5MM2 = '4X1,5mm2-speaker'
+    TYPE_4X2MM2 = '4x2mm2-speaker'
+    TYPE_BALAUDIO = 'balanced-audio'
+
 
     CHOICES = (
         (
@@ -1167,6 +1185,16 @@ class CableTypeChoices(ChoiceSet):
                 (TYPE_AOC, 'Active Optical Cabling (AOC)'),
             ),
         ),
+        (
+            'AV', (
+                (TYPE_2X1_5MM2, '2x1,5mm2 Speaker Cable'),
+                (TYPE_2X2MM2, '2x2mm2 Speaker Cable'),
+                (TYPE_2X4MM2, '2x4mm2 Speaker Cable'),
+                (TYPE_4X1_5MM2, '4x1,5mm2 Speaker Cable'),
+                (TYPE_4X2MM2, '4x2mm2 Speaker Cable'),
+                (TYPE_BALAUDIO, 'Balanced Analog Audio Cable'),
+            ),
+        )
         (TYPE_POWER, 'Power'),
     )
 
