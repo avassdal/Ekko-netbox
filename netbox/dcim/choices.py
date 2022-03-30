@@ -981,8 +981,8 @@ class InterfaceTypeChoices(ChoiceSet):
             'AV',
             (
                 (TYPE_XLR3P, 'XLR 3-Pin'),
-                (TYPE_PHOENIX3P, 'Phoenix Connector 3-Pin')
-                (TYPE_SPEAKERTERM, 'Speaker Terminal')
+                (TYPE_PHOENIX3P, 'Phoenix Connector 3-Pin'),
+                (TYPE_SPEAKERTERM, 'Speaker Terminal'),
             )
         ),
     )
