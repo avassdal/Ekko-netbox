@@ -833,7 +833,7 @@ class InterfaceTypeChoices(ChoiceSet):
     TYPE_SUMMITSTACK512 = 'extreme-summitstack-512'
 
     # AV
-    TYPE_BALAUDIO = 'Analogue-balanced-audio'
+    TYPE_BALAUDIO = 'analogue-balanced-audio'
     TYPE_UNBALAUDIO = 'Analog-unbalanced-audio'
     TYPE_AES3 = 'AES3'
     TYPE_SPEAKERHIGHZ = 'high-impedance-speaker-level-audio'
@@ -991,7 +991,7 @@ class InterfaceTypeChoices(ChoiceSet):
         (
             'AV',
             (
-                (TYPE_BALAUDIO, 'Balanced Analog Audio'),
+                (TYPE_BALAUDIO, 'Balanced Analoge Audio'),
                 (TYPE_UNBALAUDIO, 'Unbalanced Analog Audio'),
                 (TYPE_SPEAKERHIGHZ, 'HighZ Speaker Level Audio'),
                 (TYPE_SPEAKERLOWZ, 'LowZ Speaker Level Audio'),
