@@ -833,8 +833,8 @@ class InterfaceTypeChoices(ChoiceSet):
     TYPE_SUMMITSTACK512 = 'extreme-summitstack-512'
 
     # AV
-    TYPE_BALAUDIO = 'analogue-balanced-audio'
-    TYPE_UNBALAUDIO = 'analogue-unbalanced-audio'
+    TYPE_BALAUDIO = 'Analog-balanced-audio'
+    TYPE_UNBALAUDIO = 'Analog-unbalanced-audio'
     TYPE_AES3 = 'AES3'
     TYPE_SPEAKERHIGHZ = 'high-impedance-speaker-level-audio'
     TYPE_SPEAKERLOWZ = 'low-impedance-speaker-level-audio'
@@ -991,8 +991,8 @@ class InterfaceTypeChoices(ChoiceSet):
         (
             'AV',
             (
-                (TYPE_BALAUDIO, 'Balanced Analoge Audio'),
-                (TYPE_UNBALAUDIO, 'Unbalanced Analogue Audio'),
+                (TYPE_BALAUDIO, 'Balanced Analog Audio'),
+                (TYPE_UNBALAUDIO, 'Unbalanced Analog Audio'),
                 (TYPE_SPEAKERHIGHZ, 'HighZ Speaker Level Audio'),
                 (TYPE_SPEAKERLOWZ, 'LowZ Speaker Level Audio'),
                 (TYPE_DANTE, 'Audinate Dante AV'),
