@@ -991,7 +991,7 @@ class InterfaceTypeChoices(ChoiceSet):
         (
             'AV',
             (
-                (TYPE_BALAUDIO, 'Balanced Analog Audio'),
+                (TYPE_BALAUDIO, 'Balanced Analoge Audio'),
                 (TYPE_UNBALAUDIO, 'Unbalanced Analog Audio'),
                 (TYPE_SPEAKERHIGHZ, 'HighZ Speaker Level Audio'),
                 (TYPE_SPEAKERLOWZ, 'LowZ Speaker Level Audio'),
