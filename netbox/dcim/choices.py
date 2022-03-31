@@ -585,6 +585,8 @@ class PowerOutletTypeChoices(ChoiceSet):
     # Proprietary
     TYPE_HDOT_CX = 'hdot-cx'
     TYPE_SAF_D_GRID = 'saf-d-grid'
+    # AV
+    TYPE_POWERCON = 'powercon'
     # Other
     TYPE_HARDWIRED = 'hardwired'
 
@@ -689,6 +691,9 @@ class PowerOutletTypeChoices(ChoiceSet):
         ('Proprietary', (
             (TYPE_HDOT_CX, 'HDOT Cx'),
             (TYPE_SAF_D_GRID, 'Saf-D-Grid'),
+        )),
+        ('AV', (
+            (TYPE_POWERCON, 'Powercon'),
         )),
         ('Other', (
             (TYPE_HARDWIRED, 'Hardwired'),
@@ -1060,6 +1065,15 @@ class PortTypeChoices(ChoiceSet):
     TYPE_URM_P2 = 'urm-p2'
     TYPE_URM_P4 = 'urm-p4'
     TYPE_URM_P8 = 'urm-p8'
+    TYPE_XLR3P = 'XLR'
+    TYPE_XLR5P = 'XLR5P'
+    TYPE_PH2P = 'phoenix2p'
+    TYPE_PH3P = 'phoenix3p'
+    TYPE_PH4P = 'phoenix4p'
+    TYPE_PHO = 'phoenix'
+    TYPE_NL2 = 'speakon-2'
+    TYPE_NL4 = 'speakon-4'
+    TYPE_NL8 = 'speakon-8'
 
     CHOICES = (
         (
@@ -1083,6 +1097,20 @@ class PortTypeChoices(ChoiceSet):
                 (TYPE_F, 'F Connector'),
                 (TYPE_N, 'N Connector'),
                 (TYPE_MRJ21, 'MRJ21'),
+            ),
+        ),
+        (
+            'AV',
+            (
+                (TYPE_PH2P, 'Phoenix 2P'),
+                (TYPE_PH3P, 'Phoenix 3P'),
+                (TYPE_PH4P, 'Phoenix 4P'),
+                (TYPE_PHO, 'Phoenix'),
+                (TYPE_XLR3P, 'XLR'),
+                (TYPE_XLR5P, 'DMX/5pin XLR'),
+                (TYPE_NL2, 'Speakon NL2'),
+                (TYPE_NL4, 'Speakon NL4'),
+                (TYPE_NL8, 'Speakon NL8'),
             ),
         ),
         (
