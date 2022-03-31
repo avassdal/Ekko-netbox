@@ -833,14 +833,14 @@ class InterfaceTypeChoices(ChoiceSet):
     TYPE_SUMMITSTACK512 = 'extreme-summitstack-512'
 
     # AV
-    TYPE_BALAUDIO = 'Analog-balanced-audio'
-    TYPE_UNBALAUDIO = 'Analog-unbalanced-audio'
-    TYPE_AES3 = 'AES3'
+    TYPE_BALAUDIO = 'analog-balanced-audio'
+    TYPE_UNBALAUDIO = 'analog-unbalanced-audio'
+    TYPE_AES3 = 'aes3'
     TYPE_SPEAKERHIGHZ = 'high-impedance-speaker-level-audio'
     TYPE_SPEAKERLOWZ = 'low-impedance-speaker-level-audio'
     TYPE_DANTE = 'audinate-dante'
     TYPE_QLAN = 'qsc-qlan'
-    TYPE_AVB = 'AVB'
+    TYPE_AVB = 'avb'
 
 
     # Other
