@@ -845,6 +845,7 @@ class InterfaceTypeChoices(ChoiceSet):
 
     # Other
     TYPE_OTHER = 'other'
+    TYPE_GPIO = 'gpio'
 
     CHOICES = (
         (
@@ -986,6 +987,7 @@ class InterfaceTypeChoices(ChoiceSet):
             'Other',
             (
                 (TYPE_OTHER, 'Other'),
+                (TYPE_GPIO, 'GPIO')
             )
         ),
         (
