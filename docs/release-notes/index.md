@@ -10,6 +10,29 @@ Minor releases are published in April, August, and December of each calendar yea
 
 This page contains a history of all major and minor releases since NetBox v2.0. For more detail on a specific patch release, please see the release notes page for that specific minor release.
 
+#### [Version 3.3](./version-3.3.md) (August 2022)
+
+* Multi-object Cable Terminations ([#9102](https://github.com/netbox-community/netbox/issues/9102))
+* L2VPN Modeling ([#8157](https://github.com/netbox-community/netbox/issues/8157))
+* PoE Interface Attributes ([#1099](https://github.com/netbox-community/netbox/issues/1099))
+* Half-Height Rack Units ([#51](https://github.com/netbox-community/netbox/issues/51))
+* Restrict API Tokens by Client IP ([#8233](https://github.com/netbox-community/netbox/issues/8233))
+* Reference User in Permission Constraints ([#9074](https://github.com/netbox-community/netbox/issues/9074))
+* Custom Field Grouping ([#8495](https://github.com/netbox-community/netbox/issues/8495))
+* Toggle Custom Field Visibility ([#9166](https://github.com/netbox-community/netbox/issues/9166))
+
+#### [Version 3.2](./version-3.2.md) (April 2022)
+
+* Plugins Framework Extensions ([#8333](https://github.com/netbox-community/netbox/issues/8333))
+* Modules & Module Types ([#7844](https://github.com/netbox-community/netbox/issues/7844))
+* Custom Object Fields ([#7006](https://github.com/netbox-community/netbox/issues/7006))
+* Custom Status Choices ([#8054](https://github.com/netbox-community/netbox/issues/8054))
+* Improved User Preferences ([#7759](https://github.com/netbox-community/netbox/issues/7759))
+* Inventory Item Roles ([#3087](https://github.com/netbox-community/netbox/issues/3087))
+* Inventory Item Templates ([#8118](https://github.com/netbox-community/netbox/issues/8118))
+* Service Templates ([#1591](https://github.com/netbox-community/netbox/issues/1591))
+* Automatic Provisioning of Next Available VLANs ([#2658](https://github.com/netbox-community/netbox/issues/2658))
+
 #### [Version 3.1](./version-3.1.md) (December 2021)
 
 * Contact Objects ([#1344](https://github.com/netbox-community/netbox/issues/1344))

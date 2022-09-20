@@ -2,7 +2,8 @@ from django import forms
 from django.utils.translation import gettext as _
 
 from dcim.choices import LinkStatusChoices
-from extras.forms import CustomFieldModelFilterForm
+from netbox.forms import NetBoxModelFilterSetForm
+from tenancy.forms import TenancyFilterForm
 from utilities.forms import add_blank_choice, DynamicModelMultipleChoiceField, StaticSelect, TagFilterField
 from wireless.choices import *
 from wireless.models import *
@@ -14,7 +15,7 @@ __all__ = (
 )
 
 
-class WirelessLANGroupFilterForm(CustomFieldModelFilterForm):
+class WirelessLANGroupFilterForm(NetBoxModelFilterSetForm):
     model = WirelessLANGroup
     parent_id = DynamicModelMultipleChoiceField(
         queryset=WirelessLANGroup.objects.all(),
@@ -24,12 +25,14 @@ class WirelessLANGroupFilterForm(CustomFieldModelFilterForm):
     tag = TagFilterField(model)
 
 
-class WirelessLANFilterForm(CustomFieldModelFilterForm):
+class WirelessLANFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
     model = WirelessLAN
-    field_groups = [
-        ('q', 'tag'),
-        ('group_id',),
-    ]
+    fieldsets = (
+        (None, ('q', 'tag')),
+        ('Attributes', ('ssid', 'group_id',)),
+        ('Tenant', ('tenant_group_id', 'tenant_id')),
+        ('Authentication', ('auth_type', 'auth_cipher', 'auth_psk')),
+    )
     ssid = forms.CharField(
         required=False,
         label='SSID'
@@ -56,8 +59,14 @@ class WirelessLANFilterForm(CustomFieldModelFilterForm):
     tag = TagFilterField(model)
 
 
-class WirelessLinkFilterForm(CustomFieldModelFilterForm):
+class WirelessLinkFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
     model = WirelessLink
+    fieldsets = (
+        (None, ('q', 'tag')),
+        ('Attributes', ('ssid', 'status',)),
+        ('Tenant', ('tenant_group_id', 'tenant_id')),
+        ('Authentication', ('auth_type', 'auth_cipher', 'auth_psk')),
+    )
     ssid = forms.CharField(
         required=False,
         label='SSID'

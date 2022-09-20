@@ -15,6 +15,9 @@ class ConfigRevisionAdmin(admin.ModelAdmin):
         ('Rack Elevations', {
             'fields': ('RACK_ELEVATION_DEFAULT_UNIT_HEIGHT', 'RACK_ELEVATION_DEFAULT_UNIT_WIDTH'),
         }),
+        ('Power', {
+            'fields': ('POWERFEED_DEFAULT_VOLTAGE', 'POWERFEED_DEFAULT_AMPERAGE', 'POWERFEED_DEFAULT_MAX_UTILIZATION')
+        }),
         ('IPAM', {
             'fields': ('ENFORCE_GLOBAL_UNIQUE', 'PREFER_IPV4'),
         }),
@@ -23,18 +26,24 @@ class ConfigRevisionAdmin(admin.ModelAdmin):
         }),
         ('Banners', {
             'fields': ('BANNER_LOGIN', 'BANNER_TOP', 'BANNER_BOTTOM'),
+            'classes': ('monospace',),
         }),
         ('Pagination', {
             'fields': ('PAGINATE_COUNT', 'MAX_PAGE_SIZE'),
         }),
         ('Validation', {
             'fields': ('CUSTOM_VALIDATORS',),
+            'classes': ('monospace',),
         }),
         ('NAPALM', {
             'fields': ('NAPALM_USERNAME', 'NAPALM_PASSWORD', 'NAPALM_TIMEOUT', 'NAPALM_ARGS'),
+            'classes': ('monospace',),
+        }),
+        ('User Preferences', {
+            'fields': ('DEFAULT_USER_PREFERENCES',),
         }),
         ('Miscellaneous', {
-            'fields': ('MAINTENANCE_MODE', 'GRAPHQL_ENABLED', 'CHANGELOG_RETENTION', 'MAPS_URL'),
+            'fields': ('MAINTENANCE_MODE', 'GRAPHQL_ENABLED', 'CHANGELOG_RETENTION', 'JOBRESULT_RETENTION', 'MAPS_URL'),
         }),
         ('Config Revision', {
             'fields': ('comment',),

@@ -139,6 +139,7 @@ DEVICES_MENU = Menu(
             label='Devices',
             items=(
                 get_model_item('dcim', 'device', 'Devices'),
+                get_model_item('dcim', 'module', 'Modules'),
                 get_model_item('dcim', 'devicerole', 'Device Roles'),
                 get_model_item('dcim', 'platform', 'Platforms'),
                 get_model_item('dcim', 'virtualchassis', 'Virtual Chassis'),
@@ -148,6 +149,7 @@ DEVICES_MENU = Menu(
             label='Device Types',
             items=(
                 get_model_item('dcim', 'devicetype', 'Device Types'),
+                get_model_item('dcim', 'moduletype', 'Module Types'),
                 get_model_item('dcim', 'manufacturer', 'Manufacturers'),
             ),
         ),
@@ -161,8 +163,10 @@ DEVICES_MENU = Menu(
                 get_model_item('dcim', 'consoleserverport', 'Console Server Ports', actions=['import']),
                 get_model_item('dcim', 'powerport', 'Power Ports', actions=['import']),
                 get_model_item('dcim', 'poweroutlet', 'Power Outlets', actions=['import']),
+                get_model_item('dcim', 'modulebay', 'Module Bays', actions=['import']),
                 get_model_item('dcim', 'devicebay', 'Device Bays', actions=['import']),
                 get_model_item('dcim', 'inventoryitem', 'Inventory Items', actions=['import']),
+                get_model_item('dcim', 'inventoryitemrole', 'Inventory Item Roles'),
             ),
         ),
     ),
@@ -170,7 +174,7 @@ DEVICES_MENU = Menu(
 
 CONNECTIONS_MENU = Menu(
     label='Connections',
-    icon_class='mdi mdi-ethernet',
+    icon_class='mdi mdi-connection',
     groups=(
         MenuGroup(
             label='Connections',
@@ -260,7 +264,22 @@ IPAM_MENU = Menu(
             label='Other',
             items=(
                 get_model_item('ipam', 'fhrpgroup', 'FHRP Groups'),
+                get_model_item('ipam', 'servicetemplate', 'Service Templates'),
                 get_model_item('ipam', 'service', 'Services'),
+            ),
+        ),
+    ),
+)
+
+OVERLAY_MENU = Menu(
+    label='Overlay',
+    icon_class='mdi mdi-graph-outline',
+    groups=(
+        MenuGroup(
+            label='L2VPNs',
+            items=(
+                get_model_item('ipam', 'l2vpn', 'L2VPNs'),
+                get_model_item('ipam', 'l2vpntermination', 'Terminations'),
             ),
         ),
     ),
@@ -375,6 +394,7 @@ MENUS = [
     CONNECTIONS_MENU,
     WIRELESS_MENU,
     IPAM_MENU,
+    OVERLAY_MENU,
     VIRTUALIZATION_MENU,
     CIRCUITS_MENU,
     POWER_MENU,
@@ -385,10 +405,10 @@ MENUS = [
 # Add plugin menus
 #
 
-if registry['plugin_menu_items']:
+if registry['plugins']['menu_items']:
     plugin_menu_groups = []
 
-    for plugin_name, items in registry['plugin_menu_items'].items():
+    for plugin_name, items in registry['plugins']['menu_items'].items():
         plugin_menu_groups.append(
             MenuGroup(
                 label=plugin_name,

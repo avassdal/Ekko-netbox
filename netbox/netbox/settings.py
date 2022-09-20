@@ -1,3 +1,4 @@
+import hashlib
 import importlib
 import logging
 import os
@@ -8,18 +9,27 @@ import sys
 import warnings
 from urllib.parse import urlsplit
 
+import sentry_sdk
 from django.contrib.messages import constants as messages
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.validators import URLValidator
+from sentry_sdk.integrations.django import DjangoIntegration
 
 from netbox.config import PARAMS
+
+# Monkey patch to fix Django 4.0 support for graphene-django (see
+# https://github.com/graphql-python/graphene-django/issues/1284)
+# TODO: Remove this when graphene-django 2.16 becomes available
+import django
+from django.utils.encoding import force_str
+django.utils.encoding.force_text = force_str
 
 
 #
 # Environment setup
 #
 
-VERSION = '3.1.10'
+VERSION = '3.3.4'
 
 # Hostname
 HOSTNAME = platform.node()
@@ -28,46 +38,33 @@ HOSTNAME = platform.node()
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Validate Python version
-if sys.version_info < (3, 7):
-    raise RuntimeError(
-        f"NetBox requires Python 3.7 or later. (Currently installed: Python {platform.python_version()})"
-    )
 if sys.version_info < (3, 8):
-    warnings.warn(
-        f"NetBox v3.2 will require Python 3.8 or later. (Currently installed: Python {platform.python_version()})"
+    raise RuntimeError(
+        f"NetBox requires Python 3.8 or later. (Currently installed: Python {platform.python_version()})"
     )
 
+DEFAULT_SENTRY_DSN = 'https://198cf560b29d4054ab8e583a1d10ea58@o1242133.ingest.sentry.io/6396485'
 
 #
 # Configuration import
 #
 
 # Import configuration parameters
+config_path = os.getenv('NETBOX_CONFIGURATION', 'netbox.configuration')
 try:
-    from netbox import configuration
+    configuration = importlib.import_module(config_path)
 except ModuleNotFoundError as e:
-    if getattr(e, 'name') == 'configuration':
+    if getattr(e, 'name') == config_path:
         raise ImproperlyConfigured(
-            "Configuration file is not present. Please define netbox/netbox/configuration.py per the documentation."
+            f"Specified configuration module ({config_path}) not found. Please define netbox/netbox/configuration.py "
+            f"per the documentation, or specify an alternate module in the NETBOX_CONFIGURATION environment variable."
         )
     raise
-
-# Warn on removed config parameters
-if hasattr(configuration, 'CACHE_TIMEOUT'):
-    warnings.warn(
-        "The CACHE_TIMEOUT configuration parameter was removed in v3.0.0 and no longer has any effect."
-    )
-if hasattr(configuration, 'RELEASE_CHECK_TIMEOUT'):
-    warnings.warn(
-        "The RELEASE_CHECK_TIMEOUT configuration parameter was removed in v3.0.0 and no longer has any effect."
-    )
 
 # Enforce required configuration parameters
 for parameter in ['ALLOWED_HOSTS', 'DATABASE', 'SECRET_KEY', 'REDIS']:
     if not hasattr(configuration, parameter):
-        raise ImproperlyConfigured(
-            "Required parameter {} is missing from configuration.py.".format(parameter)
-        )
+        raise ImproperlyConfigured(f"Required parameter {parameter} is missing from configuration.")
 
 # Set required parameters
 ALLOWED_HOSTS = getattr(configuration, 'ALLOWED_HOSTS')
@@ -75,14 +72,20 @@ DATABASE = getattr(configuration, 'DATABASE')
 REDIS = getattr(configuration, 'REDIS')
 SECRET_KEY = getattr(configuration, 'SECRET_KEY')
 
+# Calculate a unique deployment ID from the secret key
+DEPLOYMENT_ID = hashlib.sha256(SECRET_KEY.encode('utf-8')).hexdigest()[:16]
+
 # Set static config parameters
 ADMINS = getattr(configuration, 'ADMINS', [])
+AUTH_PASSWORD_VALIDATORS = getattr(configuration, 'AUTH_PASSWORD_VALIDATORS', [])
 BASE_PATH = getattr(configuration, 'BASE_PATH', '')
 if BASE_PATH:
     BASE_PATH = BASE_PATH.strip('/') + '/'  # Enforce trailing slash only
 CORS_ORIGIN_ALLOW_ALL = getattr(configuration, 'CORS_ORIGIN_ALLOW_ALL', False)
 CORS_ORIGIN_REGEX_WHITELIST = getattr(configuration, 'CORS_ORIGIN_REGEX_WHITELIST', [])
 CORS_ORIGIN_WHITELIST = getattr(configuration, 'CORS_ORIGIN_WHITELIST', [])
+CSRF_COOKIE_NAME = getattr(configuration, 'CSRF_COOKIE_NAME', 'csrftoken')
+CSRF_TRUSTED_ORIGINS = getattr(configuration, 'CSRF_TRUSTED_ORIGINS', [])
 DATE_FORMAT = getattr(configuration, 'DATE_FORMAT', 'N j, Y')
 DATETIME_FORMAT = getattr(configuration, 'DATETIME_FORMAT', 'N j, Y g:i a')
 DEBUG = getattr(configuration, 'DEBUG', False)
@@ -90,8 +93,10 @@ DEVELOPER = getattr(configuration, 'DEVELOPER', False)
 DOCS_ROOT = getattr(configuration, 'DOCS_ROOT', os.path.join(os.path.dirname(BASE_DIR), 'docs'))
 EMAIL = getattr(configuration, 'EMAIL', {})
 EXEMPT_VIEW_PERMISSIONS = getattr(configuration, 'EXEMPT_VIEW_PERMISSIONS', [])
+FIELD_CHOICES = getattr(configuration, 'FIELD_CHOICES', {})
 HTTP_PROXIES = getattr(configuration, 'HTTP_PROXIES', None)
 INTERNAL_IPS = getattr(configuration, 'INTERNAL_IPS', ('127.0.0.1', '::1'))
+JINJA2_FILTERS = getattr(configuration, 'JINJA2_FILTERS', {})
 LOGGING = getattr(configuration, 'LOGGING', {})
 LOGIN_PERSISTENCE = getattr(configuration, 'LOGIN_PERSISTENCE', False)
 LOGIN_REQUIRED = getattr(configuration, 'LOGIN_REQUIRED', False)
@@ -117,6 +122,11 @@ REMOTE_AUTH_GROUP_SEPARATOR = getattr(configuration, 'REMOTE_AUTH_GROUP_SEPARATO
 REPORTS_ROOT = getattr(configuration, 'REPORTS_ROOT', os.path.join(BASE_DIR, 'reports')).rstrip('/')
 RQ_DEFAULT_TIMEOUT = getattr(configuration, 'RQ_DEFAULT_TIMEOUT', 300)
 SCRIPTS_ROOT = getattr(configuration, 'SCRIPTS_ROOT', os.path.join(BASE_DIR, 'scripts')).rstrip('/')
+SENTRY_DSN = getattr(configuration, 'SENTRY_DSN', DEFAULT_SENTRY_DSN)
+SENTRY_ENABLED = getattr(configuration, 'SENTRY_ENABLED', False)
+SENTRY_SAMPLE_RATE = getattr(configuration, 'SENTRY_SAMPLE_RATE', 1.0)
+SENTRY_TRACES_SAMPLE_RATE = getattr(configuration, 'SENTRY_TRACES_SAMPLE_RATE', 0)
+SENTRY_TAGS = getattr(configuration, 'SENTRY_TAGS', {})
 SESSION_FILE_PATH = getattr(configuration, 'SESSION_FILE_PATH', None)
 SESSION_COOKIE_NAME = getattr(configuration, 'SESSION_COOKIE_NAME', 'sessionid')
 SHORT_DATE_FORMAT = getattr(configuration, 'SHORT_DATE_FORMAT', 'Y-m-d')
@@ -353,6 +363,10 @@ TEMPLATES = [
         'DIRS': [TEMPLATES_DIR],
         'APP_DIRS': True,
         'OPTIONS': {
+            'builtins': [
+                'utilities.templatetags.builtins.filters',
+                'utilities.templatetags.builtins.tags',
+            ],
             'context_processors': [
                 'django.template.context_processors.debug',
                 'django.template.context_processors.request',
@@ -374,7 +388,9 @@ AUTHENTICATION_BACKENDS = [
 # Internationalization
 LANGUAGE_CODE = 'en-us'
 USE_I18N = True
+USE_L10N = False
 USE_TZ = True
+USE_DEPRECATED_PYTZ = True
 
 # WSGI
 WSGI_APPLICATION = 'netbox.wsgi.application'
@@ -406,9 +422,9 @@ MESSAGE_TAGS = {
 LOGIN_URL = f'/{BASE_PATH}login/'
 LOGIN_REDIRECT_URL = f'/{BASE_PATH}'
 
-CSRF_TRUSTED_ORIGINS = ALLOWED_HOSTS
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
+TEST_RUNNER = "django_rich.test.RichRunner"
 
 # Exclude potentially sensitive models from wildcard view exemption. These may still be exempted
 # by specifying the model individually in the EXEMPT_VIEW_PERMISSIONS configuration parameter.
@@ -429,14 +445,58 @@ EXEMPT_PATHS = (
 
 
 #
+# Sentry
+#
+
+if SENTRY_ENABLED:
+    if not SENTRY_DSN:
+        raise ImproperlyConfigured("SENTRY_ENABLED is True but SENTRY_DSN has not been defined.")
+    # If using the default DSN, force sampling rates
+    if SENTRY_DSN == DEFAULT_SENTRY_DSN:
+        SENTRY_SAMPLE_RATE = 1.0
+        SENTRY_TRACES_SAMPLE_RATE = 0
+    # Initialize the SDK
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        release=VERSION,
+        integrations=[DjangoIntegration()],
+        sample_rate=SENTRY_SAMPLE_RATE,
+        traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
+        send_default_pii=True,
+        http_proxy=HTTP_PROXIES.get('http') if HTTP_PROXIES else None,
+        https_proxy=HTTP_PROXIES.get('https') if HTTP_PROXIES else None
+    )
+    # Assign any configured tags
+    for k, v in SENTRY_TAGS.items():
+        sentry_sdk.set_tag(k, v)
+    # If using the default DSN, append a unique deployment ID tag for error correlation
+    if SENTRY_DSN == DEFAULT_SENTRY_DSN:
+        sentry_sdk.set_tag('netbox.deployment_id', DEPLOYMENT_ID)
+
+
+#
 # Django social auth
 #
+
+SOCIAL_AUTH_PIPELINE = (
+    'social_core.pipeline.social_auth.social_details',
+    'social_core.pipeline.social_auth.social_uid',
+    'social_core.pipeline.social_auth.social_user',
+    'social_core.pipeline.user.get_username',
+    'social_core.pipeline.social_auth.associate_by_email',
+    'social_core.pipeline.user.create_user',
+    'social_core.pipeline.social_auth.associate_user',
+    'netbox.authentication.user_default_groups_handler',
+    'social_core.pipeline.social_auth.load_extra_data',
+    'social_core.pipeline.user.user_details',
+)
 
 # Load all SOCIAL_AUTH_* settings from the user configuration
 for param in dir(configuration):
     if param.startswith('SOCIAL_AUTH_'):
         globals()[param] = getattr(configuration, param)
 
+# Force usage of PostgreSQL's JSONB field for extra data
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
 
 
@@ -469,9 +529,14 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_FILTER_BACKENDS': (
         'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.OrderingFilter',
     ),
     'DEFAULT_METADATA_CLASS': 'netbox.api.metadata.BulkOperationMetadata',
     'DEFAULT_PAGINATION_CLASS': 'netbox.api.pagination.OptionalLimitOffsetPagination',
+    'DEFAULT_PARSER_CLASSES': (
+        'rest_framework.parsers.JSONParser',
+        'rest_framework.parsers.MultiPartParser',
+    ),
     'DEFAULT_PERMISSION_CLASSES': (
         'netbox.api.authentication.TokenPermissions',
     ),
@@ -481,7 +546,6 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_VERSION': REST_FRAMEWORK_VERSION,
     'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.AcceptHeaderVersioning',
-    # 'PAGE_SIZE': PAGINATE_COUNT,
     'SCHEMA_COERCE_METHOD_NAMES': {
         # Default mappings
         'retrieve': 'read',
@@ -512,7 +576,6 @@ SWAGGER_SETTINGS = {
     'DEFAULT_AUTO_SCHEMA_CLASS': 'utilities.custom_inspectors.NetBoxSwaggerAutoSchema',
     'DEFAULT_FIELD_INSPECTORS': [
         'utilities.custom_inspectors.CustomFieldsDataFieldInspector',
-        'utilities.custom_inspectors.JSONFieldInspector',
         'utilities.custom_inspectors.NullableBooleanFieldInspector',
         'utilities.custom_inspectors.ChoiceFieldInspector',
         'utilities.custom_inspectors.SerializedPKRelatedFieldInspector',
@@ -522,6 +585,7 @@ SWAGGER_SETTINGS = {
         'drf_yasg.inspectors.ChoiceFieldInspector',
         'drf_yasg.inspectors.FileFieldInspector',
         'drf_yasg.inspectors.DictFieldInspector',
+        'drf_yasg.inspectors.JSONFieldInspector',
         'drf_yasg.inspectors.SerializerMethodFieldInspector',
         'drf_yasg.inspectors.SimpleFieldInspector',
         'drf_yasg.inspectors.StringDefaultFieldInspector',

@@ -1,10 +1,10 @@
 import django_filters
 from django.db.models import Q
 
-from dcim.models import DeviceRole, Platform, Region, Site, SiteGroup
-from extras.filters import TagFilter
+from dcim.models import Device, DeviceRole, Platform, Region, Site, SiteGroup
 from extras.filtersets import LocalConfigContextFilterSet
-from netbox.filtersets import OrganizationalModelFilterSet, PrimaryModelFilterSet
+from ipam.models import VRF
+from netbox.filtersets import OrganizationalModelFilterSet, NetBoxModelFilterSet
 from tenancy.filtersets import TenancyFilterSet, ContactModelFilterSet
 from utilities.filters import MultiValueMACAddressFilter, TreeNodeMultipleChoiceFilter
 from .choices import *
@@ -20,7 +20,6 @@ __all__ = (
 
 
 class ClusterTypeFilterSet(OrganizationalModelFilterSet):
-    tag = TagFilter()
 
     class Meta:
         model = ClusterType
@@ -28,18 +27,13 @@ class ClusterTypeFilterSet(OrganizationalModelFilterSet):
 
 
 class ClusterGroupFilterSet(OrganizationalModelFilterSet, ContactModelFilterSet):
-    tag = TagFilter()
 
     class Meta:
         model = ClusterGroup
         fields = ['id', 'name', 'slug', 'description']
 
 
-class ClusterFilterSet(PrimaryModelFilterSet, TenancyFilterSet, ContactModelFilterSet):
-    q = django_filters.CharFilter(
-        method='search',
-        label='Search',
-    )
+class ClusterFilterSet(NetBoxModelFilterSet, TenancyFilterSet, ContactModelFilterSet):
     region_id = TreeNodeMultipleChoiceFilter(
         queryset=Region.objects.all(),
         field_name='site__region',
@@ -96,7 +90,10 @@ class ClusterFilterSet(PrimaryModelFilterSet, TenancyFilterSet, ContactModelFilt
         to_field_name='slug',
         label='Cluster type (slug)',
     )
-    tag = TagFilter()
+    status = django_filters.MultipleChoiceFilter(
+        choices=ClusterStatusChoices,
+        null_value=None
+    )
 
     class Meta:
         model = Cluster
@@ -111,11 +108,12 @@ class ClusterFilterSet(PrimaryModelFilterSet, TenancyFilterSet, ContactModelFilt
         )
 
 
-class VirtualMachineFilterSet(PrimaryModelFilterSet, TenancyFilterSet, ContactModelFilterSet, LocalConfigContextFilterSet):
-    q = django_filters.CharFilter(
-        method='search',
-        label='Search',
-    )
+class VirtualMachineFilterSet(
+    NetBoxModelFilterSet,
+    TenancyFilterSet,
+    ContactModelFilterSet,
+    LocalConfigContextFilterSet
+):
     status = django_filters.MultipleChoiceFilter(
         choices=VirtualMachineStatusChoices,
         null_value=None
@@ -152,39 +150,48 @@ class VirtualMachineFilterSet(PrimaryModelFilterSet, TenancyFilterSet, ContactMo
         to_field_name='name',
         label='Cluster',
     )
+    device_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Device.objects.all(),
+        label='Device (ID)',
+    )
+    device = django_filters.ModelMultipleChoiceFilter(
+        field_name='device__name',
+        queryset=Device.objects.all(),
+        to_field_name='name',
+        label='Device',
+    )
     region_id = TreeNodeMultipleChoiceFilter(
         queryset=Region.objects.all(),
-        field_name='cluster__site__region',
+        field_name='site__region',
         lookup_expr='in',
         label='Region (ID)',
     )
     region = TreeNodeMultipleChoiceFilter(
         queryset=Region.objects.all(),
-        field_name='cluster__site__region',
+        field_name='site__region',
         lookup_expr='in',
         to_field_name='slug',
         label='Region (slug)',
     )
     site_group_id = TreeNodeMultipleChoiceFilter(
         queryset=SiteGroup.objects.all(),
-        field_name='cluster__site__group',
+        field_name='site__group',
         lookup_expr='in',
         label='Site group (ID)',
     )
     site_group = TreeNodeMultipleChoiceFilter(
         queryset=SiteGroup.objects.all(),
-        field_name='cluster__site__group',
+        field_name='site__group',
         lookup_expr='in',
         to_field_name='slug',
         label='Site group (slug)',
     )
     site_id = django_filters.ModelMultipleChoiceFilter(
-        field_name='cluster__site',
         queryset=Site.objects.all(),
         label='Site (ID)',
     )
     site = django_filters.ModelMultipleChoiceFilter(
-        field_name='cluster__site__slug',
+        field_name='site__slug',
         queryset=Site.objects.all(),
         to_field_name='slug',
         label='Site (slug)',
@@ -217,7 +224,6 @@ class VirtualMachineFilterSet(PrimaryModelFilterSet, TenancyFilterSet, ContactMo
         method='_has_primary_ip',
         label='Has a primary IP',
     )
-    tag = TagFilter()
 
     class Meta:
         model = VirtualMachine
@@ -238,11 +244,7 @@ class VirtualMachineFilterSet(PrimaryModelFilterSet, TenancyFilterSet, ContactMo
         return queryset.exclude(params)
 
 
-class VMInterfaceFilterSet(PrimaryModelFilterSet):
-    q = django_filters.CharFilter(
-        method='search',
-        label='Search',
-    )
+class VMInterfaceFilterSet(NetBoxModelFilterSet):
     cluster_id = django_filters.ModelMultipleChoiceFilter(
         field_name='virtual_machine__cluster',
         queryset=Cluster.objects.all(),
@@ -278,7 +280,17 @@ class VMInterfaceFilterSet(PrimaryModelFilterSet):
     mac_address = MultiValueMACAddressFilter(
         label='MAC address',
     )
-    tag = TagFilter()
+    vrf_id = django_filters.ModelMultipleChoiceFilter(
+        field_name='vrf',
+        queryset=VRF.objects.all(),
+        label='VRF',
+    )
+    vrf = django_filters.ModelMultipleChoiceFilter(
+        field_name='vrf__rd',
+        queryset=VRF.objects.all(),
+        to_field_name='rd',
+        label='VRF (RD)',
+    )
 
     class Meta:
         model = VMInterface

@@ -1,12 +1,15 @@
+from django.apps import apps
 from django.contrib.contenttypes.fields import GenericRelation
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.urls import reverse
 
 from circuits.choices import *
-from dcim.models import LinkTermination
-from extras.utils import extras_features
-from netbox.models import ChangeLoggedModel, OrganizationalModel, PrimaryModel
+from dcim.models import CabledObjectModel
+from netbox.models import (
+    ChangeLoggedModel, CustomFieldsMixin, CustomLinksMixin, OrganizationalModel, NetBoxModel, TagsMixin,
+)
+from netbox.models.features import WebhooksMixin
 
 __all__ = (
     'Circuit',
@@ -15,7 +18,6 @@ __all__ = (
 )
 
 
-@extras_features('custom_fields', 'custom_links', 'export_templates', 'tags', 'webhooks')
 class CircuitType(OrganizationalModel):
     """
     Circuits can be organized by their functional role. For example, a user might wish to define CircuitTypes named
@@ -44,8 +46,7 @@ class CircuitType(OrganizationalModel):
         return reverse('circuits:circuittype', args=[self.pk])
 
 
-@extras_features('custom_fields', 'custom_links', 'export_templates', 'tags', 'webhooks')
-class Circuit(PrimaryModel):
+class Circuit(NetBoxModel):
     """
     A communications circuit connects two points. Each Circuit belongs to a Provider; Providers may have multiple
     circuits. Each circuit is also assigned a CircuitType and a Site.  Circuit port speed and commit rate are measured
@@ -80,7 +81,12 @@ class Circuit(PrimaryModel):
     install_date = models.DateField(
         blank=True,
         null=True,
-        verbose_name='Date installed'
+        verbose_name='Installed'
+    )
+    termination_date = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name='Terminates'
     )
     commit_rate = models.PositiveIntegerField(
         blank=True,
@@ -120,9 +126,9 @@ class Circuit(PrimaryModel):
         null=True
     )
 
-    clone_fields = [
-        'provider', 'type', 'status', 'tenant', 'install_date', 'commit_rate', 'description',
-    ]
+    clone_fields = (
+        'provider', 'type', 'status', 'tenant', 'install_date', 'termination_date', 'commit_rate', 'description',
+    )
 
     class Meta:
         ordering = ['provider', 'cid']
@@ -131,15 +137,25 @@ class Circuit(PrimaryModel):
     def __str__(self):
         return self.cid
 
+    @classmethod
+    def get_prerequisite_models(cls):
+        return [apps.get_model('circuits.Provider'), CircuitType]
+
     def get_absolute_url(self):
         return reverse('circuits:circuit', args=[self.pk])
 
-    def get_status_class(self):
-        return CircuitStatusChoices.CSS_CLASSES.get(self.status)
+    def get_status_color(self):
+        return CircuitStatusChoices.colors.get(self.status)
 
 
-@extras_features('webhooks')
-class CircuitTermination(ChangeLoggedModel, LinkTermination):
+class CircuitTermination(
+    CustomFieldsMixin,
+    CustomLinksMixin,
+    TagsMixin,
+    WebhooksMixin,
+    ChangeLoggedModel,
+    CabledObjectModel
+):
     circuit = models.ForeignKey(
         to='circuits.Circuit',
         on_delete=models.CASCADE,
@@ -212,13 +228,9 @@ class CircuitTermination(ChangeLoggedModel, LinkTermination):
             raise ValidationError("A circuit termination cannot attach to both a site and a provider network.")
 
     def to_objectchange(self, action):
-        # Annotate the parent Circuit
-        try:
-            circuit = self.circuit
-        except Circuit.DoesNotExist:
-            # Parent circuit has been deleted
-            circuit = None
-        return super().to_objectchange(action, related_object=circuit)
+        objectchange = super().to_objectchange(action)
+        objectchange.related_object = self.circuit
+        return objectchange
 
     @property
     def parent_object(self):

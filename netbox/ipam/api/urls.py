@@ -1,11 +1,10 @@
 from django.urls import path
 
-from netbox.api import OrderedDefaultRouter
-from ipam.models import IPRange, Prefix
+from netbox.api.routers import NetBoxRouter
 from . import views
 
 
-router = OrderedDefaultRouter()
+router = NetBoxRouter()
 router.APIRootView = views.IPAMRootView
 
 # ASNs
@@ -42,7 +41,12 @@ router.register('vlan-groups', views.VLANGroupViewSet)
 router.register('vlans', views.VLANViewSet)
 
 # Services
+router.register('service-templates', views.ServiceTemplateViewSet)
 router.register('services', views.ServiceViewSet)
+
+# L2VPN
+router.register('l2vpns', views.L2VPNViewSet)
+router.register('l2vpn-terminations', views.L2VPNTerminationViewSet)
 
 app_name = 'ipam-api'
 
@@ -61,6 +65,11 @@ urlpatterns = [
         'prefixes/<int:pk>/available-ips/',
         views.PrefixAvailableIPAddressesView.as_view(),
         name='prefix-available-ips'
+    ),
+    path(
+        'vlan-groups/<int:pk>/available-vlans/',
+        views.AvailableVLANsView.as_view(),
+        name='vlangroup-available-vlans'
     ),
 ]
 

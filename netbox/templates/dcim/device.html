@@ -19,40 +19,43 @@
                             <td>
                                 {% if object.site.region %}
                                     {% for region in object.site.region.get_ancestors %}
-                                    <a href="{{ region.get_absolute_url }}">{{ region }}</a> /
+                                        {{ region|linkify }} /
                                     {% endfor %}
-                                    <a href="{{ object.site.region.get_absolute_url }}">{{ object.site.region }}</a>
+                                    {{ object.site.region|linkify }}
                                 {% else %}
-                                <span class="text-muted">None</span>
+                                    {{ ''|placeholder }}
                                 {% endif %}
                             </td>
                         </tr>
                         <tr>
                             <th scope="row">Site</th>
-                            <td>
-                                <a href="{{ object.site.get_absolute_url }}">{{ object.site }}</a>
-                            </td>
+                            <td>{{ object.site|linkify }}</td>
                         </tr>
                         <tr>
                             <th scope="row">Location</th>
                             <td>
                             {% if object.location %}
                                 {% for location in object.location.get_ancestors %}
-                                    <a href="{{ location.get_absolute_url }}">{{ location }}</a> /
+                                    {{ location|linkify }} /
                                 {% endfor %}
-                                <a href="{{ object.location.get_absolute_url }}">{{ object.location }}</a>
+                                {{ object.location|linkify }}
                             {% else %}
-                                <span class="text-muted">None</span>
+                                {{ ''|placeholder }}
                             {% endif %}
                             </td>
                         </tr>
                         <tr>
                             <th scope="row">Rack</th>
-                            <td>
+                            <td class="position-relative">
                                 {% if object.rack %}
-                                    <a href="{% url 'dcim:rack' pk=object.rack.pk %}">{{ object.rack }}</a>
+                                    {{ object.rack|linkify }}
+                                    <div class="position-absolute top-50 end-0 translate-middle-y noprint">
+                                      <a href="{{ object.rack.get_absolute_url }}?device={{ object.pk }}" class="btn btn-primary btn-sm" title="Highlight device">
+                                        <i class="mdi mdi-view-day-outline"></i>
+                                      </a>
+                                    </div>
                                 {% else %}
-                                    <span class="text-muted">None</span>
+                                    {{ ''|placeholder }}
                                 {% endif %}
                             </td>
                         </tr>
@@ -61,37 +64,33 @@
                             <td>
                                 {% if object.parent_bay %}
                                     {% with object.parent_bay.device as parent %}
-                                        <a href="{{ parent.get_absolute_url }}">{{ parent }}</a> / {{ object.parent_bay }}
+                                        {{ parent|linkify }} / {{ object.parent_bay }}
                                         {% if parent.position %}
                                             (U{{ parent.position }} / {{ parent.get_face_display }})
                                         {% endif %}
                                     {% endwith %}
                                 {% elif object.rack and object.position %}
-                                    <span>U{{ object.position }} / {{ object.get_face_display }}</span>
+                                    <span>U{{ object.position|floatformat }} / {{ object.get_face_display }}</span>
                                 {% elif object.rack and object.device_type.u_height %}
                                     <span class="badge bg-warning">Not racked</span>
                                 {% else %}
-                                    <span class="text-muted">&mdash;</span>
+                                    {{ ''|placeholder }}
                                 {% endif %}
                             </td>
                         </tr>
                         <tr>
                             <th scope="row">Tenant</th>
                             <td>
-                                {% if object.tenant %}
-                                    {% if object.tenant.group %}
-                                        <a href="{{ object.tenant.group.get_absolute_url }}">{{ object.tenant.group }}</a> /
-                                    {% endif %}
-                                    <a href="{{ object.tenant.get_absolute_url }}">{{ object.tenant }}</a>
-                                {% else %}
-                                    <span class="text-muted">None</span>
+                                {% if object.tenant.group %}
+                                    {{ object.tenant.group|linkify }} /
                                 {% endif %}
+                                {{ object.tenant|linkify|placeholder }}
                             </td>
                         </tr>
                         <tr>
                             <th scope="row">Device Type</th>
                             <td>
-                                <span><a href="{{ object.device_type.get_absolute_url }}">{{ object.device_type }}</a> ({{ object.device_type.u_height }}U)</span>
+                                {{ object.device_type|linkify:"get_full_name" }} ({{ object.device_type.u_height }}U)
                             </td>
                         </tr>
                         <tr>
@@ -127,7 +126,7 @@
                             {% for vc_member in vc_members %}
                                 <tr{% if vc_member == object %} class="info"{% endif %}>
                                     <td>
-                                        <a href="{{ vc_member.get_absolute_url }}">{{ vc_member }}</a>
+                                        {{ vc_member|linkify }}
                                     </td>
                                     <td>
                                       {% badge vc_member.vc_position show_empty=True %}
@@ -156,45 +155,33 @@
         </div>
         <div class="col col-md-6">
             <div class="card">
-                <h5 class="card-header">
-                    Management
-                </h5>
+                <h5 class="card-header">Management</h5>
                 <div class="card-body">
                     <table class="table table-hover attr-table">
                         <tr>
                             <th scope="row">Status</th>
-                            <td>
-                                <span class="badge bg-{{ object.get_status_class }}">{{ object.get_status_display }}</span>
-                            </td>
+                            <td>{% badge object.get_status_display bg_color=object.get_status_color %}</td>
                         </tr>
                         <tr>
                             <th scope="row">Role</th>
-                            <td>
-                                <a href="{% url 'dcim:device_list' %}?role={{ object.device_role.slug }}">{{ object.device_role }}</a>
-                            </td>
+                            <td>{{ object.device_role|linkify }}</td>
                         </tr>
                         <tr>
                             <th scope="row">Platform</th>
-                            <td>
-                                {% if object.platform %}
-                                <a href="{{ object.platform.get_absolute_url }}">{{ object.platform }}</a>
-                                {% else %}
-                                    <span class="text-muted">None</span>
-                                {% endif %}
-                            </td>
+                            <td>{{ object.platform|linkify|placeholder }}</td>
                         </tr>
                         <tr>
                             <th scope="row">Primary IPv4</th>
                             <td>
                               {% if object.primary_ip4 %}
-                                <a href="{% url 'ipam:ipaddress' pk=object.primary_ip4.pk %}">{{ object.primary_ip4.address.ip }}</a>
+                                <a href="{{ object.primary_ip4.get_absolute_url }}">{{ object.primary_ip4.address.ip }}</a>
                                 {% if object.primary_ip4.nat_inside %}
                                   (NAT for <a href="{{ object.primary_ip4.nat_inside.get_absolute_url }}">{{ object.primary_ip4.nat_inside.address.ip }}</a>)
-                                {% elif object.primary_ip4.nat_outside %}
-                                  (NAT: <a href="{{ object.primary_ip4.nat_outside.get_absolute_url }}">{{ object.primary_ip4.nat_outside.address.ip }}</a>)
+                                {% elif object.primary_ip4.nat_outside.exists %}
+                                  (NAT for {% for nat in object.primary_ip4.nat_outside.all %}<a href="{{ nat.get_absolute_url }}">{{ nat.address.ip }}</a>{% if not forloop.last %}, {% endif %}{% endfor %})
                                 {% endif %}
                               {% else %}
-                                <span class="text-muted">&mdash;</span>
+                                {{ ''|placeholder }}
                               {% endif %}
                             </td>
                         </tr>
@@ -202,14 +189,14 @@
                             <th scope="row">Primary IPv6</th>
                             <td>
                               {% if object.primary_ip6 %}
-                                <a href="{% url 'ipam:ipaddress' pk=object.primary_ip6.pk %}">{{ object.primary_ip6.address.ip }}</a>
+                                <a href="{{ object.primary_ip6.get_absolute_url }}">{{ object.primary_ip6.address.ip }}</a>
                                 {% if object.primary_ip6.nat_inside %}
                                   (NAT for <a href="{{ object.primary_ip6.nat_inside.get_absolute_url }}">{{ object.primary_ip6.nat_inside.address.ip }}</a>)
-                                {% elif object.primary_ip6.nat_outside %}
-                                  (NAT: <a href="{{ object.primary_ip6.nat_outside.get_absolute_url }}">{{ object.primary_ip6.nat_outside.address.ip }}</a>)
+                                {% elif object.primary_ip6.nat_outside.exists %}
+                                  (NAT for {% for nat in object.primary_ip6.nat_outside.all %}<a href="{{ nat.get_absolute_url }}">{{ nat.address.ip }}</a>{% if not forloop.last %}, {% endif %}{% endfor %})
                                 {% endif %}
                               {% else %}
-                                <span class="text-muted">&mdash;</span>
+                                {{ ''|placeholder }}
                               {% endif %}
                             </td>
                         </tr>
@@ -218,9 +205,9 @@
                                 <th>Cluster</th>
                                 <td>
                                     {% if object.cluster.group %}
-                                        <a href="{{ object.cluster.group.get_absolute_url }}">{{ object.cluster.group }}</a> /
+                                        {{ object.cluster.group|linkify }} /
                                     {% endif %}
-                                    <a href="{{ object.cluster.get_absolute_url }}">{{ object.cluster }}</a>
+                                    {{ object.cluster|linkify }}
                                 </td>
                             </tr>
                         {% endif %}

@@ -19,13 +19,7 @@
           <table class="table table-hover attr-table">
             <tr>
               <td>Group</td>
-              <td>
-                {% if object.group %}
-                  <a href="{{ object.group.get_absolute_url }}">{{ object.group }}</a>
-                {% else %}
-                  <span class="text-muted">None</span>
-                {% endif %}
-              </td>
+              <td>{{ object.group|linkify|placeholder }}</td>
             </tr>
             <tr>
               <td>Name</td>
@@ -41,7 +35,7 @@
                 {% if object.phone %}
                   <a href="tel:{{ object.phone }}">{{ object.phone }}</a>
                 {% else %}
-                  <span class="text-muted">None</span>
+                  {{ ''|placeholder }}
                 {% endif %}
               </td>
             </tr>
@@ -51,13 +45,23 @@
                 {% if object.email %}
                   <a href="mailto:{{ object.email }}">{{ object.email }}</a>
                 {% else %}
-                  <span class="text-muted">None</span>
+                  {{ ''|placeholder }}
                 {% endif %}
               </td>
             </tr>
             <tr>
               <td>Address</td>
               <td>{{ object.address|linebreaksbr|placeholder }}</td>
+            </tr>
+            <tr>
+              <td>Link</td>
+              <td>
+                {% if object.link %}
+                  <a href="{{ object.link }}">{{ object.link }}</a>
+                {% else %}
+                  {{ ''|placeholder }}
+                {% endif %}
+              </td>
             </tr>
             <tr>
               <th scope="row">Assignments</th>

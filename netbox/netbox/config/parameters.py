@@ -22,7 +22,9 @@ PARAMS = (
         default='',
         description="Additional content to display on the login page",
         field_kwargs={
-            'widget': forms.Textarea(),
+            'widget': forms.Textarea(
+                attrs={'class': 'vLargeTextField'}
+            ),
         },
     ),
     ConfigParam(
@@ -31,7 +33,9 @@ PARAMS = (
         default='',
         description="Additional content to display at the top of every page",
         field_kwargs={
-            'widget': forms.Textarea(),
+            'widget': forms.Textarea(
+                attrs={'class': 'vLargeTextField'}
+            ),
         },
     ),
     ConfigParam(
@@ -40,7 +44,9 @@ PARAMS = (
         default='',
         description="Additional content to display at the bottom of every page",
         field_kwargs={
-            'widget': forms.Textarea(),
+            'widget': forms.Textarea(
+                attrs={'class': 'vLargeTextField'}
+            ),
         },
     ),
 
@@ -73,6 +79,31 @@ PARAMS = (
         label='Rack unit width',
         default=220,
         description="Default unit width for rendered rack elevations",
+        field=forms.IntegerField
+    ),
+
+    # Power
+    ConfigParam(
+        name='POWERFEED_DEFAULT_VOLTAGE',
+        label='Powerfeed voltage',
+        default=120,
+        description="Default voltage for powerfeeds",
+        field=forms.IntegerField
+    ),
+
+    ConfigParam(
+        name='POWERFEED_DEFAULT_AMPERAGE',
+        label='Powerfeed amperage',
+        default=15,
+        description="Default amperage for powerfeeds",
+        field=forms.IntegerField
+    ),
+
+    ConfigParam(
+        name='POWERFEED_DEFAULT_MAX_UTILIZATION',
+        label='Powerfeed max utilization',
+        default=80,
+        description="Default max utilization for powerfeeds",
         field=forms.IntegerField
     ),
 
@@ -109,7 +140,12 @@ PARAMS = (
         label='Custom validators',
         default={},
         description="Custom validation rules (JSON)",
-        field=forms.JSONField
+        field=forms.JSONField,
+        field_kwargs={
+            'widget': forms.Textarea(
+                attrs={'class': 'vLargeTextField'}
+            ),
+        },
     ),
 
     # NAPALM
@@ -137,6 +173,20 @@ PARAMS = (
         label='NAPALM arguments',
         default={},
         description="Additional arguments to pass when invoking a NAPALM driver (as JSON data)",
+        field=forms.JSONField,
+        field_kwargs={
+            'widget': forms.Textarea(
+                attrs={'class': 'vLargeTextField'}
+            ),
+        },
+    ),
+
+    # User preferences
+    ConfigParam(
+        name='DEFAULT_USER_PREFERENCES',
+        label='Default preferences',
+        default={},
+        description="Default preferences for new users",
         field=forms.JSONField
     ),
 
@@ -160,6 +210,13 @@ PARAMS = (
         label='Changelog retention',
         default=90,
         description="Days to retain changelog history (set to zero for unlimited)",
+        field=forms.IntegerField
+    ),
+    ConfigParam(
+        name='JOBRESULT_RETENTION',
+        label='Job result retention',
+        default=90,
+        description="Days to retain job result history (set to zero for unlimited)",
         field=forms.IntegerField
     ),
     ConfigParam(

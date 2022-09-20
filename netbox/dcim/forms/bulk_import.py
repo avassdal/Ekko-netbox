@@ -7,7 +7,8 @@ from django.utils.safestring import mark_safe
 from dcim.choices import *
 from dcim.constants import *
 from dcim.models import *
-from extras.forms import CustomFieldModelCSVForm
+from ipam.models import VRF
+from netbox.forms import NetBoxModelCSVForm
 from tenancy.models import Tenant
 from utilities.forms import CSVChoiceField, CSVContentTypeField, CSVModelChoiceField, CSVTypedChoiceField, SlugField
 from virtualization.models import Cluster
@@ -24,8 +25,11 @@ __all__ = (
     'FrontPortCSVForm',
     'InterfaceCSVForm',
     'InventoryItemCSVForm',
+    'InventoryItemRoleCSVForm',
     'LocationCSVForm',
     'ManufacturerCSVForm',
+    'ModuleCSVForm',
+    'ModuleBayCSVForm',
     'PlatformCSVForm',
     'PowerFeedCSVForm',
     'PowerOutletCSVForm',
@@ -42,7 +46,7 @@ __all__ = (
 )
 
 
-class RegionCSVForm(CustomFieldModelCSVForm):
+class RegionCSVForm(NetBoxModelCSVForm):
     parent = CSVModelChoiceField(
         queryset=Region.objects.all(),
         required=False,
@@ -55,7 +59,7 @@ class RegionCSVForm(CustomFieldModelCSVForm):
         fields = ('name', 'slug', 'parent', 'description')
 
 
-class SiteGroupCSVForm(CustomFieldModelCSVForm):
+class SiteGroupCSVForm(NetBoxModelCSVForm):
     parent = CSVModelChoiceField(
         queryset=SiteGroup.objects.all(),
         required=False,
@@ -68,7 +72,7 @@ class SiteGroupCSVForm(CustomFieldModelCSVForm):
         fields = ('name', 'slug', 'parent', 'description')
 
 
-class SiteCSVForm(CustomFieldModelCSVForm):
+class SiteCSVForm(NetBoxModelCSVForm):
     status = CSVChoiceField(
         choices=SiteStatusChoices,
         help_text='Operational status'
@@ -96,8 +100,7 @@ class SiteCSVForm(CustomFieldModelCSVForm):
         model = Site
         fields = (
             'name', 'slug', 'status', 'region', 'group', 'tenant', 'facility', 'time_zone', 'description',
-            'physical_address', 'shipping_address', 'latitude', 'longitude', 'contact_name', 'contact_phone',
-            'contact_email', 'comments',
+            'physical_address', 'shipping_address', 'latitude', 'longitude', 'comments',
         )
         help_texts = {
             'time_zone': mark_safe(
@@ -106,7 +109,7 @@ class SiteCSVForm(CustomFieldModelCSVForm):
         }
 
 
-class LocationCSVForm(CustomFieldModelCSVForm):
+class LocationCSVForm(NetBoxModelCSVForm):
     site = CSVModelChoiceField(
         queryset=Site.objects.all(),
         to_field_name='name',
@@ -121,6 +124,10 @@ class LocationCSVForm(CustomFieldModelCSVForm):
             'invalid_choice': 'Location not found.',
         }
     )
+    status = CSVChoiceField(
+        choices=LocationStatusChoices,
+        help_text='Operational status'
+    )
     tenant = CSVModelChoiceField(
         queryset=Tenant.objects.all(),
         required=False,
@@ -130,10 +137,10 @@ class LocationCSVForm(CustomFieldModelCSVForm):
 
     class Meta:
         model = Location
-        fields = ('site', 'parent', 'name', 'slug', 'tenant', 'description')
+        fields = ('site', 'parent', 'name', 'slug', 'status', 'tenant', 'description')
 
 
-class RackRoleCSVForm(CustomFieldModelCSVForm):
+class RackRoleCSVForm(NetBoxModelCSVForm):
     slug = SlugField()
 
     class Meta:
@@ -144,7 +151,7 @@ class RackRoleCSVForm(CustomFieldModelCSVForm):
         }
 
 
-class RackCSVForm(CustomFieldModelCSVForm):
+class RackCSVForm(NetBoxModelCSVForm):
     site = CSVModelChoiceField(
         queryset=Site.objects.all(),
         to_field_name='name'
@@ -202,7 +209,7 @@ class RackCSVForm(CustomFieldModelCSVForm):
             self.fields['location'].queryset = self.fields['location'].queryset.filter(**params)
 
 
-class RackReservationCSVForm(CustomFieldModelCSVForm):
+class RackReservationCSVForm(NetBoxModelCSVForm):
     site = CSVModelChoiceField(
         queryset=Site.objects.all(),
         to_field_name='name',
@@ -252,14 +259,14 @@ class RackReservationCSVForm(CustomFieldModelCSVForm):
             self.fields['rack'].queryset = self.fields['rack'].queryset.filter(**params)
 
 
-class ManufacturerCSVForm(CustomFieldModelCSVForm):
+class ManufacturerCSVForm(NetBoxModelCSVForm):
 
     class Meta:
         model = Manufacturer
         fields = ('name', 'slug', 'description')
 
 
-class DeviceRoleCSVForm(CustomFieldModelCSVForm):
+class DeviceRoleCSVForm(NetBoxModelCSVForm):
     slug = SlugField()
 
     class Meta:
@@ -270,7 +277,7 @@ class DeviceRoleCSVForm(CustomFieldModelCSVForm):
         }
 
 
-class PlatformCSVForm(CustomFieldModelCSVForm):
+class PlatformCSVForm(NetBoxModelCSVForm):
     slug = SlugField()
     manufacturer = CSVModelChoiceField(
         queryset=Manufacturer.objects.all(),
@@ -284,7 +291,7 @@ class PlatformCSVForm(CustomFieldModelCSVForm):
         fields = ('name', 'slug', 'manufacturer', 'napalm_driver', 'napalm_args', 'description')
 
 
-class BaseDeviceCSVForm(CustomFieldModelCSVForm):
+class BaseDeviceCSVForm(NetBoxModelCSVForm):
     device_role = CSVModelChoiceField(
         queryset=DeviceRole.objects.all(),
         to_field_name='name',
@@ -400,6 +407,35 @@ class DeviceCSVForm(BaseDeviceCSVForm):
             self.fields['rack'].queryset = self.fields['rack'].queryset.filter(**params)
 
 
+class ModuleCSVForm(NetBoxModelCSVForm):
+    device = CSVModelChoiceField(
+        queryset=Device.objects.all(),
+        to_field_name='name'
+    )
+    module_bay = CSVModelChoiceField(
+        queryset=ModuleBay.objects.all(),
+        to_field_name='name'
+    )
+    module_type = CSVModelChoiceField(
+        queryset=ModuleType.objects.all(),
+        to_field_name='model'
+    )
+
+    class Meta:
+        model = Module
+        fields = (
+            'device', 'module_bay', 'module_type', 'serial', 'asset_tag', 'comments',
+        )
+
+    def __init__(self, data=None, *args, **kwargs):
+        super().__init__(data, *args, **kwargs)
+
+        if data:
+            # Limit module_bay queryset by assigned device
+            params = {f"device__{self.fields['device'].to_field_name}": data.get('device')}
+            self.fields['module_bay'].queryset = self.fields['module_bay'].queryset.filter(**params)
+
+
 class ChildDeviceCSVForm(BaseDeviceCSVForm):
     parent = CSVModelChoiceField(
         queryset=Device.objects.all(),
@@ -446,7 +482,7 @@ class ChildDeviceCSVForm(BaseDeviceCSVForm):
 # Device components
 #
 
-class ConsolePortCSVForm(CustomFieldModelCSVForm):
+class ConsolePortCSVForm(NetBoxModelCSVForm):
     device = CSVModelChoiceField(
         queryset=Device.objects.all(),
         to_field_name='name'
@@ -469,7 +505,7 @@ class ConsolePortCSVForm(CustomFieldModelCSVForm):
         fields = ('device', 'name', 'label', 'type', 'speed', 'mark_connected', 'description')
 
 
-class ConsoleServerPortCSVForm(CustomFieldModelCSVForm):
+class ConsoleServerPortCSVForm(NetBoxModelCSVForm):
     device = CSVModelChoiceField(
         queryset=Device.objects.all(),
         to_field_name='name'
@@ -492,7 +528,7 @@ class ConsoleServerPortCSVForm(CustomFieldModelCSVForm):
         fields = ('device', 'name', 'label', 'type', 'speed', 'mark_connected', 'description')
 
 
-class PowerPortCSVForm(CustomFieldModelCSVForm):
+class PowerPortCSVForm(NetBoxModelCSVForm):
     device = CSVModelChoiceField(
         queryset=Device.objects.all(),
         to_field_name='name'
@@ -510,7 +546,7 @@ class PowerPortCSVForm(CustomFieldModelCSVForm):
         )
 
 
-class PowerOutletCSVForm(CustomFieldModelCSVForm):
+class PowerOutletCSVForm(NetBoxModelCSVForm):
     device = CSVModelChoiceField(
         queryset=Device.objects.all(),
         to_field_name='name'
@@ -559,7 +595,7 @@ class PowerOutletCSVForm(CustomFieldModelCSVForm):
             self.fields['power_port'].queryset = PowerPort.objects.none()
 
 
-class InterfaceCSVForm(CustomFieldModelCSVForm):
+class InterfaceCSVForm(NetBoxModelCSVForm):
     device = CSVModelChoiceField(
         queryset=Device.objects.all(),
         to_field_name='name'
@@ -586,10 +622,30 @@ class InterfaceCSVForm(CustomFieldModelCSVForm):
         choices=InterfaceTypeChoices,
         help_text='Physical medium'
     )
+    duplex = CSVChoiceField(
+        choices=InterfaceDuplexChoices,
+        required=False
+    )
+    poe_mode = CSVChoiceField(
+        choices=InterfacePoEModeChoices,
+        required=False,
+        help_text='PoE mode'
+    )
+    poe_type = CSVChoiceField(
+        choices=InterfacePoETypeChoices,
+        required=False,
+        help_text='PoE type'
+    )
     mode = CSVChoiceField(
         choices=InterfaceModeChoices,
         required=False,
         help_text='IEEE 802.1Q operational mode (for L2 interfaces)'
+    )
+    vrf = CSVModelChoiceField(
+        queryset=VRF.objects.all(),
+        required=False,
+        to_field_name='rd',
+        help_text='Assigned VRF'
     )
     rf_role = CSVChoiceField(
         choices=WirelessRoleChoices,
@@ -600,20 +656,20 @@ class InterfaceCSVForm(CustomFieldModelCSVForm):
     class Meta:
         model = Interface
         fields = (
-            'device', 'name', 'label', 'parent', 'bridge', 'lag', 'type', 'enabled', 'mark_connected', 'mac_address',
-            'wwn', 'mtu', 'mgmt_only', 'description', 'mode', 'rf_role', 'rf_channel', 'rf_channel_frequency',
-            'rf_channel_width', 'tx_power',
+            'device', 'name', 'label', 'parent', 'bridge', 'lag', 'type', 'speed', 'duplex', 'enabled',
+            'mark_connected', 'mac_address', 'wwn', 'mtu', 'mgmt_only', 'description', 'poe_mode', 'poe_type', 'mode',
+            'vrf', 'rf_role', 'rf_channel', 'rf_channel_frequency', 'rf_channel_width', 'tx_power',
         )
 
     def __init__(self, data=None, *args, **kwargs):
         super().__init__(data, *args, **kwargs)
 
         if data:
-            # Limit interface choices for parent, bridge and lag to device only
-            params = {}
-            if data.get('device'):
-                params[f"device__{self.fields['device'].to_field_name}"] = data.get('device')
-            if params:
+            # Limit choices for parent, bridge, and LAG interfaces to the assigned device
+            if device := data.get('device'):
+                params = {
+                    f"device__{self.fields['device'].to_field_name}": device
+                }
                 self.fields['parent'].queryset = self.fields['parent'].queryset.filter(**params)
                 self.fields['bridge'].queryset = self.fields['bridge'].queryset.filter(**params)
                 self.fields['lag'].queryset = self.fields['lag'].queryset.filter(**params)
@@ -626,7 +682,7 @@ class InterfaceCSVForm(CustomFieldModelCSVForm):
             return self.cleaned_data['enabled']
 
 
-class FrontPortCSVForm(CustomFieldModelCSVForm):
+class FrontPortCSVForm(NetBoxModelCSVForm):
     device = CSVModelChoiceField(
         queryset=Device.objects.all(),
         to_field_name='name'
@@ -674,7 +730,7 @@ class FrontPortCSVForm(CustomFieldModelCSVForm):
             self.fields['rear_port'].queryset = RearPort.objects.none()
 
 
-class RearPortCSVForm(CustomFieldModelCSVForm):
+class RearPortCSVForm(NetBoxModelCSVForm):
     device = CSVModelChoiceField(
         queryset=Device.objects.all(),
         to_field_name='name'
@@ -692,7 +748,18 @@ class RearPortCSVForm(CustomFieldModelCSVForm):
         }
 
 
-class DeviceBayCSVForm(CustomFieldModelCSVForm):
+class ModuleBayCSVForm(NetBoxModelCSVForm):
+    device = CSVModelChoiceField(
+        queryset=Device.objects.all(),
+        to_field_name='name'
+    )
+
+    class Meta:
+        model = ModuleBay
+        fields = ('device', 'name', 'label', 'position', 'description')
+
+
+class DeviceBayCSVForm(NetBoxModelCSVForm):
     device = CSVModelChoiceField(
         queryset=Device.objects.all(),
         to_field_name='name'
@@ -738,10 +805,15 @@ class DeviceBayCSVForm(CustomFieldModelCSVForm):
             self.fields['installed_device'].queryset = Interface.objects.none()
 
 
-class InventoryItemCSVForm(CustomFieldModelCSVForm):
+class InventoryItemCSVForm(NetBoxModelCSVForm):
     device = CSVModelChoiceField(
         queryset=Device.objects.all(),
         to_field_name='name'
+    )
+    role = CSVModelChoiceField(
+        queryset=InventoryItemRole.objects.all(),
+        to_field_name='name',
+        required=False
     )
     manufacturer = CSVModelChoiceField(
         queryset=Manufacturer.objects.all(),
@@ -758,7 +830,8 @@ class InventoryItemCSVForm(CustomFieldModelCSVForm):
     class Meta:
         model = InventoryItem
         fields = (
-            'device', 'name', 'label', 'manufacturer', 'part_id', 'serial', 'asset_tag', 'discovered', 'description',
+            'device', 'name', 'label', 'role', 'manufacturer', 'part_id', 'serial', 'asset_tag', 'discovered',
+            'description',
         )
 
     def __init__(self, *args, **kwargs):
@@ -777,7 +850,26 @@ class InventoryItemCSVForm(CustomFieldModelCSVForm):
             self.fields['parent'].queryset = InventoryItem.objects.none()
 
 
-class CableCSVForm(CustomFieldModelCSVForm):
+#
+# Device component roles
+#
+
+class InventoryItemRoleCSVForm(NetBoxModelCSVForm):
+    slug = SlugField()
+
+    class Meta:
+        model = InventoryItemRole
+        fields = ('name', 'slug', 'color', 'description')
+        help_texts = {
+            'color': mark_safe('RGB color in hexadecimal (e.g. <code>00ff00</code>)'),
+        }
+
+
+#
+# Cables
+#
+
+class CableCSVForm(NetBoxModelCSVForm):
     # Termination A
     side_a_device = CSVModelChoiceField(
         queryset=Device.objects.all(),
@@ -863,7 +955,7 @@ class CableCSVForm(CustomFieldModelCSVForm):
         except ObjectDoesNotExist:
             raise forms.ValidationError(f"{side.upper()} side termination not found: {device} {name}")
 
-        setattr(self.instance, f'termination_{side}', termination_object)
+        setattr(self.instance, f'{side}_terminations', [termination_object])
         return termination_object
 
     def clean_side_a_name(self):
@@ -878,7 +970,11 @@ class CableCSVForm(CustomFieldModelCSVForm):
         return length_unit if length_unit is not None else ''
 
 
-class VirtualChassisCSVForm(CustomFieldModelCSVForm):
+#
+# Virtual chassis
+#
+
+class VirtualChassisCSVForm(NetBoxModelCSVForm):
     master = CSVModelChoiceField(
         queryset=Device.objects.all(),
         to_field_name='name',
@@ -891,7 +987,11 @@ class VirtualChassisCSVForm(CustomFieldModelCSVForm):
         fields = ('name', 'domain', 'master')
 
 
-class PowerPanelCSVForm(CustomFieldModelCSVForm):
+#
+# Power
+#
+
+class PowerPanelCSVForm(NetBoxModelCSVForm):
     site = CSVModelChoiceField(
         queryset=Site.objects.all(),
         to_field_name='name',
@@ -917,7 +1017,7 @@ class PowerPanelCSVForm(CustomFieldModelCSVForm):
             self.fields['location'].queryset = self.fields['location'].queryset.filter(**params)
 
 
-class PowerFeedCSVForm(CustomFieldModelCSVForm):
+class PowerFeedCSVForm(NetBoxModelCSVForm):
     site = CSVModelChoiceField(
         queryset=Site.objects.all(),
         to_field_name='name',

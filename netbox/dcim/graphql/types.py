@@ -6,7 +6,8 @@ from extras.graphql.mixins import (
 )
 from ipam.graphql.mixins import IPAddressesMixin, VLANGroupsMixin
 from netbox.graphql.scalars import BigInt
-from netbox.graphql.types import BaseObjectType, OrganizationalObjectType, PrimaryObjectType
+from netbox.graphql.types import BaseObjectType, OrganizationalObjectType, NetBoxObjectType
+from .mixins import CabledObjectMixin
 
 __all__ = (
     'CableType',
@@ -25,8 +26,14 @@ __all__ = (
     'InterfaceType',
     'InterfaceTemplateType',
     'InventoryItemType',
+    'InventoryItemRoleType',
+    'InventoryItemTemplateType',
     'LocationType',
     'ManufacturerType',
+    'ModuleType',
+    'ModuleBayType',
+    'ModuleBayTemplateType',
+    'ModuleTypeType',
     'PlatformType',
     'PowerFeedType',
     'PowerOutletType',
@@ -79,7 +86,7 @@ class ComponentTemplateObjectType(
 # Model types
 #
 
-class CableType(PrimaryObjectType):
+class CableType(NetBoxObjectType):
 
     class Meta:
         model = models.Cable
@@ -93,7 +100,15 @@ class CableType(PrimaryObjectType):
         return self.length_unit or None
 
 
-class ConsolePortType(ComponentObjectType):
+class CableTerminationType(NetBoxObjectType):
+
+    class Meta:
+        model = models.CableTermination
+        fields = '__all__'
+        filterset_class = filtersets.CableTerminationFilterSet
+
+
+class ConsolePortType(ComponentObjectType, CabledObjectMixin):
 
     class Meta:
         model = models.ConsolePort
@@ -115,7 +130,7 @@ class ConsolePortTemplateType(ComponentTemplateObjectType):
         return self.type or None
 
 
-class ConsoleServerPortType(ComponentObjectType):
+class ConsoleServerPortType(ComponentObjectType, CabledObjectMixin):
 
     class Meta:
         model = models.ConsoleServerPort
@@ -137,7 +152,7 @@ class ConsoleServerPortTemplateType(ComponentTemplateObjectType):
         return self.type or None
 
 
-class DeviceType(ConfigContextMixin, ImageAttachmentsMixin, PrimaryObjectType):
+class DeviceType(ConfigContextMixin, ImageAttachmentsMixin, NetBoxObjectType):
 
     class Meta:
         model = models.Device
@@ -167,6 +182,14 @@ class DeviceBayTemplateType(ComponentTemplateObjectType):
         filterset_class = filtersets.DeviceBayTemplateFilterSet
 
 
+class InventoryItemTemplateType(ComponentTemplateObjectType):
+
+    class Meta:
+        model = models.InventoryItemTemplate
+        fields = '__all__'
+        filterset_class = filtersets.InventoryItemTemplateFilterSet
+
+
 class DeviceRoleType(OrganizationalObjectType):
 
     class Meta:
@@ -175,7 +198,7 @@ class DeviceRoleType(OrganizationalObjectType):
         filterset_class = filtersets.DeviceRoleFilterSet
 
 
-class DeviceTypeType(PrimaryObjectType):
+class DeviceTypeType(NetBoxObjectType):
 
     class Meta:
         model = models.DeviceType
@@ -189,7 +212,7 @@ class DeviceTypeType(PrimaryObjectType):
         return self.airflow or None
 
 
-class FrontPortType(ComponentObjectType):
+class FrontPortType(ComponentObjectType, CabledObjectMixin):
 
     class Meta:
         model = models.FrontPort
@@ -205,12 +228,18 @@ class FrontPortTemplateType(ComponentTemplateObjectType):
         filterset_class = filtersets.FrontPortTemplateFilterSet
 
 
-class InterfaceType(IPAddressesMixin, ComponentObjectType):
+class InterfaceType(IPAddressesMixin, ComponentObjectType, CabledObjectMixin):
 
     class Meta:
         model = models.Interface
         exclude = ('_path',)
         filterset_class = filtersets.InterfaceFilterSet
+
+    def resolve_poe_mode(self, info):
+        return self.poe_mode or None
+
+    def resolve_poe_type(self, info):
+        return self.poe_type or None
 
     def resolve_mode(self, info):
         return self.mode or None
@@ -229,6 +258,12 @@ class InterfaceTemplateType(ComponentTemplateObjectType):
         fields = '__all__'
         filterset_class = filtersets.InterfaceTemplateFilterSet
 
+    def resolve_poe_mode(self, info):
+        return self.poe_mode or None
+
+    def resolve_poe_type(self, info):
+        return self.poe_type or None
+
 
 class InventoryItemType(ComponentObjectType):
 
@@ -236,6 +271,14 @@ class InventoryItemType(ComponentObjectType):
         model = models.InventoryItem
         fields = '__all__'
         filterset_class = filtersets.InventoryItemFilterSet
+
+
+class InventoryItemRoleType(OrganizationalObjectType):
+
+    class Meta:
+        model = models.InventoryItemRole
+        fields = '__all__'
+        filterset_class = filtersets.InventoryItemRoleFilterSet
 
 
 class LocationType(VLANGroupsMixin, ImageAttachmentsMixin, OrganizationalObjectType):
@@ -254,6 +297,38 @@ class ManufacturerType(OrganizationalObjectType):
         filterset_class = filtersets.ManufacturerFilterSet
 
 
+class ModuleType(ComponentObjectType):
+
+    class Meta:
+        model = models.Module
+        fields = '__all__'
+        filterset_class = filtersets.ModuleFilterSet
+
+
+class ModuleBayType(ComponentObjectType):
+
+    class Meta:
+        model = models.ModuleBay
+        fields = '__all__'
+        filterset_class = filtersets.ModuleBayFilterSet
+
+
+class ModuleBayTemplateType(ComponentTemplateObjectType):
+
+    class Meta:
+        model = models.ModuleBayTemplate
+        fields = '__all__'
+        filterset_class = filtersets.ModuleBayTemplateFilterSet
+
+
+class ModuleTypeType(NetBoxObjectType):
+
+    class Meta:
+        model = models.ModuleType
+        fields = '__all__'
+        filterset_class = filtersets.ModuleTypeFilterSet
+
+
 class PlatformType(OrganizationalObjectType):
 
     class Meta:
@@ -262,7 +337,7 @@ class PlatformType(OrganizationalObjectType):
         filterset_class = filtersets.PlatformFilterSet
 
 
-class PowerFeedType(PrimaryObjectType):
+class PowerFeedType(NetBoxObjectType, CabledObjectMixin):
 
     class Meta:
         model = models.PowerFeed
@@ -270,7 +345,7 @@ class PowerFeedType(PrimaryObjectType):
         filterset_class = filtersets.PowerFeedFilterSet
 
 
-class PowerOutletType(ComponentObjectType):
+class PowerOutletType(ComponentObjectType, CabledObjectMixin):
 
     class Meta:
         model = models.PowerOutlet
@@ -298,7 +373,7 @@ class PowerOutletTemplateType(ComponentTemplateObjectType):
         return self.type or None
 
 
-class PowerPanelType(PrimaryObjectType):
+class PowerPanelType(NetBoxObjectType):
 
     class Meta:
         model = models.PowerPanel
@@ -306,7 +381,7 @@ class PowerPanelType(PrimaryObjectType):
         filterset_class = filtersets.PowerPanelFilterSet
 
 
-class PowerPortType(ComponentObjectType):
+class PowerPortType(ComponentObjectType, CabledObjectMixin):
 
     class Meta:
         model = models.PowerPort
@@ -328,7 +403,7 @@ class PowerPortTemplateType(ComponentTemplateObjectType):
         return self.type or None
 
 
-class RackType(VLANGroupsMixin, ImageAttachmentsMixin, PrimaryObjectType):
+class RackType(VLANGroupsMixin, ImageAttachmentsMixin, NetBoxObjectType):
 
     class Meta:
         model = models.Rack
@@ -342,7 +417,7 @@ class RackType(VLANGroupsMixin, ImageAttachmentsMixin, PrimaryObjectType):
         return self.outer_unit or None
 
 
-class RackReservationType(PrimaryObjectType):
+class RackReservationType(NetBoxObjectType):
 
     class Meta:
         model = models.RackReservation
@@ -358,7 +433,7 @@ class RackRoleType(OrganizationalObjectType):
         filterset_class = filtersets.RackRoleFilterSet
 
 
-class RearPortType(ComponentObjectType):
+class RearPortType(ComponentObjectType, CabledObjectMixin):
 
     class Meta:
         model = models.RearPort
@@ -382,7 +457,7 @@ class RegionType(VLANGroupsMixin, OrganizationalObjectType):
         filterset_class = filtersets.RegionFilterSet
 
 
-class SiteType(VLANGroupsMixin, ImageAttachmentsMixin, PrimaryObjectType):
+class SiteType(VLANGroupsMixin, ImageAttachmentsMixin, NetBoxObjectType):
     asn = graphene.Field(BigInt)
 
     class Meta:
@@ -399,7 +474,7 @@ class SiteGroupType(VLANGroupsMixin, OrganizationalObjectType):
         filterset_class = filtersets.SiteGroupFilterSet
 
 
-class VirtualChassisType(PrimaryObjectType):
+class VirtualChassisType(NetBoxObjectType):
 
     class Meta:
         model = models.VirtualChassis
