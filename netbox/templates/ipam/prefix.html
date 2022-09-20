@@ -26,16 +26,12 @@
           </tr>
           <tr>
             <th scope="row">Tenant</th>
-            <td>
-              {% if object.tenant %}
+              <td>
                 {% if object.tenant.group %}
-                  <a href="{{ object.tenant.group.get_absolute_url }}">{{ object.tenant.group }}</a> /
+                  {{ object.tenant.group|linkify }} /
                 {% endif %}
-                <a href="{{ object.tenant.get_absolute_url }}">{{ object.tenant }}</a>
-              {% else %}
-                <span class="text-muted">None</span>
-              {% endif %}
-            </td>
+                {{ object.tenant|linkify|placeholder }}
+              </td>
           </tr>
           <tr>
             <th scope="row">Aggregate</th>
@@ -43,7 +39,7 @@
               {% if aggregate %}
                 <a href="{% url 'ipam:aggregate' pk=aggregate.pk %}">{{ aggregate.prefix }}</a> ({{ aggregate.rir }})
               {% else %}
-                <span class="text-warning">None</span>
+                {{ ''|placeholder }}
               {% endif %}
             </td>
           </tr>
@@ -52,11 +48,11 @@
             <td>
               {% if object.site %}
                 {% if object.site.region %}
-                  <a href="{{ object.site.region.get_absolute_url }}">{{ object.site.region }}</a> /
+                  {{ object.site.region|linkify }} /
                 {% endif %}
-                <a href="{{ object.site.get_absolute_url }}">{{ object.site }}</a>
+                {{ object.site|linkify }}
               {% else %}
-                <span class="text-muted">None</span>
+                {{ ''|placeholder }}
               {% endif %}
             </td>
           </tr>
@@ -65,29 +61,21 @@
             <td>
               {% if object.vlan %}
                 {% if object.vlan.group %}
-                  <a href="{{ object.vlan.group.get_absolute_url }}">{{ object.vlan.group }}</a> /
+                  {{ object.vlan.group|linkify }} /
                 {% endif %}
-                <a href="{% url 'ipam:vlan' pk=object.vlan.pk %}">{{ object.vlan }}</a>
+                {{ object.vlan|linkify }}
               {% else %}
-                <span class="text-muted">None</span>
+                {{ ''|placeholder }}
               {% endif %}
             </td>
           </tr>
           <tr>
             <th scope="row">Status</th>
-            <td>
-              <span class="badge bg-{{ object.get_status_class }}">{{ object.get_status_display }}</span>
-            </td>
+            <td>{% badge object.get_status_display bg_color=object.get_status_color %}</td>
           </tr>
           <tr>
             <th scope="row">Role</th>
-            <td>
-              {% if object.role %}
-                <a href="{{ object.role.get_absolute_url }}">{{ object.role }}</a>
-              {% else %}
-                <span class="text-muted">None</span>
-              {% endif %}
-            </td>
+            <td>{{ object.role|linkify|placeholder }}</td>
           </tr>
           <tr>
             <th scope="row">Description</th>
@@ -150,12 +138,19 @@
                     {{ first_available_ip }}
                   {% endif %}
                 {% else %}
-                  <span class="text-muted">None</span>
+                  {{ ''|placeholder }}
                 {% endif %}
               {% endwith %}
             </td>
           </tr>
         </table>
+        {% if object.prefix.version == 4 %}
+          <div class="float-end">
+            <a class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#prefix-modal">
+              <i class="mdi mdi-information-outline" aria-hidden="true"></i> Addressing Details
+            </a>
+          </div>
+        {% endif %}
       </div>
     </div>
     {% include 'inc/panels/custom_fields.html' %}
@@ -172,4 +167,40 @@
         {% plugin_full_width_page object %}
     </div>
 </div>
+{% endblock %}
+
+{% block modals %}
+  {{ block.super }}
+  {% if object.prefix.version == 4 %}
+    <div class="modal fade" id="prefix-modal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Prefix Details</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <table class="table table-hover attr-table">
+              <tr>
+                <td>Network Address</td>
+                <td>{{ object.prefix.network }}</td>
+              </tr>
+              <tr>
+                <td>Network Mask</td>
+                <td>{{ object.prefix.netmask }}</td>
+              </tr>
+              <tr>
+                <td>Wildcard Mask</td>
+                <td>{{ object.prefix.hostmask }}</td>
+              </tr>
+              <tr>
+                <td>Broadcast Address</td>
+                <td>{{ object.prefix.broadcast }}</td>
+              </tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
 {% endblock %}

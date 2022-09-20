@@ -1,7 +1,8 @@
 from dcim.choices import LinkStatusChoices
 from dcim.models import Interface
-from extras.forms import CustomFieldModelCSVForm
 from ipam.models import VLAN
+from netbox.forms import NetBoxModelCSVForm
+from tenancy.models import Tenant
 from utilities.forms import CSVChoiceField, CSVModelChoiceField, SlugField
 from wireless.choices import *
 from wireless.models import *
@@ -13,7 +14,7 @@ __all__ = (
 )
 
 
-class WirelessLANGroupCSVForm(CustomFieldModelCSVForm):
+class WirelessLANGroupCSVForm(NetBoxModelCSVForm):
     parent = CSVModelChoiceField(
         queryset=WirelessLANGroup.objects.all(),
         required=False,
@@ -27,7 +28,7 @@ class WirelessLANGroupCSVForm(CustomFieldModelCSVForm):
         fields = ('name', 'slug', 'parent', 'description')
 
 
-class WirelessLANCSVForm(CustomFieldModelCSVForm):
+class WirelessLANCSVForm(NetBoxModelCSVForm):
     group = CSVModelChoiceField(
         queryset=WirelessLANGroup.objects.all(),
         required=False,
@@ -39,6 +40,12 @@ class WirelessLANCSVForm(CustomFieldModelCSVForm):
         required=False,
         to_field_name='name',
         help_text='Bridged VLAN'
+    )
+    tenant = CSVModelChoiceField(
+        queryset=Tenant.objects.all(),
+        required=False,
+        to_field_name='name',
+        help_text='Assigned tenant'
     )
     auth_type = CSVChoiceField(
         choices=WirelessAuthTypeChoices,
@@ -53,10 +60,10 @@ class WirelessLANCSVForm(CustomFieldModelCSVForm):
 
     class Meta:
         model = WirelessLAN
-        fields = ('ssid', 'group', 'description', 'vlan', 'auth_type', 'auth_cipher', 'auth_psk')
+        fields = ('ssid', 'group', 'vlan', 'tenant', 'description', 'auth_type', 'auth_cipher', 'auth_psk')
 
 
-class WirelessLinkCSVForm(CustomFieldModelCSVForm):
+class WirelessLinkCSVForm(NetBoxModelCSVForm):
     status = CSVChoiceField(
         choices=LinkStatusChoices,
         help_text='Connection status'
@@ -66,6 +73,12 @@ class WirelessLinkCSVForm(CustomFieldModelCSVForm):
     )
     interface_b = CSVModelChoiceField(
         queryset=Interface.objects.all()
+    )
+    tenant = CSVModelChoiceField(
+        queryset=Tenant.objects.all(),
+        required=False,
+        to_field_name='name',
+        help_text='Assigned tenant'
     )
     auth_type = CSVChoiceField(
         choices=WirelessAuthTypeChoices,
@@ -80,4 +93,6 @@ class WirelessLinkCSVForm(CustomFieldModelCSVForm):
 
     class Meta:
         model = WirelessLink
-        fields = ('interface_a', 'interface_b', 'ssid', 'description', 'auth_type', 'auth_cipher', 'auth_psk')
+        fields = (
+            'interface_a', 'interface_b', 'ssid', 'tenant', 'description', 'auth_type', 'auth_cipher', 'auth_psk',
+        )

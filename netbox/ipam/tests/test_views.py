@@ -4,11 +4,11 @@ from django.test import override_settings
 from django.urls import reverse
 from netaddr import IPNetwork
 
-from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
+from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site, Interface
 from ipam.choices import *
 from ipam.models import *
 from tenancy.models import Tenant
-from utilities.testing import ViewTestCases, create_tags
+from utilities.testing import ViewTestCases, create_test_device, create_tags
 
 
 class ASNTestCase(ViewTestCases.PrimaryObjectViewTestCase):
@@ -562,6 +562,8 @@ class VLANGroupTestCase(ViewTestCases.OrganizationalObjectViewTestCase):
         cls.form_data = {
             'name': 'VLAN Group X',
             'slug': 'vlan-group-x',
+            'min_vid': 1,
+            'max_vid': 4094,
             'description': 'A new VLAN group',
             'tags': [t.pk for t in tags],
         }
@@ -639,6 +641,41 @@ class VLANTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         }
 
 
+class ServiceTemplateTestCase(ViewTestCases.PrimaryObjectViewTestCase):
+    model = ServiceTemplate
+
+    @classmethod
+    def setUpTestData(cls):
+        ServiceTemplate.objects.bulk_create([
+            ServiceTemplate(name='Service Template 1', protocol=ServiceProtocolChoices.PROTOCOL_TCP, ports=[101]),
+            ServiceTemplate(name='Service Template 2', protocol=ServiceProtocolChoices.PROTOCOL_TCP, ports=[102]),
+            ServiceTemplate(name='Service Template 3', protocol=ServiceProtocolChoices.PROTOCOL_TCP, ports=[103]),
+        ])
+
+        tags = create_tags('Alpha', 'Bravo', 'Charlie')
+
+        cls.form_data = {
+            'name': 'Service Template X',
+            'protocol': ServiceProtocolChoices.PROTOCOL_UDP,
+            'ports': '104,105',
+            'description': 'A new service template',
+            'tags': [t.pk for t in tags],
+        }
+
+        cls.csv_data = (
+            "name,protocol,ports,description",
+            "Service Template 4,tcp,1,First service template",
+            "Service Template 5,tcp,2,Second service template",
+            "Service Template 6,tcp,3,Third service template",
+        )
+
+        cls.bulk_edit_data = {
+            'protocol': ServiceProtocolChoices.PROTOCOL_UDP,
+            'ports': '106,107',
+            'description': 'New description',
+        }
+
+
 class ServiceTestCase(ViewTestCases.PrimaryObjectViewTestCase):
     model = Service
 
@@ -682,3 +719,147 @@ class ServiceTestCase(ViewTestCases.PrimaryObjectViewTestCase):
             'ports': '106,107',
             'description': 'New description',
         }
+
+    @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'])
+    def test_create_from_template(self):
+        self.add_permissions('ipam.add_service')
+
+        device = Device.objects.first()
+        service_template = ServiceTemplate.objects.create(
+            name='HTTP',
+            protocol=ServiceProtocolChoices.PROTOCOL_TCP,
+            ports=[80],
+            description='Hypertext transfer protocol'
+        )
+
+        request = {
+            'path': self._get_url('add'),
+            'data': {
+                'device': device.pk,
+                'service_template': service_template.pk,
+            },
+        }
+        self.assertHttpStatus(self.client.post(**request), 302)
+        instance = self._get_queryset().order_by('pk').last()
+        self.assertEqual(instance.device, device)
+        self.assertEqual(instance.name, service_template.name)
+        self.assertEqual(instance.protocol, service_template.protocol)
+        self.assertEqual(instance.ports, service_template.ports)
+        self.assertEqual(instance.description, service_template.description)
+
+
+class L2VPNTestCase(ViewTestCases.PrimaryObjectViewTestCase):
+    model = L2VPN
+    csv_data = (
+        'name,slug,type,identifier',
+        'L2VPN 5,l2vpn-5,vxlan,456',
+        'L2VPN 6,l2vpn-6,vxlan,444',
+    )
+    bulk_edit_data = {
+        'description': 'New Description',
+    }
+
+    @classmethod
+    def setUpTestData(cls):
+        rts = (
+            RouteTarget(name='64534:123'),
+            RouteTarget(name='64534:321')
+        )
+        RouteTarget.objects.bulk_create(rts)
+
+        l2vpns = (
+            L2VPN(name='L2VPN 1', slug='l2vpn-1', type=L2VPNTypeChoices.TYPE_VXLAN, identifier='650001'),
+            L2VPN(name='L2VPN 2', slug='l2vpn-2', type=L2VPNTypeChoices.TYPE_VXLAN, identifier='650002'),
+            L2VPN(name='L2VPN 3', slug='l2vpn-3', type=L2VPNTypeChoices.TYPE_VXLAN, identifier='650003')
+        )
+
+        L2VPN.objects.bulk_create(l2vpns)
+
+        cls.form_data = {
+            'name': 'L2VPN 8',
+            'slug': 'l2vpn-8',
+            'type': L2VPNTypeChoices.TYPE_VXLAN,
+            'identifier': 123,
+            'description': 'Description',
+            'import_targets': [rts[0].pk],
+            'export_targets': [rts[1].pk]
+        }
+
+
+class L2VPNTerminationTestCase(
+        ViewTestCases.GetObjectViewTestCase,
+        ViewTestCases.GetObjectChangelogViewTestCase,
+        ViewTestCases.CreateObjectViewTestCase,
+        ViewTestCases.EditObjectViewTestCase,
+        ViewTestCases.DeleteObjectViewTestCase,
+        ViewTestCases.ListObjectsViewTestCase,
+        ViewTestCases.BulkImportObjectsViewTestCase,
+        ViewTestCases.BulkDeleteObjectsViewTestCase,
+):
+
+    model = L2VPNTermination
+
+    @classmethod
+    def setUpTestData(cls):
+        device = create_test_device('Device 1')
+        interface = Interface.objects.create(name='Interface 1', device=device, type='1000baset')
+        l2vpn = L2VPN.objects.create(name='L2VPN 1', type=L2VPNTypeChoices.TYPE_VXLAN, identifier=650001)
+
+        vlans = (
+            VLAN(name='Vlan 1', vid=1001),
+            VLAN(name='Vlan 2', vid=1002),
+            VLAN(name='Vlan 3', vid=1003),
+            VLAN(name='Vlan 4', vid=1004),
+            VLAN(name='Vlan 5', vid=1005),
+            VLAN(name='Vlan 6', vid=1006)
+        )
+        VLAN.objects.bulk_create(vlans)
+
+        terminations = (
+            L2VPNTermination(l2vpn=l2vpn, assigned_object=vlans[0]),
+            L2VPNTermination(l2vpn=l2vpn, assigned_object=vlans[1]),
+            L2VPNTermination(l2vpn=l2vpn, assigned_object=vlans[2])
+        )
+        L2VPNTermination.objects.bulk_create(terminations)
+
+        cls.form_data = {
+            'l2vpn': l2vpn.pk,
+            'device': device.pk,
+            'interface': interface.pk,
+        }
+
+        cls.csv_data = (
+            "l2vpn,vlan",
+            "L2VPN 1,Vlan 4",
+            "L2VPN 1,Vlan 5",
+            "L2VPN 1,Vlan 6",
+        )
+
+        cls.bulk_edit_data = {}
+
+    #
+    # Custom assertions
+    #
+
+    # TODO: Remove this
+    def assertInstanceEqual(self, instance, data, exclude=None, api=False):
+        """
+        Override parent
+        """
+        if exclude is None:
+            exclude = []
+
+        fields = [k for k in data.keys() if k not in exclude]
+        model_dict = self.model_to_dict(instance, fields=fields, api=api)
+
+        # Omit any dictionary keys which are not instance attributes or have been excluded
+        relevant_data = {
+            k: v for k, v in data.items() if hasattr(instance, k) and k not in exclude
+        }
+
+        # Handle relations on the model
+        for k, v in model_dict.items():
+            if isinstance(v, object) and hasattr(v, 'first'):
+                model_dict[k] = v.first().pk
+
+        self.assertDictEqual(model_dict, relevant_data)

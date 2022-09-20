@@ -11,7 +11,6 @@ from extras.views import ObjectConfigContextView
 from ipam.models import IPAddress, Service
 from ipam.tables import AssignedIPAddressesTable, InterfaceVLANTable
 from netbox.views import generic
-from utilities.tables import paginate_table
 from utilities.utils import count_related
 from . import filtersets, forms, tables
 from .models import Cluster, ClusterGroup, ClusterType, VirtualMachine, VMInterface
@@ -40,8 +39,8 @@ class ClusterTypeView(generic.ObjectView):
             device_count=count_related(Device, 'cluster'),
             vm_count=count_related(VirtualMachine, 'cluster')
         )
-        clusters_table = tables.ClusterTable(clusters, exclude=('type',))
-        paginate_table(clusters_table, request)
+        clusters_table = tables.ClusterTable(clusters, user=request.user, exclude=('type',))
+        clusters_table.configure(request)
 
         return {
             'clusters_table': clusters_table,
@@ -50,7 +49,7 @@ class ClusterTypeView(generic.ObjectView):
 
 class ClusterTypeEditView(generic.ObjectEditView):
     queryset = ClusterType.objects.all()
-    model_form = forms.ClusterTypeForm
+    form = forms.ClusterTypeForm
 
 
 class ClusterTypeDeleteView(generic.ObjectDeleteView):
@@ -102,8 +101,8 @@ class ClusterGroupView(generic.ObjectView):
             device_count=count_related(Device, 'cluster'),
             vm_count=count_related(VirtualMachine, 'cluster')
         )
-        clusters_table = tables.ClusterTable(clusters, exclude=('group',))
-        paginate_table(clusters_table, request)
+        clusters_table = tables.ClusterTable(clusters, user=request.user, exclude=('group',))
+        clusters_table.configure(request)
 
         return {
             'clusters_table': clusters_table,
@@ -112,7 +111,7 @@ class ClusterGroupView(generic.ObjectView):
 
 class ClusterGroupEditView(generic.ObjectEditView):
     queryset = ClusterGroup.objects.all()
-    model_form = forms.ClusterGroupForm
+    form = forms.ClusterGroupForm
 
 
 class ClusterGroupDeleteView(generic.ObjectDeleteView):
@@ -196,7 +195,7 @@ class ClusterDevicesView(generic.ObjectChildrenView):
 
 class ClusterEditView(generic.ObjectEditView):
     queryset = Cluster.objects.all()
-    model_form = forms.ClusterForm
+    form = forms.ClusterForm
 
 
 class ClusterDeleteView(generic.ObjectDeleteView):
@@ -210,14 +209,14 @@ class ClusterBulkImportView(generic.BulkImportView):
 
 
 class ClusterBulkEditView(generic.BulkEditView):
-    queryset = Cluster.objects.prefetch_related('type', 'group', 'site')
+    queryset = Cluster.objects.all()
     filterset = filtersets.ClusterFilterSet
     table = tables.ClusterTable
     form = forms.ClusterBulkEditForm
 
 
 class ClusterBulkDeleteView(generic.BulkDeleteView):
-    queryset = Cluster.objects.prefetch_related('type', 'group', 'site')
+    queryset = Cluster.objects.all()
     filterset = filtersets.ClusterFilterSet
     table = tables.ClusterTable
 
@@ -266,7 +265,7 @@ class ClusterAddDevicesView(generic.ObjectEditView):
 class ClusterRemoveDevicesView(generic.ObjectEditView):
     queryset = Cluster.objects.all()
     form = forms.ClusterRemoveDevicesForm
-    template_name = 'generic/object_bulk_remove.html'
+    template_name = 'generic/bulk_remove.html'
 
     def post(self, request, pk):
 
@@ -309,7 +308,7 @@ class ClusterRemoveDevicesView(generic.ObjectEditView):
 #
 
 class VirtualMachineListView(generic.ObjectListView):
-    queryset = VirtualMachine.objects.all()
+    queryset = VirtualMachine.objects.prefetch_related('primary_ip4', 'primary_ip6')
     filterset = filtersets.VirtualMachineFilterSet
     filterset_form = forms.VirtualMachineFilterForm
     table = tables.VirtualMachineTable
@@ -335,7 +334,8 @@ class VirtualMachineView(generic.ObjectView):
         services = Service.objects.restrict(request.user, 'view').filter(
             virtual_machine=instance
         ).prefetch_related(
-            Prefetch('ipaddresses', queryset=IPAddress.objects.restrict(request.user))
+            Prefetch('ipaddresses', queryset=IPAddress.objects.restrict(request.user)),
+            'virtual_machine'
         )
 
         return {
@@ -370,7 +370,7 @@ class VirtualMachineConfigContextView(ObjectConfigContextView):
 
 class VirtualMachineEditView(generic.ObjectEditView):
     queryset = VirtualMachine.objects.all()
-    model_form = forms.VirtualMachineForm
+    form = forms.VirtualMachineForm
 
 
 class VirtualMachineDeleteView(generic.ObjectDeleteView):
@@ -384,14 +384,14 @@ class VirtualMachineBulkImportView(generic.BulkImportView):
 
 
 class VirtualMachineBulkEditView(generic.BulkEditView):
-    queryset = VirtualMachine.objects.prefetch_related('cluster', 'tenant', 'role')
+    queryset = VirtualMachine.objects.prefetch_related('primary_ip4', 'primary_ip6')
     filterset = filtersets.VirtualMachineFilterSet
     table = tables.VirtualMachineTable
     form = forms.VirtualMachineBulkEditForm
 
 
 class VirtualMachineBulkDeleteView(generic.BulkDeleteView):
-    queryset = VirtualMachine.objects.prefetch_related('cluster', 'tenant', 'role')
+    queryset = VirtualMachine.objects.prefetch_related('primary_ip4', 'primary_ip6')
     filterset = filtersets.VirtualMachineFilterSet
     table = tables.VirtualMachineTable
 
@@ -405,7 +405,7 @@ class VMInterfaceListView(generic.ObjectListView):
     filterset = filtersets.VMInterfaceFilterSet
     filterset_form = forms.VMInterfaceFilterForm
     table = tables.VMInterfaceTable
-    action_buttons = ('import', 'export')
+    actions = ('import', 'export', 'bulk_edit', 'bulk_delete')
 
 
 class VMInterfaceView(generic.ObjectView):
@@ -414,7 +414,7 @@ class VMInterfaceView(generic.ObjectView):
     def get_extra_context(self, request, instance):
         # Get assigned IP addresses
         ipaddress_table = AssignedIPAddressesTable(
-            data=instance.ip_addresses.restrict(request.user, 'view').prefetch_related('vrf', 'tenant'),
+            data=instance.ip_addresses.restrict(request.user, 'view'),
             orderable=False
         )
 
@@ -447,7 +447,6 @@ class VMInterfaceView(generic.ObjectView):
         }
 
 
-# TODO: This should not use ComponentCreateView
 class VMInterfaceCreateView(generic.ComponentCreateView):
     queryset = VMInterface.objects.all()
     form = forms.VMInterfaceCreateForm
@@ -456,8 +455,7 @@ class VMInterfaceCreateView(generic.ComponentCreateView):
 
 class VMInterfaceEditView(generic.ObjectEditView):
     queryset = VMInterface.objects.all()
-    model_form = forms.VMInterfaceForm
-    template_name = 'virtualization/vminterface_edit.html'
+    form = forms.VMInterfaceForm
 
 
 class VMInterfaceDeleteView(generic.ObjectDeleteView):
@@ -472,6 +470,7 @@ class VMInterfaceBulkImportView(generic.BulkImportView):
 
 class VMInterfaceBulkEditView(generic.BulkEditView):
     queryset = VMInterface.objects.all()
+    filterset = filtersets.VMInterfaceFilterSet
     table = tables.VMInterfaceTable
     form = forms.VMInterfaceBulkEditForm
 
@@ -483,6 +482,7 @@ class VMInterfaceBulkRenameView(generic.BulkRenameView):
 
 class VMInterfaceBulkDeleteView(generic.BulkDeleteView):
     queryset = VMInterface.objects.all()
+    filterset = filtersets.VMInterfaceFilterSet
     table = tables.VMInterfaceTable
 
 

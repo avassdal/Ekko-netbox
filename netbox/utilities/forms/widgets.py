@@ -18,7 +18,6 @@ __all__ = (
     'DateTimePicker',
     'NumericArrayField',
     'SelectSpeedWidget',
-    'SelectWithDisabled',
     'SelectWithPK',
     'SlugWidget',
     'SmallTextarea',
@@ -76,18 +75,12 @@ class BulkEditNullBooleanSelect(forms.NullBooleanSelect):
         self.attrs['class'] = 'netbox-static-select'
 
 
-class SelectWithDisabled(forms.Select):
-    """
-    Modified the stock Select widget to accept choices using a dict() for a label. The dict for each option must include
-    'label' (string) and 'disabled' (boolean).
-    """
-    option_template_name = 'widgets/selectwithdisabled_option.html'
-
-
-class StaticSelect(SelectWithDisabled):
+class StaticSelect(forms.Select):
     """
     A static <select/> form widget which is client-side rendered.
     """
+    option_template_name = 'widgets/select_option.html'
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -95,11 +88,10 @@ class StaticSelect(SelectWithDisabled):
 
 
 class StaticSelectMultiple(StaticSelect, forms.SelectMultiple):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self.attrs['data-multiple'] = 1
+    """
+    Extends `StaticSelect` to support multiple selections.
+    """
+    pass
 
 
 class SelectWithPK(StaticSelect):
@@ -118,6 +110,12 @@ class SelectSpeedWidget(forms.NumberInput):
 
 class NumericArrayField(SimpleArrayField):
 
+    def clean(self, value):
+        if value and not self.to_python(value):
+            raise forms.ValidationError(f'Invalid list ({value}). '
+                                        f'Must be numeric and ranges must be in ascending order')
+        return super().clean(value)
+
     def to_python(self, value):
         if not value:
             return []
@@ -133,13 +131,13 @@ class ClearableFileInput(forms.ClearableFileInput):
     template_name = 'widgets/clearable_file_input.html'
 
 
-class APISelect(SelectWithDisabled):
+class APISelect(forms.Select):
     """
     A select widget populated via an API call
 
     :param api_url: API endpoint URL. Required if not set automatically by the parent field.
     """
-
+    option_template_name = 'widgets/select_option.html'
     dynamic_params: Dict[str, str]
     static_params: Dict[str, List[str]]
 

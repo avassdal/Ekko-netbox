@@ -1,8 +1,7 @@
 import django_filters
 from django.db.models import Q
 
-from extras.filters import TagFilter
-from netbox.filtersets import ChangeLoggedModelFilterSet, OrganizationalModelFilterSet, PrimaryModelFilterSet
+from netbox.filtersets import ChangeLoggedModelFilterSet, OrganizationalModelFilterSet, NetBoxModelFilterSet
 from utilities.filters import ContentTypeFilter, TreeNodeMultipleChoiceFilter
 from .models import *
 
@@ -34,7 +33,6 @@ class ContactGroupFilterSet(OrganizationalModelFilterSet):
         to_field_name='slug',
         label='Contact group (slug)',
     )
-    tag = TagFilter()
 
     class Meta:
         model = ContactGroup
@@ -42,18 +40,13 @@ class ContactGroupFilterSet(OrganizationalModelFilterSet):
 
 
 class ContactRoleFilterSet(OrganizationalModelFilterSet):
-    tag = TagFilter()
 
     class Meta:
         model = ContactRole
         fields = ['id', 'name', 'slug', 'description']
 
 
-class ContactFilterSet(PrimaryModelFilterSet):
-    q = django_filters.CharFilter(
-        method='search',
-        label='Search',
-    )
+class ContactFilterSet(NetBoxModelFilterSet):
     group_id = TreeNodeMultipleChoiceFilter(
         queryset=ContactGroup.objects.all(),
         field_name='group',
@@ -67,11 +60,10 @@ class ContactFilterSet(PrimaryModelFilterSet):
         to_field_name='slug',
         label='Contact group (slug)',
     )
-    tag = TagFilter()
 
     class Meta:
         model = Contact
-        fields = ['id', 'name', 'title', 'phone', 'email', 'address']
+        fields = ['id', 'name', 'title', 'phone', 'email', 'address', 'link']
 
     def search(self, queryset, name, value):
         if not value.strip():
@@ -82,6 +74,7 @@ class ContactFilterSet(PrimaryModelFilterSet):
             Q(phone__icontains=value) |
             Q(email__icontains=value) |
             Q(address__icontains=value) |
+            Q(link__icontains=value) |
             Q(comments__icontains=value)
         )
 
@@ -119,6 +112,12 @@ class ContactModelFilterSet(django_filters.FilterSet):
         queryset=ContactRole.objects.all(),
         label='Contact Role'
     )
+    contact_group = TreeNodeMultipleChoiceFilter(
+        queryset=ContactGroup.objects.all(),
+        field_name='contacts__contact__group',
+        lookup_expr='in',
+        label='Contact group',
+    )
 
 
 #
@@ -136,18 +135,13 @@ class TenantGroupFilterSet(OrganizationalModelFilterSet):
         to_field_name='slug',
         label='Tenant group (slug)',
     )
-    tag = TagFilter()
 
     class Meta:
         model = TenantGroup
         fields = ['id', 'name', 'slug', 'description']
 
 
-class TenantFilterSet(PrimaryModelFilterSet, ContactModelFilterSet):
-    q = django_filters.CharFilter(
-        method='search',
-        label='Search',
-    )
+class TenantFilterSet(NetBoxModelFilterSet, ContactModelFilterSet):
     group_id = TreeNodeMultipleChoiceFilter(
         queryset=TenantGroup.objects.all(),
         field_name='group',
@@ -161,7 +155,6 @@ class TenantFilterSet(PrimaryModelFilterSet, ContactModelFilterSet):
         to_field_name='slug',
         label='Tenant group (slug)',
     )
-    tag = TagFilter()
 
     class Meta:
         model = Tenant

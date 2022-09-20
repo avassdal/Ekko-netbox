@@ -12,12 +12,13 @@ from django.utils.html import escape
 from django.utils.safestring import mark_safe
 
 from extras.choices import *
-from extras.utils import FeatureQuery, extras_features
+from extras.utils import FeatureQuery
 from netbox.models import ChangeLoggedModel
+from netbox.models.features import CloningMixin, ExportTemplatesMixin, WebhooksMixin
 from utilities import filters
 from utilities.forms import (
-    CSVChoiceField, CSVMultipleChoiceField, DatePicker, LaxURLField, StaticSelectMultiple, StaticSelect,
-    add_blank_choice,
+    CSVChoiceField, CSVMultipleChoiceField, DatePicker, DynamicModelChoiceField, DynamicModelMultipleChoiceField,
+    JSONField, LaxURLField, StaticSelectMultiple, StaticSelect, add_blank_choice,
 )
 from utilities.querysets import RestrictedQuerySet
 from utilities.validators import validate_regex
@@ -40,8 +41,7 @@ class CustomFieldManager(models.Manager.from_queryset(RestrictedQuerySet)):
         return self.get_queryset().filter(content_types=content_type)
 
 
-@extras_features('webhooks', 'export_templates')
-class CustomField(ChangeLoggedModel):
+class CustomField(CloningMixin, ExportTemplatesMixin, WebhooksMixin, ChangeLoggedModel):
     content_types = models.ManyToManyField(
         to=ContentType,
         related_name='custom_fields',
@@ -51,7 +51,15 @@ class CustomField(ChangeLoggedModel):
     type = models.CharField(
         max_length=50,
         choices=CustomFieldTypeChoices,
-        default=CustomFieldTypeChoices.TYPE_TEXT
+        default=CustomFieldTypeChoices.TYPE_TEXT,
+        help_text='The type of data this custom field holds'
+    )
+    object_type = models.ForeignKey(
+        to=ContentType,
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        help_text='The type of NetBox object this field maps to (for object fields)'
     )
     name = models.CharField(
         max_length=50,
@@ -70,6 +78,11 @@ class CustomField(ChangeLoggedModel):
         blank=True,
         help_text='Name of the field as displayed to users (if not provided, '
                   'the field\'s name will be used)'
+    )
+    group_name = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Custom fields within the same group will be displayed together"
     )
     description = models.CharField(
         max_length=200,
@@ -123,11 +136,23 @@ class CustomField(ChangeLoggedModel):
         null=True,
         help_text='Comma-separated list of available choices (for selection fields)'
     )
+    ui_visibility = models.CharField(
+        max_length=50,
+        choices=CustomFieldVisibilityChoices,
+        default=CustomFieldVisibilityChoices.VISIBILITY_READ_WRITE,
+        verbose_name='UI visibility',
+        help_text='Specifies the visibility of custom field in the UI'
+    )
 
     objects = CustomFieldManager()
 
+    clone_fields = (
+        'content_types', 'type', 'object_type', 'group_name', 'description', 'required', 'filter_logic', 'default',
+        'weight', 'validation_minimum', 'validation_maximum', 'validation_regex', 'choices', 'ui_visibility',
+    )
+
     class Meta:
-        ordering = ['weight', 'name']
+        ordering = ['group_name', 'weight', 'name']
 
     def __str__(self):
         return self.label or self.name.replace('_', ' ').capitalize()
@@ -162,7 +187,7 @@ class CustomField(ChangeLoggedModel):
             model = ct.model_class()
             instances = model.objects.filter(**{f'custom_field_data__{self.name}__isnull': False})
             for instance in instances:
-                del(instance.custom_field_data[self.name])
+                del instance.custom_field_data[self.name]
             model.objects.bulk_update(instances, ['custom_field_data'], batch_size=100)
 
     def rename_object_data(self, old_name, new_name):
@@ -235,6 +260,43 @@ class CustomField(ChangeLoggedModel):
                 'default': f"The specified default value ({self.default}) is not listed as an available choice."
             })
 
+        # Object fields must define an object_type; other fields must not
+        if self.type in (CustomFieldTypeChoices.TYPE_OBJECT, CustomFieldTypeChoices.TYPE_MULTIOBJECT):
+            if not self.object_type:
+                raise ValidationError({
+                    'object_type': "Object fields must define an object type."
+                })
+        elif self.object_type:
+            raise ValidationError({
+                'object_type': f"{self.get_type_display()} fields may not define an object type."
+            })
+
+    def serialize(self, value):
+        """
+        Prepare a value for storage as JSON data.
+        """
+        if value is None:
+            return value
+        if self.type == CustomFieldTypeChoices.TYPE_OBJECT:
+            return value.pk
+        if self.type == CustomFieldTypeChoices.TYPE_MULTIOBJECT:
+            return [obj.pk for obj in value] or None
+        return value
+
+    def deserialize(self, value):
+        """
+        Convert JSON data to a Python object suitable for the field type.
+        """
+        if value is None:
+            return value
+        if self.type == CustomFieldTypeChoices.TYPE_OBJECT:
+            model = self.object_type.model_class()
+            return model.objects.filter(pk=value).first()
+        if self.type == CustomFieldTypeChoices.TYPE_MULTIOBJECT:
+            model = self.object_type.model_class()
+            return model.objects.filter(pk__in=value)
+        return value
+
     def to_form_field(self, set_initial=True, enforce_required=True, for_csv_import=False):
         """
         Return a form field suitable for setting a CustomField's value for an object.
@@ -299,17 +361,30 @@ class CustomField(ChangeLoggedModel):
 
         # JSON
         elif self.type == CustomFieldTypeChoices.TYPE_JSON:
-            field = forms.JSONField(required=required, initial=initial)
+            field = JSONField(required=required, initial=initial)
+
+        # Object
+        elif self.type == CustomFieldTypeChoices.TYPE_OBJECT:
+            model = self.object_type.model_class()
+            field = DynamicModelChoiceField(
+                queryset=model.objects.all(),
+                required=required,
+                initial=initial
+            )
+
+        # Multiple objects
+        elif self.type == CustomFieldTypeChoices.TYPE_MULTIOBJECT:
+            model = self.object_type.model_class()
+            field = DynamicModelMultipleChoiceField(
+                queryset=model.objects.all(),
+                required=required,
+                initial=initial
+            )
 
         # Text
         else:
-            if self.type == CustomFieldTypeChoices.TYPE_LONGTEXT:
-                max_length = None
-                widget = forms.Textarea
-            else:
-                max_length = 255
-                widget = None
-            field = forms.CharField(max_length=max_length, required=required, initial=initial, widget=widget)
+            widget = forms.Textarea if self.type == CustomFieldTypeChoices.TYPE_LONGTEXT else None
+            field = forms.CharField(required=required, initial=initial, widget=widget)
             if self.validation_regex:
                 field.validators = [
                     RegexValidator(
@@ -367,6 +442,15 @@ class CustomField(ChangeLoggedModel):
         elif self.type == CustomFieldTypeChoices.TYPE_MULTISELECT:
             filter_class = filters.MultiValueCharFilter
             kwargs['lookup_expr'] = 'has_key'
+
+        # Object
+        elif self.type == CustomFieldTypeChoices.TYPE_OBJECT:
+            filter_class = filters.MultiValueNumberFilter
+
+        # Multi-object
+        elif self.type == CustomFieldTypeChoices.TYPE_MULTIOBJECT:
+            filter_class = filters.MultiValueNumberFilter
+            kwargs['lookup_expr'] = 'contains'
 
         # Unsupported custom field type
         else:

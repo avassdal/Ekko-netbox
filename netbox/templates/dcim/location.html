@@ -6,7 +6,7 @@
 {% block breadcrumbs %}
   {{ block.super }}
   {% for location in object.get_ancestors %}
-    <li class="breadcrumb-item"><a href="{{ location.get_absolute_url }}">{{ location }}</a></li>
+    <li class="breadcrumb-item">{{ location|linkify }}</li>
   {% endfor %}
 {% endblock %}
 
@@ -37,36 +37,30 @@
           </tr>
           <tr>
             <th scope="row">Site</th>
-            <td><a href="{{ object.site.get_absolute_url }}">{{ object.site }}</a></td>
+            <td>{{ object.site|linkify }}</td>
           </tr>
           <tr>
             <th scope="row">Parent</th>
+            <td>{{ object.parent|linkify|placeholder }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Status</th>
+            <td>{% badge object.get_status_display bg_color=object.get_status_color %}</td>
+          </tr>
+          <tr>
+            <th scope="row">Tenant</th>
             <td>
-              {% if object.parent %}
-                <a href="{{ object.parent.get_absolute_url }}">{{ object.parent }}</a>
-              {% else %}
-                <span class="text-muted">&mdash;</span>
+              {% if object.tenant.group %}
+                {{ object.tenant.group|linkify }} /
               {% endif %}
+              {{ object.tenant|linkify|placeholder }}
             </td>
           </tr>
           <tr>
-              <th scope="row">Tenant</th>
-              <td>
-                  {% if object.tenant %}
-                      {% if object.tenant.group %}
-                          <a href="{{ object.tenant.group.get_absolute_url }}">{{ object.tenant.group }}</a> /
-                      {% endif %}
-                      <a href="{{ object.tenant.get_absolute_url }}">{{ object.tenant }}</a>
-                  {% else %}
-                      <span class="text-muted">None</span>
-                  {% endif %}
-              </td>
-          </tr>
-          <tr>
             <th scope="row">Racks</th>
-            <td>
+            <td class="position-relative">
               {% if rack_count %}
-                <div class="float-end noprint">
+                <div class="position-absolute top-50 end-0 translate-middle-y noprint">
                   <a href="{% url 'dcim:rack_elevation_list' %}?location_id={{ object.pk }}" class="btn btn-sm btn-primary" title="View elevations">
                     <i class="mdi mdi-server"></i>
                   </a>

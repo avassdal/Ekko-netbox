@@ -1,6 +1,5 @@
 from dcim.models import Interface
 from netbox.views import generic
-from utilities.tables import paginate_table
 from utilities.utils import count_related
 from . import filtersets, forms, tables
 from .models import *
@@ -30,8 +29,8 @@ class WirelessLANGroupView(generic.ObjectView):
         wirelesslans = WirelessLAN.objects.restrict(request.user, 'view').filter(
             group=instance
         )
-        wirelesslans_table = tables.WirelessLANTable(wirelesslans, exclude=('group',))
-        paginate_table(wirelesslans_table, request)
+        wirelesslans_table = tables.WirelessLANTable(wirelesslans, user=request.user, exclude=('group',))
+        wirelesslans_table.configure(request)
 
         return {
             'wirelesslans_table': wirelesslans_table,
@@ -40,7 +39,7 @@ class WirelessLANGroupView(generic.ObjectView):
 
 class WirelessLANGroupEditView(generic.ObjectEditView):
     queryset = WirelessLANGroup.objects.all()
-    model_form = forms.WirelessLANGroupForm
+    form = forms.WirelessLANGroupForm
 
 
 class WirelessLANGroupDeleteView(generic.ObjectDeleteView):
@@ -98,8 +97,8 @@ class WirelessLANView(generic.ObjectView):
         attached_interfaces = Interface.objects.restrict(request.user, 'view').filter(
             wireless_lans=instance
         )
-        interfaces_table = tables.WirelessLANInterfacesTable(attached_interfaces)
-        paginate_table(interfaces_table, request)
+        interfaces_table = tables.WirelessLANInterfacesTable(attached_interfaces, user=request.user)
+        interfaces_table.configure(request)
 
         return {
             'interfaces_table': interfaces_table,
@@ -108,7 +107,7 @@ class WirelessLANView(generic.ObjectView):
 
 class WirelessLANEditView(generic.ObjectEditView):
     queryset = WirelessLAN.objects.all()
-    model_form = forms.WirelessLANForm
+    form = forms.WirelessLANForm
 
 
 class WirelessLANDeleteView(generic.ObjectDeleteView):
@@ -151,7 +150,7 @@ class WirelessLinkView(generic.ObjectView):
 
 class WirelessLinkEditView(generic.ObjectEditView):
     queryset = WirelessLink.objects.all()
-    model_form = forms.WirelessLinkForm
+    form = forms.WirelessLinkForm
 
 
 class WirelessLinkDeleteView(generic.ObjectDeleteView):

@@ -390,7 +390,7 @@ class PrefixTest(APIViewTestCases.APIViewTestCase):
             self.assertEqual(response.data['description'], data['description'])
 
         # Try to create one more IP
-        response = self.client.post(url, {}, **self.header)
+        response = self.client.post(url, {}, format='json', **self.header)
         self.assertHttpStatus(response, status.HTTP_409_CONFLICT)
         self.assertIn('detail', response.data)
 
@@ -487,7 +487,7 @@ class IPRangeTest(APIViewTestCases.APIViewTestCase):
             self.assertEqual(response.data['description'], data['description'])
 
         # Try to create one more IP
-        response = self.client.post(url, {}, **self.header)
+        response = self.client.post(url, {}, format='json', **self.header)
         self.assertHttpStatus(response, status.HTTP_409_CONFLICT)
         self.assertIn('detail', response.data)
 
@@ -695,6 +695,95 @@ class VLANGroupTest(APIViewTestCases.APIViewTestCase):
         )
         VLANGroup.objects.bulk_create(vlan_groups)
 
+    def test_list_available_vlans(self):
+        """
+        Test retrieval of all available VLANs within a group.
+        """
+        MIN_VID = 100
+        MAX_VID = 199
+
+        self.add_permissions('ipam.view_vlangroup', 'ipam.view_vlan')
+        vlangroup = VLANGroup.objects.create(
+            name='VLAN Group X',
+            slug='vlan-group-x',
+            min_vid=MIN_VID,
+            max_vid=MAX_VID
+        )
+
+        # Create a set of VLANs within the group
+        vlans = (
+            VLAN(vid=10, name='VLAN 10', group=vlangroup),
+            VLAN(vid=20, name='VLAN 20', group=vlangroup),
+            VLAN(vid=30, name='VLAN 30', group=vlangroup),
+        )
+        VLAN.objects.bulk_create(vlans)
+
+        # Retrieve all available VLANs
+        url = reverse('ipam-api:vlangroup-available-vlans', kwargs={'pk': vlangroup.pk})
+        response = self.client.get(f'{url}?limit=0', **self.header)
+        self.assertEqual(len(response.data), MAX_VID - MIN_VID + 1)
+        available_vlans = {vlan['vid'] for vlan in response.data}
+        for vlan in vlans:
+            self.assertNotIn(vlan.vid, available_vlans)
+
+        # Retrieve a maximum number of available VLANs
+        url = reverse('ipam-api:vlangroup-available-vlans', kwargs={'pk': vlangroup.pk})
+        response = self.client.get(f'{url}?limit=10', **self.header)
+        self.assertEqual(len(response.data), 10)
+
+    def test_create_single_available_vlan(self):
+        """
+        Test the creation of a single available VLAN.
+        """
+        self.add_permissions('ipam.view_vlangroup', 'ipam.view_vlan', 'ipam.add_vlan')
+        vlangroup = VLANGroup.objects.first()
+        VLAN.objects.create(vid=1, name='VLAN 1', group=vlangroup)
+
+        data = {
+            "name": "First VLAN",
+        }
+        url = reverse('ipam-api:vlangroup-available-vlans', kwargs={'pk': vlangroup.pk})
+        response = self.client.post(url, data, format='json', **self.header)
+
+        self.assertHttpStatus(response, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['name'], data['name'])
+        self.assertEqual(response.data['group']['id'], vlangroup.pk)
+        self.assertEqual(response.data['vid'], 2)
+
+    def test_create_multiple_available_vlans(self):
+        """
+        Test the creation of multiple available VLANs.
+        """
+        self.add_permissions('ipam.view_vlangroup', 'ipam.view_vlan', 'ipam.add_vlan')
+        vlangroup = VLANGroup.objects.first()
+
+        vlans = (
+            VLAN(vid=1, name='VLAN 1', group=vlangroup),
+            VLAN(vid=3, name='VLAN 3', group=vlangroup),
+            VLAN(vid=5, name='VLAN 5', group=vlangroup),
+        )
+        VLAN.objects.bulk_create(vlans)
+
+        data = (
+            {"name": "First VLAN"},
+            {"name": "Second VLAN"},
+            {"name": "Third VLAN"},
+        )
+        url = reverse('ipam-api:vlangroup-available-vlans', kwargs={'pk': vlangroup.pk})
+        response = self.client.post(url, data, format='json', **self.header)
+
+        self.assertHttpStatus(response, status.HTTP_201_CREATED)
+        self.assertEqual(len(response.data), 3)
+        self.assertEqual(response.data[0]['name'], data[0]['name'])
+        self.assertEqual(response.data[0]['group']['id'], vlangroup.pk)
+        self.assertEqual(response.data[0]['vid'], 2)
+        self.assertEqual(response.data[1]['name'], data[1]['name'])
+        self.assertEqual(response.data[1]['group']['id'], vlangroup.pk)
+        self.assertEqual(response.data[1]['vid'], 4)
+        self.assertEqual(response.data[2]['name'], data[2]['name'])
+        self.assertEqual(response.data[2]['group']['id'], vlangroup.pk)
+        self.assertEqual(response.data[2]['vid'], 6)
+
 
 class VLANTest(APIViewTestCases.APIViewTestCase):
     model = VLAN
@@ -756,6 +845,41 @@ class VLANTest(APIViewTestCases.APIViewTestCase):
         self.assertTrue(content['detail'].startswith('Unable to delete object.'))
 
 
+class ServiceTemplateTest(APIViewTestCases.APIViewTestCase):
+    model = ServiceTemplate
+    brief_fields = ['display', 'id', 'name', 'ports', 'protocol', 'url']
+    bulk_update_data = {
+        'description': 'New description',
+    }
+
+    @classmethod
+    def setUpTestData(cls):
+        service_templates = (
+            ServiceTemplate(name='Service Template 1', protocol=ServiceProtocolChoices.PROTOCOL_TCP, ports=[1, 2]),
+            ServiceTemplate(name='Service Template 2', protocol=ServiceProtocolChoices.PROTOCOL_TCP, ports=[3, 4]),
+            ServiceTemplate(name='Service Template 3', protocol=ServiceProtocolChoices.PROTOCOL_TCP, ports=[5, 6]),
+        )
+        ServiceTemplate.objects.bulk_create(service_templates)
+
+        cls.create_data = [
+            {
+                'name': 'Service Template 4',
+                'protocol': ServiceProtocolChoices.PROTOCOL_TCP,
+                'ports': [7, 8],
+            },
+            {
+                'name': 'Service Template 5',
+                'protocol': ServiceProtocolChoices.PROTOCOL_TCP,
+                'ports': [9, 10],
+            },
+            {
+                'name': 'Service Template 6',
+                'protocol': ServiceProtocolChoices.PROTOCOL_TCP,
+                'ports': [11, 12],
+            },
+        ]
+
+
 class ServiceTest(APIViewTestCases.APIViewTestCase):
     model = Service
     brief_fields = ['display', 'id', 'name', 'ports', 'protocol', 'url']
@@ -803,3 +927,96 @@ class ServiceTest(APIViewTestCases.APIViewTestCase):
                 'ports': [6],
             },
         ]
+
+
+class L2VPNTest(APIViewTestCases.APIViewTestCase):
+    model = L2VPN
+    brief_fields = ['display', 'id', 'identifier', 'name', 'slug', 'type', 'url']
+    create_data = [
+        {
+            'name': 'L2VPN 4',
+            'slug': 'l2vpn-4',
+            'type': 'vxlan',
+            'identifier': 33343344
+        },
+        {
+            'name': 'L2VPN 5',
+            'slug': 'l2vpn-5',
+            'type': 'vxlan',
+            'identifier': 33343345
+        },
+        {
+            'name': 'L2VPN 6',
+            'slug': 'l2vpn-6',
+            'type': 'vpws',
+            'identifier': 33343346
+        },
+    ]
+    bulk_update_data = {
+        'description': 'New description',
+    }
+
+    @classmethod
+    def setUpTestData(cls):
+
+        l2vpns = (
+            L2VPN(name='L2VPN 1', slug='l2vpn-1', type='vxlan', identifier=650001),
+            L2VPN(name='L2VPN 2', slug='l2vpn-2', type='vpws', identifier=650002),
+            L2VPN(name='L2VPN 3', slug='l2vpn-3', type='vpls'),  # No RD
+        )
+        L2VPN.objects.bulk_create(l2vpns)
+
+
+class L2VPNTerminationTest(APIViewTestCases.APIViewTestCase):
+    model = L2VPNTermination
+    brief_fields = ['display', 'id', 'l2vpn', 'url']
+
+    @classmethod
+    def setUpTestData(cls):
+
+        vlans = (
+            VLAN(name='VLAN 1', vid=651),
+            VLAN(name='VLAN 2', vid=652),
+            VLAN(name='VLAN 3', vid=653),
+            VLAN(name='VLAN 4', vid=654),
+            VLAN(name='VLAN 5', vid=655),
+            VLAN(name='VLAN 6', vid=656),
+            VLAN(name='VLAN 7', vid=657)
+        )
+        VLAN.objects.bulk_create(vlans)
+
+        l2vpns = (
+            L2VPN(name='L2VPN 1', slug='l2vpn-1', type='vxlan', identifier=650001),
+            L2VPN(name='L2VPN 2', slug='l2vpn-2', type='vpws', identifier=650002),
+            L2VPN(name='L2VPN 3', slug='l2vpn-3', type='vpls'),  # No RD
+        )
+        L2VPN.objects.bulk_create(l2vpns)
+
+        l2vpnterminations = (
+            L2VPNTermination(l2vpn=l2vpns[0], assigned_object=vlans[0]),
+            L2VPNTermination(l2vpn=l2vpns[0], assigned_object=vlans[1]),
+            L2VPNTermination(l2vpn=l2vpns[0], assigned_object=vlans[2])
+        )
+        L2VPNTermination.objects.bulk_create(l2vpnterminations)
+
+        cls.create_data = [
+            {
+                'l2vpn': l2vpns[0].pk,
+                'assigned_object_type': 'ipam.vlan',
+                'assigned_object_id': vlans[3].pk,
+            },
+            {
+                'l2vpn': l2vpns[0].pk,
+                'assigned_object_type': 'ipam.vlan',
+                'assigned_object_id': vlans[4].pk,
+            },
+            {
+                'l2vpn': l2vpns[0].pk,
+                'assigned_object_type': 'ipam.vlan',
+                'assigned_object_id': vlans[5].pk,
+            },
+        ]
+
+        cls.bulk_update_data = {
+            'l2vpn': l2vpns[2].pk
+        }

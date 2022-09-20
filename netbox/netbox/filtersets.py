@@ -18,8 +18,8 @@ from utilities import filters
 __all__ = (
     'BaseFilterSet',
     'ChangeLoggedModelFilterSet',
+    'NetBoxModelFilterSet',
     'OrganizationalModelFilterSet',
-    'PrimaryModelFilterSet',
 )
 
 
@@ -29,7 +29,7 @@ __all__ = (
 
 class BaseFilterSet(django_filters.FilterSet):
     """
-    A base FilterSet which provides common functionality to all NetBox FilterSets
+    A base FilterSet which provides some enhanced functionality over django-filter2's FilterSet class.
     """
     FILTER_DEFAULTS = deepcopy(django_filters.filterset.FILTER_FOR_DBFIELD_DEFAULTS)
     FILTER_DEFAULTS.update({
@@ -80,6 +80,13 @@ class BaseFilterSet(django_filters.FilterSet):
         },
     })
 
+    def __init__(self, *args, **kwargs):
+        # bit of a hack for #9231 - extras.lookup.Empty is registered in apps.ready
+        # however FilterSet Factory is setup before this which creates the
+        # initial filters.  This recreates the filters so Empty is picked up correctly.
+        self.base_filters = self.__class__.get_filters()
+        super().__init__(*args, **kwargs)
+
     @staticmethod
     def _get_filter_lookup_dict(existing_filter):
         # Choose the lookup expression map based on the filter type
@@ -120,8 +127,12 @@ class BaseFilterSet(django_filters.FilterSet):
     def get_additional_lookups(cls, existing_filter_name, existing_filter):
         new_filters = {}
 
+        # Skip on abstract models
+        if not cls._meta.model:
+            return {}
+
         # Skip nonstandard lookup expressions
-        if existing_filter.method is not None or existing_filter.lookup_expr not in ['exact', 'in']:
+        if existing_filter.method is not None or existing_filter.lookup_expr not in ['exact', 'iexact', 'in']:
             return {}
 
         # Choose the lookup expression map based on the filter type
@@ -193,27 +204,22 @@ class BaseFilterSet(django_filters.FilterSet):
 
 
 class ChangeLoggedModelFilterSet(BaseFilterSet):
-    created = django_filters.DateFilter()
-    created__gte = django_filters.DateFilter(
-        field_name='created',
-        lookup_expr='gte'
-    )
-    created__lte = django_filters.DateFilter(
-        field_name='created',
-        lookup_expr='lte'
-    )
-    last_updated = django_filters.DateTimeFilter()
-    last_updated__gte = django_filters.DateTimeFilter(
-        field_name='last_updated',
-        lookup_expr='gte'
-    )
-    last_updated__lte = django_filters.DateTimeFilter(
-        field_name='last_updated',
-        lookup_expr='lte'
-    )
+    """
+    Base FilterSet for ChangeLoggedModel classes.
+    """
+    created = filters.MultiValueDateTimeFilter()
+    last_updated = filters.MultiValueDateTimeFilter()
 
 
-class PrimaryModelFilterSet(ChangeLoggedModelFilterSet):
+class NetBoxModelFilterSet(ChangeLoggedModelFilterSet):
+    """
+    Provides additional filtering functionality (e.g. tags, custom fields) for core NetBox models.
+    """
+    q = django_filters.CharFilter(
+        method='search',
+        label='Search',
+    )
+    tag = TagFilter()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -238,16 +244,17 @@ class PrimaryModelFilterSet(ChangeLoggedModelFilterSet):
 
         self.filters.update(custom_field_filters)
 
+    def search(self, queryset, name, value):
+        """
+        Override this method to apply a general-purpose search logic.
+        """
+        return queryset
 
-class OrganizationalModelFilterSet(PrimaryModelFilterSet):
+
+class OrganizationalModelFilterSet(NetBoxModelFilterSet):
     """
     A base class for adding the search method to models which only expose the `name` and `slug` fields
     """
-    q = django_filters.CharFilter(
-        method='search',
-        label='Search',
-    )
-
     def search(self, queryset, name, value):
         if not value.strip():
             return queryset

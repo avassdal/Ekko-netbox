@@ -205,6 +205,11 @@ export class APISelect {
       onChange: () => this.handleSlimChange(),
     });
 
+    // Don't close on select if multiple select
+    if (this.base.multiple) {
+      this.slim.config.closeOnSelect = false;
+    }
+
     // Initialize API query properties.
     this.getStaticParams();
     this.getDynamicParams();
@@ -557,9 +562,12 @@ export class APISelect {
   private async handleSearch(event: Event) {
     const { value: q } = event.target as HTMLInputElement;
     const url = queryString.stringifyUrl({ url: this.queryUrl, query: { q } });
-    await this.fetchOptions(url, 'merge');
-    this.slim.data.search(q);
-    this.slim.render();
+    if (!url.includes(`{{`)) {
+      await this.fetchOptions(url, 'merge');
+      this.slim.data.search(q);
+      this.slim.render();
+    }
+    return;
   }
 
   /**
@@ -567,8 +575,9 @@ export class APISelect {
    * additional paginated options.
    */
   private handleScroll(): void {
+    // Floor scrollTop as chrome can return fractions on some zoom levels.
     const atBottom =
-      this.slim.slim.list.scrollTop + this.slim.slim.list.offsetHeight ===
+      Math.floor(this.slim.slim.list.scrollTop) + this.slim.slim.list.offsetHeight ===
       this.slim.slim.list.scrollHeight;
 
     if (this.atBottom && !atBottom) {

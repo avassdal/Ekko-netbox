@@ -50,7 +50,7 @@ The `fail()` method may optionally specify a field with which to associate the s
 
 ## Assigning Custom Validators
 
-Custom validators are associated with specific NetBox models under the [CUSTOM_VALIDATORS](../configuration/dynamic-settings.md#custom_validators) configuration parameter. There are three manners by which custom validation rules can be defined:
+Custom validators are associated with specific NetBox models under the [CUSTOM_VALIDATORS](../configuration/data-validation.md#custom_validators) configuration parameter. There are three manners by which custom validation rules can be defined:
 
 1. Plain JSON mapping (no custom logic)
 2. Dotted path to a custom validator class
@@ -105,11 +105,11 @@ from my_validators import Validator1, Validator2, Validator3
 
 CUSTOM_VALIDATORS = {
     'dcim.site': (
-        Validator1,
-        Validator2,
+        Validator1(),
+        Validator2(),
     ),
     'dcim.device': (
-        Validator3,
+        Validator3(),
     )
 }
 ```

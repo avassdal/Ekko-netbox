@@ -1,5 +1,25 @@
 # NetBox v3.1
 
+## v3.1.11 (2022-04-05)
+
+### Enhancements
+
+* [#8163](https://github.com/netbox-community/netbox/issues/8163) - Show bridge interface members under interface view
+* [#8365](https://github.com/netbox-community/netbox/issues/8365) - Enable filtering child devices by parent device ID
+* [#8785](https://github.com/netbox-community/netbox/issues/8785) - Permit wildcard values in IP address DNS names
+* [#8790](https://github.com/netbox-community/netbox/issues/8790) - Include site and prefixes columns in VLAN group VLANs table
+* [#8830](https://github.com/netbox-community/netbox/issues/8830) - Add Checkpoint ClusterXL protocol for FHRP groups
+* [#8974](https://github.com/netbox-community/netbox/issues/8974) - Use monospace font for text areas in config revision form
+* [#9012](https://github.com/netbox-community/netbox/issues/9012) - Linkify circuits count in providers list
+* [#9036](https://github.com/netbox-community/netbox/issues/9036) - Add bulk edit capability for site contact fields
+
+### Bug Fixes
+
+* [#8866](https://github.com/netbox-community/netbox/issues/8866) - Prevent exception when searching for a rack position with no rack specified under device edit view
+* [#9009](https://github.com/netbox-community/netbox/issues/9009) - Fix device count for racks in global search results
+
+---
+
 ## v3.1.10 (2022-03-25)
 
 ### Enhancements
@@ -292,8 +312,6 @@ Both types of connection include SSID and authentication attributes. Additionall
 Some parameters of NetBox's configuration are now accessible via the admin UI. These parameters can be modified by an administrator and take effect immediately upon application: There is no need to restart NetBox. Additionally, each iteration of the dynamic configuration is preserved in the database, and can be restored by an administrator at any time.
 
 Dynamic configuration parameters may also still be defined within `configuration.py`, and the settings defined here take precedence over those defined via the user interface.
-
-For a complete list of supported parameters, please see the [dynamic configuration documentation](../configuration/dynamic-settings.md). 
 
 #### First Hop Redundancy Protocol (FHRP) Groups ([#6235](https://github.com/netbox-community/netbox/issues/6235))
 

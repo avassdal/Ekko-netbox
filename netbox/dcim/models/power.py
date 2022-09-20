@@ -1,3 +1,4 @@
+from django.apps import apps
 from django.contrib.contenttypes.fields import GenericRelation
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -6,10 +7,10 @@ from django.urls import reverse
 
 from dcim.choices import *
 from dcim.constants import *
-from extras.utils import extras_features
-from netbox.models import PrimaryModel
+from netbox.config import ConfigItem
+from netbox.models import NetBoxModel
 from utilities.validators import ExclusionValidator
-from .device_components import LinkTermination, PathEndpoint
+from .device_components import CabledObjectModel, PathEndpoint
 
 __all__ = (
     'PowerFeed',
@@ -21,8 +22,7 @@ __all__ = (
 # Power
 #
 
-@extras_features('custom_fields', 'custom_links', 'export_templates', 'tags', 'webhooks')
-class PowerPanel(PrimaryModel):
+class PowerPanel(NetBoxModel):
     """
     A distribution point for electrical power; e.g. a data center RPP.
     """
@@ -55,6 +55,10 @@ class PowerPanel(PrimaryModel):
     def __str__(self):
         return self.name
 
+    @classmethod
+    def get_prerequisite_models(cls):
+        return [apps.get_model('dcim.Site'), ]
+
     def get_absolute_url(self):
         return reverse('dcim:powerpanel', args=[self.pk])
 
@@ -68,8 +72,7 @@ class PowerPanel(PrimaryModel):
             )
 
 
-@extras_features('custom_fields', 'custom_links', 'export_templates', 'tags', 'webhooks')
-class PowerFeed(PrimaryModel, PathEndpoint, LinkTermination):
+class PowerFeed(NetBoxModel, PathEndpoint, CabledObjectModel):
     """
     An electrical circuit delivered from a PowerPanel.
     """
@@ -108,16 +111,16 @@ class PowerFeed(PrimaryModel, PathEndpoint, LinkTermination):
         default=PowerFeedPhaseChoices.PHASE_SINGLE
     )
     voltage = models.SmallIntegerField(
-        default=POWERFEED_VOLTAGE_DEFAULT,
+        default=ConfigItem('POWERFEED_DEFAULT_VOLTAGE'),
         validators=[ExclusionValidator([0])]
     )
     amperage = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(1)],
-        default=POWERFEED_AMPERAGE_DEFAULT
+        default=ConfigItem('POWERFEED_DEFAULT_AMPERAGE')
     )
     max_utilization = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(1), MaxValueValidator(100)],
-        default=POWERFEED_MAX_UTILIZATION_DEFAULT,
+        default=ConfigItem('POWERFEED_DEFAULT_MAX_UTILIZATION'),
         help_text="Maximum permissible draw (percentage)"
     )
     available_power = models.PositiveIntegerField(
@@ -128,10 +131,10 @@ class PowerFeed(PrimaryModel, PathEndpoint, LinkTermination):
         blank=True
     )
 
-    clone_fields = [
+    clone_fields = (
         'power_panel', 'rack', 'status', 'type', 'mark_connected', 'supply', 'phase', 'voltage', 'amperage',
-        'max_utilization', 'available_power',
-    ]
+        'max_utilization',
+    )
 
     class Meta:
         ordering = ['power_panel', 'name']
@@ -139,6 +142,10 @@ class PowerFeed(PrimaryModel, PathEndpoint, LinkTermination):
 
     def __str__(self):
         return self.name
+
+    @classmethod
+    def get_prerequisite_models(cls):
+        return [PowerPanel, ]
 
     def get_absolute_url(self):
         return reverse('dcim:powerfeed', args=[self.pk])
@@ -173,8 +180,8 @@ class PowerFeed(PrimaryModel, PathEndpoint, LinkTermination):
     def parent_object(self):
         return self.power_panel
 
-    def get_type_class(self):
-        return PowerFeedTypeChoices.CSS_CLASSES.get(self.type)
+    def get_type_color(self):
+        return PowerFeedTypeChoices.colors.get(self.type)
 
-    def get_status_class(self):
-        return PowerFeedStatusChoices.CSS_CLASSES.get(self.status)
+    def get_status_color(self):
+        return PowerFeedStatusChoices.colors.get(self.status)
