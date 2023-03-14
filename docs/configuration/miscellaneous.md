@@ -69,6 +69,14 @@ By default, NetBox will permit users to create duplicate prefixes and IP address
 
 ---
 
+## `FILE_UPLOAD_MAX_MEMORY_SIZE`
+
+Default: `2621440` (2.5 MB).
+
+The maximum amount (in bytes) of uploaded data that will be held in memory before being written to the filesystem. Changing this setting can be useful for example to be able to upload files bigger than 2.5MB to custom scripts for processing.
+
+---
+
 ## GRAPHQL_ENABLED
 
 !!! tip "Dynamic Configuration Parameter"
@@ -138,6 +146,22 @@ Toggle the availability Prometheus-compatible metrics at `/metrics`. See the [Pr
 Default: False
 
 When determining the primary IP address for a device, IPv6 is preferred over IPv4 by default. Set this to True to prefer IPv4 instead.
+
+---
+
+## QUEUE_MAPPINGS
+
+Allows changing which queues are used internally for background tasks.
+
+```python
+QUEUE_MAPPINGS = {
+    'webhook': 'low',
+    'report': 'high',
+    'script': 'high',
+}
+```
+
+If no queue is defined the queue named `default` will be used.
 
 ---
 

@@ -12,8 +12,8 @@ from django.urls import reverse
 from dcim.choices import *
 from dcim.constants import *
 from dcim.fields import PathField
-from dcim.utils import decompile_path_node, object_to_path_node, path_node_to_object
-from netbox.models import NetBoxModel
+from dcim.utils import decompile_path_node, object_to_path_node
+from netbox.models import PrimaryModel
 from utilities.fields import ColorField
 from utilities.querysets import RestrictedQuerySet
 from utilities.utils import to_meters
@@ -34,7 +34,7 @@ trace_paths = Signal()
 # Cables
 #
 
-class Cable(NetBoxModel):
+class Cable(PrimaryModel):
     """
     A physical connection between two endpoints.
     """
@@ -112,6 +112,10 @@ class Cable(NetBoxModel):
     def a_terminations(self):
         if hasattr(self, '_a_terminations'):
             return self._a_terminations
+
+        if not self.pk:
+            return []
+
         # Query self.terminations.all() to leverage cached results
         return [
             ct.termination for ct in self.terminations.all() if ct.cable_end == CableEndChoices.SIDE_A
@@ -119,13 +123,18 @@ class Cable(NetBoxModel):
 
     @a_terminations.setter
     def a_terminations(self, value):
-        self._terminations_modified = True
+        if not self.pk or self.a_terminations != list(value):
+            self._terminations_modified = True
         self._a_terminations = value
 
     @property
     def b_terminations(self):
         if hasattr(self, '_b_terminations'):
             return self._b_terminations
+
+        if not self.pk:
+            return []
+
         # Query self.terminations.all() to leverage cached results
         return [
             ct.termination for ct in self.terminations.all() if ct.cable_end == CableEndChoices.SIDE_B
@@ -133,7 +142,8 @@ class Cable(NetBoxModel):
 
     @b_terminations.setter
     def b_terminations(self, value):
-        self._terminations_modified = True
+        if not self.pk or self.b_terminations != list(value):
+            self._terminations_modified = True
         self._b_terminations = value
 
     def clean(self):
@@ -269,7 +279,7 @@ class CableTermination(models.Model):
         constraints = (
             models.UniqueConstraint(
                 fields=('termination_type', 'termination_id'),
-                name='dcim_cable_termination_unique_termination'
+                name='%(app_label)s_%(class)s_unique_termination'
             ),
         )
 
@@ -278,6 +288,17 @@ class CableTermination(models.Model):
 
     def clean(self):
         super().clean()
+
+        # Check for existing termination
+        existing_termination = CableTermination.objects.exclude(cable=self.cable).filter(
+            termination_type=self.termination_type,
+            termination_id=self.termination_id
+        ).first()
+        if existing_termination is not None:
+            raise ValidationError(
+                f"Duplicate termination found for {self.termination_type.app_label}.{self.termination_type.model} "
+                f"{self.termination_id}: cable {existing_termination.cable.pk}"
+            )
 
         # Validate interface type (if applicable)
         if self.termination_type.model == 'interface' and self.termination.type in NONCONNECTABLE_IFACE_TYPES:
@@ -516,7 +537,7 @@ class CablePath(models.Model):
 
             # Step 5: Record the far-end termination object(s)
             path.append([
-                object_to_path_node(t) for t in remote_terminations
+                object_to_path_node(t) for t in remote_terminations if t is not None
             ])
 
             # Step 6: Determine the "next hop" terminations, if applicable
@@ -556,11 +577,12 @@ class CablePath(models.Model):
 
             elif isinstance(remote_terminations[0], CircuitTermination):
                 # Follow a CircuitTermination to its corresponding CircuitTermination (A to Z or vice versa)
-                term_side = remote_terminations[0].term_side
-                assert all(ct.term_side == term_side for ct in remote_terminations[1:])
+                if len(remote_terminations) > 1:
+                    is_split = True
+                    break
                 circuit_termination = CircuitTermination.objects.filter(
                     circuit=remote_terminations[0].circuit,
-                    term_side='Z' if term_side == 'A' else 'A'
+                    term_side='Z' if remote_terminations[0].term_side == 'A' else 'A'
                 ).first()
                 if circuit_termination is None:
                     break
@@ -570,6 +592,7 @@ class CablePath(models.Model):
                         [object_to_path_node(circuit_termination)],
                         [object_to_path_node(circuit_termination.provider_network)],
                     ])
+                    is_complete = True
                     break
                 elif circuit_termination.site and not circuit_termination.cable:
                     # Circuit terminates to a Site
@@ -673,6 +696,7 @@ class CablePath(models.Model):
         """
         Return all available next segments in a split cable path.
         """
+        from circuits.models import CircuitTermination
         nodes = self.path_objects[-1]
 
         # RearPort splitting to multiple FrontPorts with no stack position
@@ -682,3 +706,8 @@ class CablePath(models.Model):
         # RearPorts connected to different cables
         elif type(nodes[0]) is FrontPort:
             return RearPort.objects.filter(pk__in=[fp.rear_port_id for fp in nodes])
+        # Cable terminating to multiple CircuitTerminations
+        elif type(nodes[0]) is CircuitTermination:
+            return [
+                ct.get_peer_termination() for ct in nodes
+            ]

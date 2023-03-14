@@ -1,5 +1,7 @@
 import graphene
 
+from graphene_django import DjangoObjectType
+from extras.graphql.mixins import ContactsMixin
 from ipam import filtersets, models
 from netbox.graphql.scalars import BigInt
 from netbox.graphql.types import BaseObjectType, OrganizationalObjectType, NetBoxObjectType
@@ -25,6 +27,28 @@ __all__ = (
 )
 
 
+class IPAddressFamilyType(graphene.ObjectType):
+
+    value = graphene.Int()
+    label = graphene.String()
+
+    def __init__(self, value):
+        self.value = value
+        self.label = f'IPv{value}'
+
+
+class BaseIPAddressFamilyType:
+    '''
+    Base type for models that need to expose their IPAddress family type.
+    '''
+    family = graphene.Field(IPAddressFamilyType)
+
+    def resolve_family(self, _):
+        # Note that self, is an instance of models.IPAddress
+        # thus resolves to the address family value.
+        return IPAddressFamilyType(self.family)
+
+
 class ASNType(NetBoxObjectType):
     asn = graphene.Field(BigInt)
 
@@ -34,7 +58,7 @@ class ASNType(NetBoxObjectType):
         filterset_class = filtersets.ASNFilterSet
 
 
-class AggregateType(NetBoxObjectType):
+class AggregateType(NetBoxObjectType, BaseIPAddressFamilyType):
 
     class Meta:
         model = models.Aggregate
@@ -54,18 +78,20 @@ class FHRPGroupType(NetBoxObjectType):
 
 
 class FHRPGroupAssignmentType(BaseObjectType):
+    interface = graphene.Field('ipam.graphql.gfk_mixins.FHRPGroupInterfaceType')
 
     class Meta:
         model = models.FHRPGroupAssignment
-        fields = '__all__'
+        exclude = ('interface_type', 'interface_id')
         filterset_class = filtersets.FHRPGroupAssignmentFilterSet
 
 
-class IPAddressType(NetBoxObjectType):
+class IPAddressType(NetBoxObjectType, BaseIPAddressFamilyType):
+    assigned_object = graphene.Field('ipam.graphql.gfk_mixins.IPAddressAssignmentType')
 
     class Meta:
         model = models.IPAddress
-        fields = '__all__'
+        exclude = ('assigned_object_type', 'assigned_object_id')
         filterset_class = filtersets.IPAddressFilterSet
 
     def resolve_role(self, info):
@@ -83,7 +109,7 @@ class IPRangeType(NetBoxObjectType):
         return self.role or None
 
 
-class PrefixType(NetBoxObjectType):
+class PrefixType(NetBoxObjectType, BaseIPAddressFamilyType):
 
     class Meta:
         model = models.Prefix
@@ -140,10 +166,11 @@ class VLANType(NetBoxObjectType):
 
 
 class VLANGroupType(OrganizationalObjectType):
+    scope = graphene.Field('ipam.graphql.gfk_mixins.VLANGroupScopeType')
 
     class Meta:
         model = models.VLANGroup
-        fields = '__all__'
+        exclude = ('scope_type', 'scope_id')
         filterset_class = filtersets.VLANGroupFilterSet
 
 
@@ -155,7 +182,7 @@ class VRFType(NetBoxObjectType):
         filterset_class = filtersets.VRFFilterSet
 
 
-class L2VPNType(NetBoxObjectType):
+class L2VPNType(ContactsMixin, NetBoxObjectType):
     class Meta:
         model = models.L2VPN
         fields = '__all__'
@@ -163,7 +190,9 @@ class L2VPNType(NetBoxObjectType):
 
 
 class L2VPNTerminationType(NetBoxObjectType):
+    assigned_object = graphene.Field('ipam.graphql.gfk_mixins.L2VPNAssignmentType')
+
     class Meta:
         model = models.L2VPNTermination
-        fields = '__all__'
+        exclude = ('assigned_object_type', 'assigned_object_id')
         filtersets_class = filtersets.L2VPNTerminationFilterSet

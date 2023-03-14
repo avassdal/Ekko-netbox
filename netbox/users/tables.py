@@ -6,15 +6,25 @@ __all__ = (
 )
 
 
-TOKEN = """<samp><span id="token_{{ record.pk }}">{{ value }}</span></samp>"""
+TOKEN = """<samp><span id="token_{{ record.pk }}">{{ record }}</span></samp>"""
 
 ALLOWED_IPS = """{{ value|join:", " }}"""
 
 COPY_BUTTON = """
-<a class="btn btn-sm btn-success copy-token" data-clipboard-target="#token_{{ record.pk }}" title="Copy to clipboard">
-  <i class="mdi mdi-content-copy"></i>
-</a>
+{% if settings.ALLOW_TOKEN_RETRIEVAL %}
+  <a class="btn btn-sm btn-success copy-token" data-clipboard-target="#token_{{ record.pk }}" title="Copy to clipboard">
+    <i class="mdi mdi-content-copy"></i>
+  </a>
+{% endif %}
 """
+
+
+class TokenActionsColumn(columns.ActionsColumn):
+    # Subclass ActionsColumn to disregard permissions for edit & delete buttons
+    actions = {
+        'edit': columns.ActionsItem('Edit', 'pencil', None, 'warning'),
+        'delete': columns.ActionsItem('Delete', 'trash-can-outline', None, 'danger'),
+    }
 
 
 class TokenTable(NetBoxTable):
@@ -30,7 +40,7 @@ class TokenTable(NetBoxTable):
     allowed_ips = columns.TemplateColumn(
         template_code=ALLOWED_IPS
     )
-    actions = columns.ActionsColumn(
+    actions = TokenActionsColumn(
         actions=('edit', 'delete'),
         extra_buttons=COPY_BUTTON
     )
@@ -38,5 +48,5 @@ class TokenTable(NetBoxTable):
     class Meta(NetBoxTable.Meta):
         model = Token
         fields = (
-            'pk', 'key', 'write_enabled', 'created', 'expires', 'last_used', 'allowed_ips', 'description',
+            'pk', 'description', 'key', 'write_enabled', 'created', 'expires', 'last_used', 'allowed_ips',
         )

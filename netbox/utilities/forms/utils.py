@@ -195,6 +195,7 @@ def parse_csv(reader):
     # `site.slug` header, to indicate the related site is being referenced by its slug.
 
     for header in next(reader):
+        header = header.strip()
         if '.' in header:
             field, to_field = header.split('.', 1)
             headers[field] = to_field
@@ -220,7 +221,11 @@ def validate_csv(headers, fields, required_fields):
     if parsed csv data contains invalid headers or does not contain required headers.
     """
     # Validate provided column headers
+    is_update = False
     for field, to_field in headers.items():
+        if field == "id":
+            is_update = True
+            continue
         if field not in fields:
             raise forms.ValidationError(f'Unexpected column header "{field}" found.')
         if to_field and not hasattr(fields[field], 'to_field_name'):
@@ -228,7 +233,8 @@ def validate_csv(headers, fields, required_fields):
         if to_field and not hasattr(fields[field].queryset.model, to_field):
             raise forms.ValidationError(f'Invalid related object attribute for column "{field}": {to_field}')
 
-    # Validate required fields
-    for f in required_fields:
-        if f not in headers:
-            raise forms.ValidationError(f'Required column header "{f}" not found.')
+    # Validate required fields (if not an update)
+    if not is_update:
+        for f in required_fields:
+            if f not in headers:
+                raise forms.ValidationError(f'Required column header "{f}" not found.')

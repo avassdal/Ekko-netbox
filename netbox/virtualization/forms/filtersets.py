@@ -3,7 +3,7 @@ from django.utils.translation import gettext as _
 
 from dcim.models import Device, DeviceRole, Platform, Region, Site, SiteGroup
 from extras.forms import LocalConfigContextFilterForm
-from ipam.models import VRF
+from ipam.models import L2VPN, VRF
 from netbox.forms import NetBoxModelFilterSetForm
 from tenancy.forms import ContactModelFilterForm, TenancyFilterForm
 from utilities.forms import (
@@ -30,7 +30,7 @@ class ClusterGroupFilterForm(ContactModelFilterForm, NetBoxModelFilterSetForm):
     model = ClusterGroup
     tag = TagFilterField(model)
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('Contacts', ('contact', 'contact_role', 'contact_group')),
     )
 
@@ -38,7 +38,7 @@ class ClusterGroupFilterForm(ContactModelFilterForm, NetBoxModelFilterSetForm):
 class ClusterFilterForm(TenancyFilterForm, ContactModelFilterForm, NetBoxModelFilterSetForm):
     model = Cluster
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('Attributes', ('group_id', 'type_id', 'status')),
         ('Location', ('region_id', 'site_group_id', 'site_id')),
         ('Tenant', ('tenant_group_id', 'tenant_id')),
@@ -90,7 +90,7 @@ class VirtualMachineFilterForm(
 ):
     model = VirtualMachine
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('Cluster', ('cluster_group_id', 'cluster_type_id', 'cluster_id', 'device_id')),
         ('Location', ('region_id', 'site_group_id', 'site_id')),
         ('Attributes', ('status', 'role_id', 'platform_id', 'mac_address', 'has_primary_ip', 'local_context_data')),
@@ -160,11 +160,11 @@ class VirtualMachineFilterForm(
     )
     mac_address = forms.CharField(
         required=False,
-        label='MAC address'
+        label=_('MAC address')
     )
     has_primary_ip = forms.NullBooleanField(
         required=False,
-        label='Has a primary IP',
+        label=_('Has a primary IP'),
         widget=StaticSelect(
             choices=BOOLEAN_WITH_BLANK_CHOICES
         )
@@ -175,9 +175,9 @@ class VirtualMachineFilterForm(
 class VMInterfaceFilterForm(NetBoxModelFilterSetForm):
     model = VMInterface
     fieldsets = (
-        (None, ('q', 'tag')),
+        (None, ('q', 'filter_id', 'tag')),
         ('Virtual Machine', ('cluster_id', 'virtual_machine_id')),
-        ('Attributes', ('enabled', 'mac_address', 'vrf_id')),
+        ('Attributes', ('enabled', 'mac_address', 'vrf_id', 'l2vpn_id')),
     )
     cluster_id = DynamicModelMultipleChoiceField(
         queryset=Cluster.objects.all(),
@@ -206,5 +206,10 @@ class VMInterfaceFilterForm(NetBoxModelFilterSetForm):
         queryset=VRF.objects.all(),
         required=False,
         label='VRF'
+    )
+    l2vpn_id = DynamicModelMultipleChoiceField(
+        queryset=L2VPN.objects.all(),
+        required=False,
+        label=_('L2VPN')
     )
     tag = TagFilterField(model)

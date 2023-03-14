@@ -1,4 +1,5 @@
 from django import forms
+from django.utils.translation import gettext as _
 
 from dcim.choices import InterfaceModeChoices
 from dcim.constants import INTERFACE_MTU_MAX, INTERFACE_MTU_MIN
@@ -8,7 +9,7 @@ from netbox.forms import NetBoxModelBulkEditForm
 from tenancy.models import Tenant
 from utilities.forms import (
     add_blank_choice, BulkEditNullBooleanSelect, BulkRenameForm, CommentField, DynamicModelChoiceField,
-    DynamicModelMultipleChoiceField, SmallTextarea, StaticSelect
+    DynamicModelMultipleChoiceField, StaticSelect
 )
 from virtualization.choices import *
 from virtualization.models import *
@@ -84,18 +85,21 @@ class ClusterBulkEditForm(NetBoxModelBulkEditForm):
             'group_id': '$site_group',
         }
     )
+    description = forms.CharField(
+        max_length=200,
+        required=False
+    )
     comments = CommentField(
-        widget=SmallTextarea,
-        label='Comments'
+        label=_('Comments')
     )
 
     model = Cluster
     fieldsets = (
-        (None, ('type', 'group', 'status', 'tenant',)),
-        ('Site', ('region', 'site_group', 'site',)),
+        (None, ('type', 'group', 'status', 'tenant', 'description')),
+        ('Site', ('region', 'site_group', 'site')),
     )
     nullable_fields = (
-        'group', 'site', 'comments', 'tenant',
+        'group', 'site', 'tenant', 'description', 'comments',
     )
 
 
@@ -143,28 +147,31 @@ class VirtualMachineBulkEditForm(NetBoxModelBulkEditForm):
     )
     vcpus = forms.IntegerField(
         required=False,
-        label='vCPUs'
+        label=_('vCPUs')
     )
     memory = forms.IntegerField(
         required=False,
-        label='Memory (MB)'
+        label=_('Memory (MB)')
     )
     disk = forms.IntegerField(
         required=False,
-        label='Disk (GB)'
+        label=_('Disk (GB)')
+    )
+    description = forms.CharField(
+        max_length=200,
+        required=False
     )
     comments = CommentField(
-        widget=SmallTextarea,
-        label='Comments'
+        label=_('Comments')
     )
 
     model = VirtualMachine
     fieldsets = (
-        (None, ('site', 'cluster', 'device', 'status', 'role', 'tenant', 'platform')),
+        (None, ('site', 'cluster', 'device', 'status', 'role', 'tenant', 'platform', 'description')),
         ('Resources', ('vcpus', 'memory', 'disk'))
     )
     nullable_fields = (
-        'site', 'cluster', 'device', 'role', 'tenant', 'platform', 'vcpus', 'memory', 'disk', 'comments',
+        'site', 'cluster', 'device', 'role', 'tenant', 'platform', 'vcpus', 'memory', 'disk', 'description', 'comments',
     )
 
 
@@ -191,7 +198,7 @@ class VMInterfaceBulkEditForm(NetBoxModelBulkEditForm):
         required=False,
         min_value=INTERFACE_MTU_MIN,
         max_value=INTERFACE_MTU_MAX,
-        label='MTU'
+        label=_('MTU')
     )
     description = forms.CharField(
         max_length=100,
@@ -205,7 +212,7 @@ class VMInterfaceBulkEditForm(NetBoxModelBulkEditForm):
     vlan_group = DynamicModelChoiceField(
         queryset=VLANGroup.objects.all(),
         required=False,
-        label='VLAN group'
+        label=_('VLAN group')
     )
     untagged_vlan = DynamicModelChoiceField(
         queryset=VLAN.objects.all(),
@@ -213,7 +220,7 @@ class VMInterfaceBulkEditForm(NetBoxModelBulkEditForm):
         query_params={
             'group_id': '$vlan_group',
         },
-        label='Untagged VLAN'
+        label=_('Untagged VLAN')
     )
     tagged_vlans = DynamicModelMultipleChoiceField(
         queryset=VLAN.objects.all(),
@@ -221,12 +228,12 @@ class VMInterfaceBulkEditForm(NetBoxModelBulkEditForm):
         query_params={
             'group_id': '$vlan_group',
         },
-        label='Tagged VLANs'
+        label=_('Tagged VLANs')
     )
     vrf = DynamicModelChoiceField(
         queryset=VRF.objects.all(),
         required=False,
-        label='VRF'
+        label=_('VRF')
     )
 
     model = VMInterface
