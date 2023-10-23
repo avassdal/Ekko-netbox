@@ -3,25 +3,28 @@ import re
 from copy import deepcopy
 
 from django.contrib import messages
+from django.contrib.contenttypes.fields import GenericRel
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist, ValidationError
 from django.db import transaction, IntegrityError
 from django.db.models import ManyToManyField, ProtectedError
 from django.db.models.fields.reverse_related import ManyToManyRel
-from django.forms import ModelMultipleChoiceField, MultipleHiddenInput
+from django.forms import HiddenInput, ModelMultipleChoiceField, MultipleHiddenInput
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils.safestring import mark_safe
 from django_tables2.export import TableExport
 
 from extras.models import ExportTemplate
 from extras.signals import clear_webhooks
-from utilities.choices import ImportFormatChoices
 from utilities.error_handlers import handle_protectederror
 from utilities.exceptions import AbortRequest, AbortTransaction, PermissionsViolation
-from utilities.forms import BulkRenameForm, ConfirmationForm, ImportForm, restrict_form_fields
-from utilities.htmx import is_htmx
+from utilities.forms import BulkRenameForm, ConfirmationForm, restrict_form_fields
+from utilities.forms.bulk_import import BulkImportForm
+from utilities.htmx import is_embedded, is_htmx
 from utilities.permissions import get_permission_for_model
+from utilities.utils import get_viewname
 from utilities.views import GetReturnURLMixin
 from .base import BaseMultiObjectView
 from .mixins import ActionsMixin, TableMixin
@@ -161,6 +164,11 @@ class ObjectListView(BaseMultiObjectView, ActionsMixin, TableMixin):
 
         # If this is an HTMX request, return only the rendered table HTML
         if is_htmx(request):
+            if is_embedded(request):
+                table.embedded = True
+                # Hide selection checkboxes
+                if 'pk' in table.base_columns:
+                    table.columns.hide('pk')
             return render(request, 'htmx/table.html', {
                 'table': table,
             })
@@ -306,6 +314,13 @@ class BulkImportView(GetReturnURLMixin, BaseMultiObjectView):
         """
         return data
 
+    def _get_form_fields(self):
+        # Exclude any fields which use a HiddenInput widget
+        return {
+            name: field for name, field in self.model_form().fields.items()
+            if type(field.widget) is not HiddenInput
+        }
+
     def _save_object(self, model_form, request):
 
         # Save the primary object
@@ -418,20 +433,20 @@ class BulkImportView(GetReturnURLMixin, BaseMultiObjectView):
     #
 
     def get(self, request):
-        form = ImportForm()
+        form = BulkImportForm()
 
         return render(request, self.template_name, {
             'model': self.model_form._meta.model,
             'form': form,
-            'fields': self.model_form().fields,
+            'fields': self._get_form_fields(),
             'return_url': self.get_return_url(request),
             **self.get_extra_context(request),
         })
 
     def post(self, request):
         logger = logging.getLogger('netbox.views.BulkImportView')
-
-        form = ImportForm(request.POST, request.FILES)
+        model = self.model_form._meta.model
+        form = BulkImportForm(request.POST, request.FILES)
 
         if form.is_valid():
             logger.debug("Import form validation was successful")
@@ -445,18 +460,14 @@ class BulkImportView(GetReturnURLMixin, BaseMultiObjectView):
                     if self.queryset.filter(pk__in=[obj.pk for obj in new_objs]).count() != len(new_objs):
                         raise PermissionsViolation
 
-                # Compile a table containing the imported objects
-                obj_table = self.table(new_objs)
-
                 if new_objs:
-                    msg = 'Imported {} {}'.format(len(new_objs), new_objs[0]._meta.verbose_name_plural)
+                    msg = f"Imported {len(new_objs)} {model._meta.verbose_name_plural}"
                     logger.info(msg)
                     messages.success(request, msg)
 
-                    return render(request, "import_success.html", {
-                        'table': obj_table,
-                        'return_url': self.get_return_url(request),
-                    })
+                    view_name = get_viewname(model, action='list')
+                    results_url = f"{reverse(view_name)}?modified_by_request={request.id}"
+                    return redirect(results_url)
 
             except (AbortTransaction, ValidationError):
                 clear_webhooks.send(sender=self)
@@ -470,9 +481,9 @@ class BulkImportView(GetReturnURLMixin, BaseMultiObjectView):
             logger.debug("Form validation failed")
 
         return render(request, self.template_name, {
-            'model': self.model_form._meta.model,
+            'model': model,
             'form': form,
-            'fields': self.model_form().fields,
+            'fields': self._get_form_fields(),
             'return_url': self.get_return_url(request),
             **self.get_extra_context(request),
         })
@@ -500,6 +511,23 @@ class BulkEditView(GetReturnURLMixin, BaseMultiObjectView):
         ]
         nullified_fields = request.POST.getlist('_nullify')
         updated_objects = []
+        model_fields = {}
+        m2m_fields = {}
+
+        # Build list of model fields and m2m fields for later iteration
+        for name in standard_fields:
+            try:
+                model_field = self.queryset.model._meta.get_field(name)
+                if isinstance(model_field, (ManyToManyField, ManyToManyRel)):
+                    m2m_fields[name] = model_field
+                elif isinstance(model_field, GenericRel):
+                    # Ignore generic relations (these may be used for other purposes in the form)
+                    continue
+                else:
+                    model_fields[name] = model_field
+            except FieldDoesNotExist:
+                # This form field is used to modify a field rather than set its value directly
+                model_fields[name] = None
 
         for obj in self.queryset.filter(pk__in=form.cleaned_data['pk']):
 
@@ -508,25 +536,10 @@ class BulkEditView(GetReturnURLMixin, BaseMultiObjectView):
                 obj.snapshot()
 
             # Update standard fields. If a field is listed in _nullify, delete its value.
-            for name in standard_fields:
-
-                try:
-                    model_field = self.queryset.model._meta.get_field(name)
-                except FieldDoesNotExist:
-                    # This form field is used to modify a field rather than set its value directly
-                    model_field = None
-
+            for name, model_field in model_fields.items():
                 # Handle nullification
                 if name in form.nullable_fields and name in nullified_fields:
-                    if isinstance(model_field, ManyToManyField):
-                        getattr(obj, name).set([])
-                    else:
-                        setattr(obj, name, None if model_field.null else '')
-
-                # ManyToManyFields
-                elif isinstance(model_field, (ManyToManyField, ManyToManyRel)):
-                    if form.cleaned_data[name]:
-                        getattr(obj, name).set(form.cleaned_data[name])
+                    setattr(obj, name, None if model_field.null else '')
                 # Normal fields
                 elif name in form.changed_data:
                     setattr(obj, name, form.cleaned_data[name])
@@ -543,6 +556,13 @@ class BulkEditView(GetReturnURLMixin, BaseMultiObjectView):
             obj.full_clean()
             obj.save()
             updated_objects.append(obj)
+
+            # Handle M2M fields after save
+            for name, m2m_field in m2m_fields.items():
+                if name in form.nullable_fields and name in nullified_fields:
+                    getattr(obj, name).clear()
+                elif form.cleaned_data[name]:
+                    getattr(obj, name).set(form.cleaned_data[name])
 
             # Add/remove tags
             if form.cleaned_data.get('add_tags', None):

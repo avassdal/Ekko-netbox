@@ -2,9 +2,10 @@ import django_filters
 from django.db.models import Q
 from django.utils.translation import gettext as _
 
+from dcim.filtersets import CommonInterfaceFilterSet
 from dcim.models import Device, DeviceRole, Platform, Region, Site, SiteGroup
 from extras.filtersets import LocalConfigContextFilterSet
-from ipam.models import L2VPN, VRF
+from extras.models import ConfigTemplate
 from netbox.filtersets import OrganizationalModelFilterSet, NetBoxModelFilterSet
 from tenancy.filtersets import TenancyFilterSet, ContactModelFilterSet
 from utilities.filters import MultiValueCharFilter, MultiValueMACAddressFilter, TreeNodeMultipleChoiceFilter
@@ -228,6 +229,10 @@ class VirtualMachineFilterSet(
         method='_has_primary_ip',
         label=_('Has a primary IP'),
     )
+    config_template_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=ConfigTemplate.objects.all(),
+        label=_('Config template (ID)'),
+    )
 
     class Meta:
         model = VirtualMachine
@@ -250,7 +255,7 @@ class VirtualMachineFilterSet(
         return queryset.exclude(params)
 
 
-class VMInterfaceFilterSet(NetBoxModelFilterSet):
+class VMInterfaceFilterSet(NetBoxModelFilterSet, CommonInterfaceFilterSet):
     cluster_id = django_filters.ModelMultipleChoiceFilter(
         field_name='virtual_machine__cluster',
         queryset=Cluster.objects.all(),
@@ -285,28 +290,6 @@ class VMInterfaceFilterSet(NetBoxModelFilterSet):
     )
     mac_address = MultiValueMACAddressFilter(
         label=_('MAC address'),
-    )
-    vrf_id = django_filters.ModelMultipleChoiceFilter(
-        field_name='vrf',
-        queryset=VRF.objects.all(),
-        label=_('VRF'),
-    )
-    vrf = django_filters.ModelMultipleChoiceFilter(
-        field_name='vrf__rd',
-        queryset=VRF.objects.all(),
-        to_field_name='rd',
-        label=_('VRF (RD)'),
-    )
-    l2vpn_id = django_filters.ModelMultipleChoiceFilter(
-        field_name='l2vpn_terminations__l2vpn',
-        queryset=L2VPN.objects.all(),
-        label=_('L2VPN (ID)'),
-    )
-    l2vpn = django_filters.ModelMultipleChoiceFilter(
-        field_name='l2vpn_terminations__l2vpn__identifier',
-        queryset=L2VPN.objects.all(),
-        to_field_name='identifier',
-        label=_('L2VPN'),
     )
 
     class Meta:

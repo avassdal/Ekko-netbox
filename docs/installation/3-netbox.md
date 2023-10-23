@@ -100,6 +100,8 @@ Create a system user account named `netbox`. We'll configure the WSGI and HTTP s
     ```
     sudo adduser --system --group netbox
     sudo chown --recursive netbox /opt/netbox/netbox/media/
+    sudo chown --recursive netbox /opt/netbox/netbox/reports/
+    sudo chown --recursive netbox /opt/netbox/netbox/scripts/
     ```
 
 === "CentOS"
@@ -108,6 +110,8 @@ Create a system user account named `netbox`. We'll configure the WSGI and HTTP s
     sudo groupadd --system netbox
     sudo adduser --system -g netbox netbox
     sudo chown --recursive netbox /opt/netbox/netbox/media/
+    sudo chown --recursive netbox /opt/netbox/netbox/reports/
+    sudo chown --recursive netbox /opt/netbox/netbox/scripts/
     ```
 
 ## Configuration
@@ -199,14 +203,6 @@ When you have finished modifying the configuration, remember to save the file.
 
 All Python packages required by NetBox are listed in `requirements.txt` and will be installed automatically. NetBox also supports some optional packages. If desired, these packages must be listed in `local_requirements.txt` within the NetBox root directory.
 
-### NAPALM
-
-Integration with the [NAPALM automation](../integrations/napalm.md) library allows NetBox to fetch live data from devices and return it to a requester via its REST API. The `NAPALM_USERNAME` and `NAPALM_PASSWORD` configuration parameters define the credentials to be used when connecting to a device.
-
-```no-highlight
-sudo sh -c "echo 'napalm' >> /opt/netbox/local_requirements.txt"
-```
-
 ### Remote File Storage
 
 By default, NetBox will use the local filesystem to store uploaded files. To use a remote filesystem, install the [`django-storages`](https://django-storages.readthedocs.io/en/stable/) library and configure your [desired storage backend](../configuration/system.md#storage_backend) in `configuration.py`.
@@ -214,6 +210,22 @@ By default, NetBox will use the local filesystem to store uploaded files. To use
 ```no-highlight
 sudo sh -c "echo 'django-storages' >> /opt/netbox/local_requirements.txt"
 ```
+
+### Remote Data Sources
+
+NetBox supports integration with several remote data sources via configurable backends. Each of these requires the installation of one or more additional libraries.
+
+* Amazon S3: [`boto3`](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html)
+* Git: [`dulwich`](https://www.dulwich.io/)
+
+For example, to enable the Amazon S3 backend, add `boto3` to your local requirements file:
+
+```no-highlight
+sudo sh -c "echo 'boto3' >> /opt/netbox/local_requirements.txt"
+```
+
+!!! info
+    These packages were previously required in NetBox v3.5 but now are optional.
 
 ## Run the Upgrade Script
 

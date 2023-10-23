@@ -1,4 +1,4 @@
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from dcim.choices import *
@@ -10,6 +10,26 @@ from utilities.choices import ColorChoices
 from utilities.testing import ChangeLoggedFilterSetTests, create_test_device
 from virtualization.models import Cluster, ClusterType
 from wireless.choices import WirelessChannelChoices, WirelessRoleChoices
+
+
+User = get_user_model()
+
+
+class DeviceComponentFilterSetTests:
+
+    def test_device_type(self):
+        device_types = DeviceType.objects.all()[:2]
+        params = {'device_type_id': [device_types[0].pk, device_types[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        params = {'device_type': [device_types[0].model, device_types[1].model]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_role(self):
+        role = DeviceRole.objects.all()[:2]
+        params = {'role_id': [role[0].pk, role[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        params = {'role': [role[0].slug, role[1].slug]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
 
 class RegionTestCase(TestCase, ChangeLoggedFilterSetTests):
@@ -439,6 +459,12 @@ class RackTestCase(TestCase, ChangeLoggedFilterSetTests):
         params = {'u_height': [42, 43]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
+    def test_starting_unit(self):
+        params = {'starting_unit': [1]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+        params = {'starting_unit': [2]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 0)
+
     def test_desc_units(self):
         params = {'desc_units': 'true'}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
@@ -699,9 +725,16 @@ class DeviceTypeTestCase(TestCase, ChangeLoggedFilterSetTests):
         )
         Manufacturer.objects.bulk_create(manufacturers)
 
+        platforms = (
+            Platform(name='Platform 1', slug='platform-1', manufacturer=manufacturers[0]),
+            Platform(name='Platform 2', slug='platform-2', manufacturer=manufacturers[1]),
+            Platform(name='Platform 3', slug='platform-3', manufacturer=manufacturers[2]),
+        )
+        Platform.objects.bulk_create(platforms)
+
         device_types = (
-            DeviceType(manufacturer=manufacturers[0], model='Model 1', slug='model-1', part_number='Part Number 1', u_height=1, is_full_depth=True, front_image='front.png', rear_image='rear.png', weight=10, weight_unit=WeightUnitChoices.UNIT_POUND),
-            DeviceType(manufacturer=manufacturers[1], model='Model 2', slug='model-2', part_number='Part Number 2', u_height=2, is_full_depth=True, subdevice_role=SubdeviceRoleChoices.ROLE_PARENT, airflow=DeviceAirflowChoices.AIRFLOW_FRONT_TO_REAR, weight=20, weight_unit=WeightUnitChoices.UNIT_POUND),
+            DeviceType(manufacturer=manufacturers[0], default_platform=platforms[0], model='Model 1', slug='model-1', part_number='Part Number 1', u_height=1, is_full_depth=True, front_image='front.png', rear_image='rear.png', weight=10, weight_unit=WeightUnitChoices.UNIT_POUND),
+            DeviceType(manufacturer=manufacturers[1], default_platform=platforms[1], model='Model 2', slug='model-2', part_number='Part Number 2', u_height=2, is_full_depth=True, subdevice_role=SubdeviceRoleChoices.ROLE_PARENT, airflow=DeviceAirflowChoices.AIRFLOW_FRONT_TO_REAR, weight=20, weight_unit=WeightUnitChoices.UNIT_POUND),
             DeviceType(manufacturer=manufacturers[2], model='Model 3', slug='model-3', part_number='Part Number 3', u_height=3, is_full_depth=False, subdevice_role=SubdeviceRoleChoices.ROLE_CHILD, airflow=DeviceAirflowChoices.AIRFLOW_REAR_TO_FRONT, weight=30, weight_unit=WeightUnitChoices.UNIT_KILOGRAM),
         )
         DeviceType.objects.bulk_create(device_types)
@@ -783,6 +816,13 @@ class DeviceTypeTestCase(TestCase, ChangeLoggedFilterSetTests):
         params = {'manufacturer_id': [manufacturers[0].pk, manufacturers[1].pk]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
         params = {'manufacturer': [manufacturers[0].slug, manufacturers[1].slug]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_default_platform(self):
+        platforms = Platform.objects.all()[:2]
+        params = {'default_platform_id': [platforms[0].pk, platforms[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        params = {'default_platform': [platforms[0].slug, platforms[1].slug]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
     def test_has_front_image(self):
@@ -1128,11 +1168,36 @@ class InterfaceTemplateTestCase(TestCase, ChangeLoggedFilterSetTests):
         )
         DeviceType.objects.bulk_create(device_types)
 
-        InterfaceTemplate.objects.bulk_create((
-            InterfaceTemplate(device_type=device_types[0], name='Interface 1', type=InterfaceTypeChoices.TYPE_1GE_FIXED, mgmt_only=True, poe_mode=InterfacePoEModeChoices.MODE_PD, poe_type=InterfacePoETypeChoices.TYPE_1_8023AF),
-            InterfaceTemplate(device_type=device_types[1], name='Interface 2', type=InterfaceTypeChoices.TYPE_1GE_GBIC, mgmt_only=False, poe_mode=InterfacePoEModeChoices.MODE_PSE, poe_type=InterfacePoETypeChoices.TYPE_2_8023AT),
-            InterfaceTemplate(device_type=device_types[2], name='Interface 3', type=InterfaceTypeChoices.TYPE_1GE_SFP, mgmt_only=False),
-        ))
+        interface_templates = (
+            InterfaceTemplate(
+                device_type=device_types[0],
+                name='Interface 1',
+                type=InterfaceTypeChoices.TYPE_1GE_FIXED,
+                enabled=True,
+                mgmt_only=True,
+                poe_mode=InterfacePoEModeChoices.MODE_PD,
+                poe_type=InterfacePoETypeChoices.TYPE_1_8023AF
+            ),
+            InterfaceTemplate(
+                device_type=device_types[1],
+                name='Interface 2',
+                type=InterfaceTypeChoices.TYPE_1GE_GBIC,
+                enabled=False,
+                mgmt_only=False,
+                poe_mode=InterfacePoEModeChoices.MODE_PSE,
+                poe_type=InterfacePoETypeChoices.TYPE_2_8023AT
+            ),
+            InterfaceTemplate(
+                device_type=device_types[2],
+                name='Interface 3',
+                type=InterfaceTypeChoices.TYPE_1GE_SFP,
+                mgmt_only=False
+            ),
+        )
+        InterfaceTemplate.objects.bulk_create(interface_templates)
+        interface_templates[0].bridge = interface_templates[1]
+        interface_templates[1].bridge = interface_templates[0]
+        InterfaceTemplate.objects.bulk_update(interface_templates, ['bridge'])
 
     def test_name(self):
         params = {'name': ['Interface 1', 'Interface 2']}
@@ -1147,11 +1212,21 @@ class InterfaceTemplateTestCase(TestCase, ChangeLoggedFilterSetTests):
         params = {'type': [InterfaceTypeChoices.TYPE_1GE_FIXED, InterfaceTypeChoices.TYPE_1GE_GBIC]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
+    def test_enabled(self):
+        params = {'enabled': 'true'}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        params = {'enabled': 'false'}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
+
     def test_mgmt_only(self):
         params = {'mgmt_only': 'true'}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
         params = {'mgmt_only': 'false'}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_bridge(self):
+        params = {'bridge_id': [InterfaceTemplate.objects.filter(bridge__isnull=False).first().bridge_id]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
 
     def test_poe_mode(self):
         params = {'poe_mode': [InterfacePoEModeChoices.MODE_PD, InterfacePoEModeChoices.MODE_PSE]}
@@ -1404,12 +1479,12 @@ class DeviceRoleTestCase(TestCase, ChangeLoggedFilterSetTests):
     @classmethod
     def setUpTestData(cls):
 
-        device_roles = (
+        roles = (
             DeviceRole(name='Device Role 1', slug='device-role-1', color='ff0000', vm_role=True, description='foobar1'),
             DeviceRole(name='Device Role 2', slug='device-role-2', color='00ff00', vm_role=True, description='foobar2'),
             DeviceRole(name='Device Role 3', slug='device-role-3', color='0000ff', vm_role=False),
         )
-        DeviceRole.objects.bulk_create(device_roles)
+        DeviceRole.objects.bulk_create(roles)
 
     def test_name(self):
         params = {'name': ['Device Role 1', 'Device Role 2']}
@@ -1449,9 +1524,9 @@ class PlatformTestCase(TestCase, ChangeLoggedFilterSetTests):
         Manufacturer.objects.bulk_create(manufacturers)
 
         platforms = (
-            Platform(name='Platform 1', slug='platform-1', manufacturer=manufacturers[0], napalm_driver='driver-1', description='A'),
-            Platform(name='Platform 2', slug='platform-2', manufacturer=manufacturers[1], napalm_driver='driver-2', description='B'),
-            Platform(name='Platform 3', slug='platform-3', manufacturer=manufacturers[2], napalm_driver='driver-3', description='C'),
+            Platform(name='Platform 1', slug='platform-1', manufacturer=manufacturers[0], description='A'),
+            Platform(name='Platform 2', slug='platform-2', manufacturer=manufacturers[1], description='B'),
+            Platform(name='Platform 3', slug='platform-3', manufacturer=manufacturers[2], description='C'),
         )
         Platform.objects.bulk_create(platforms)
 
@@ -1465,10 +1540,6 @@ class PlatformTestCase(TestCase, ChangeLoggedFilterSetTests):
 
     def test_description(self):
         params = {'description': ['A', 'B']}
-        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
-
-    def test_napalm_driver(self):
-        params = {'napalm_driver': ['driver-1', 'driver-2']}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
     def test_manufacturer(self):
@@ -1500,12 +1571,12 @@ class DeviceTestCase(TestCase, ChangeLoggedFilterSetTests):
         )
         DeviceType.objects.bulk_create(device_types)
 
-        device_roles = (
+        roles = (
             DeviceRole(name='Device Role 1', slug='device-role-1'),
             DeviceRole(name='Device Role 2', slug='device-role-2'),
             DeviceRole(name='Device Role 3', slug='device-role-3'),
         )
-        DeviceRole.objects.bulk_create(device_roles)
+        DeviceRole.objects.bulk_create(roles)
 
         platforms = (
             Platform(name='Platform 1', slug='platform-1'),
@@ -1576,9 +1647,9 @@ class DeviceTestCase(TestCase, ChangeLoggedFilterSetTests):
         Tenant.objects.bulk_create(tenants)
 
         devices = (
-            Device(name='Device 1', device_type=device_types[0], device_role=device_roles[0], platform=platforms[0], tenant=tenants[0], serial='ABC', asset_tag='1001', site=sites[0], location=locations[0], rack=racks[0], position=1, face=DeviceFaceChoices.FACE_FRONT, status=DeviceStatusChoices.STATUS_ACTIVE, cluster=clusters[0], local_context_data={"foo": 123}),
-            Device(name='Device 2', device_type=device_types[1], device_role=device_roles[1], platform=platforms[1], tenant=tenants[1], serial='DEF', asset_tag='1002', site=sites[1], location=locations[1], rack=racks[1], position=2, face=DeviceFaceChoices.FACE_FRONT, status=DeviceStatusChoices.STATUS_STAGED, airflow=DeviceAirflowChoices.AIRFLOW_FRONT_TO_REAR, cluster=clusters[1]),
-            Device(name='Device 3', device_type=device_types[2], device_role=device_roles[2], platform=platforms[2], tenant=tenants[2], serial='GHI', asset_tag='1003', site=sites[2], location=locations[2], rack=racks[2], position=3, face=DeviceFaceChoices.FACE_REAR, status=DeviceStatusChoices.STATUS_FAILED, airflow=DeviceAirflowChoices.AIRFLOW_REAR_TO_FRONT, cluster=clusters[2]),
+            Device(name='Device 1', device_type=device_types[0], role=roles[0], platform=platforms[0], tenant=tenants[0], serial='ABC', asset_tag='1001', site=sites[0], location=locations[0], rack=racks[0], position=1, face=DeviceFaceChoices.FACE_FRONT, latitude=10, longitude=10, status=DeviceStatusChoices.STATUS_ACTIVE, cluster=clusters[0], local_context_data={"foo": 123}),
+            Device(name='Device 2', device_type=device_types[1], role=roles[1], platform=platforms[1], tenant=tenants[1], serial='DEF', asset_tag='1002', site=sites[1], location=locations[1], rack=racks[1], position=2, face=DeviceFaceChoices.FACE_FRONT, latitude=20, longitude=20, status=DeviceStatusChoices.STATUS_STAGED, airflow=DeviceAirflowChoices.AIRFLOW_FRONT_TO_REAR, cluster=clusters[1]),
+            Device(name='Device 3', device_type=device_types[2], role=roles[2], platform=platforms[2], tenant=tenants[2], serial='GHI', asset_tag='1003', site=sites[2], location=locations[2], rack=racks[2], position=3, face=DeviceFaceChoices.FACE_REAR, latitude=30, longitude=30, status=DeviceStatusChoices.STATUS_FAILED, airflow=DeviceAirflowChoices.AIRFLOW_REAR_TO_FRONT, cluster=clusters[2]),
         )
         Device.objects.bulk_create(devices)
 
@@ -1659,6 +1730,14 @@ class DeviceTestCase(TestCase, ChangeLoggedFilterSetTests):
         params = {'position': [1, 2]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
+    def test_latitude(self):
+        params = {'latitude': [10, 20]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_longitude(self):
+        params = {'longitude': [10, 20]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
     def test_vc_position(self):
         params = {'vc_position': [1, 2]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
@@ -1682,10 +1761,10 @@ class DeviceTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
     def test_devicerole(self):
-        device_roles = DeviceRole.objects.all()[:2]
-        params = {'role_id': [device_roles[0].pk, device_roles[1].pk]}
+        roles = DeviceRole.objects.all()[:2]
+        params = {'role_id': [roles[0].pk, roles[1].pk]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
-        params = {'role': [device_roles[0].slug, device_roles[1].slug]}
+        params = {'role': [roles[0].slug, roles[1].slug]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
     def test_platform(self):
@@ -1949,7 +2028,7 @@ class ModuleTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
 
-class ConsolePortTestCase(TestCase, ChangeLoggedFilterSetTests):
+class ConsolePortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = ConsolePort.objects.all()
     filterset = ConsolePortFilterSet
 
@@ -1978,10 +2057,23 @@ class ConsolePortTestCase(TestCase, ChangeLoggedFilterSetTests):
             Site(name='Site 3', slug='site-3', region=regions[2], group=groups[2]),
             Site(name='Site X', slug='site-x'),
         ))
+
         manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
-        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1')
+        device_types = (
+            DeviceType(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 2', slug='device-type-2'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 3', slug='device-type-3'),
+        )
+        DeviceType.objects.bulk_create(device_types)
+
         module_type = ModuleType.objects.create(manufacturer=manufacturer, model='Module Type 1')
-        device_role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+
+        roles = (
+            DeviceRole(name='Device Role 1', slug='device-role-1'),
+            DeviceRole(name='Device Role 2', slug='device-role-2'),
+            DeviceRole(name='Device Role 3', slug='device-role-3'),
+        )
+        DeviceRole.objects.bulk_create(roles)
 
         locations = (
             Location(name='Location 1', slug='location-1', site=sites[0]),
@@ -1999,10 +2091,10 @@ class ConsolePortTestCase(TestCase, ChangeLoggedFilterSetTests):
         Rack.objects.bulk_create(racks)
 
         devices = (
-            Device(name='Device 1', device_type=device_type, device_role=device_role, site=sites[0], location=locations[0], rack=racks[0]),
-            Device(name='Device 2', device_type=device_type, device_role=device_role, site=sites[1], location=locations[1], rack=racks[1]),
-            Device(name='Device 3', device_type=device_type, device_role=device_role, site=sites[2], location=locations[2], rack=racks[2]),
-            Device(name=None, device_type=device_type, device_role=device_role, site=sites[3]),  # For cable connections
+            Device(name='Device 1', device_type=device_types[0], role=roles[0], site=sites[0], location=locations[0], rack=racks[0]),
+            Device(name='Device 2', device_type=device_types[1], role=roles[1], site=sites[1], location=locations[1], rack=racks[1]),
+            Device(name='Device 3', device_type=device_types[2], role=roles[2], site=sites[2], location=locations[2], rack=racks[2]),
+            Device(name=None, device_type=device_types[0], role=roles[0], site=sites[3]),  # For cable connections
         )
         Device.objects.bulk_create(devices)
 
@@ -2116,7 +2208,7 @@ class ConsolePortTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
 
 
-class ConsoleServerPortTestCase(TestCase, ChangeLoggedFilterSetTests):
+class ConsoleServerPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = ConsoleServerPort.objects.all()
     filterset = ConsoleServerPortFilterSet
 
@@ -2145,10 +2237,23 @@ class ConsoleServerPortTestCase(TestCase, ChangeLoggedFilterSetTests):
             Site(name='Site 3', slug='site-3', region=regions[2], group=groups[2]),
             Site(name='Site X', slug='site-x'),
         ))
+
         manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
-        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1')
+        device_types = (
+            DeviceType(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 2', slug='device-type-2'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 3', slug='device-type-3'),
+        )
+        DeviceType.objects.bulk_create(device_types)
+
         module_type = ModuleType.objects.create(manufacturer=manufacturer, model='Module Type 1')
-        device_role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+
+        roles = (
+            DeviceRole(name='Device Role 1', slug='device-role-1'),
+            DeviceRole(name='Device Role 2', slug='device-role-2'),
+            DeviceRole(name='Device Role 3', slug='device-role-3'),
+        )
+        DeviceRole.objects.bulk_create(roles)
 
         locations = (
             Location(name='Location 1', slug='location-1', site=sites[0]),
@@ -2166,10 +2271,10 @@ class ConsoleServerPortTestCase(TestCase, ChangeLoggedFilterSetTests):
         Rack.objects.bulk_create(racks)
 
         devices = (
-            Device(name='Device 1', device_type=device_type, device_role=device_role, site=sites[0], location=locations[0], rack=racks[0]),
-            Device(name='Device 2', device_type=device_type, device_role=device_role, site=sites[1], location=locations[1], rack=racks[1]),
-            Device(name='Device 3', device_type=device_type, device_role=device_role, site=sites[2], location=locations[2], rack=racks[2]),
-            Device(name=None, device_type=device_type, device_role=device_role, site=sites[3]),  # For cable connections
+            Device(name='Device 1', device_type=device_types[0], role=roles[0], site=sites[0], location=locations[0], rack=racks[0]),
+            Device(name='Device 2', device_type=device_types[1], role=roles[1], site=sites[1], location=locations[1], rack=racks[1]),
+            Device(name='Device 3', device_type=device_types[2], role=roles[2], site=sites[2], location=locations[2], rack=racks[2]),
+            Device(name=None, device_type=device_types[2], role=roles[2], site=sites[3]),  # For cable connections
         )
         Device.objects.bulk_create(devices)
 
@@ -2283,7 +2388,7 @@ class ConsoleServerPortTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
 
 
-class PowerPortTestCase(TestCase, ChangeLoggedFilterSetTests):
+class PowerPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = PowerPort.objects.all()
     filterset = PowerPortFilterSet
 
@@ -2312,10 +2417,23 @@ class PowerPortTestCase(TestCase, ChangeLoggedFilterSetTests):
             Site(name='Site 3', slug='site-3', region=regions[2], group=groups[2]),
             Site(name='Site X', slug='site-x'),
         ))
+
         manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
-        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1')
+        device_types = (
+            DeviceType(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 2', slug='device-type-2'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 3', slug='device-type-3'),
+        )
+        DeviceType.objects.bulk_create(device_types)
+
         module_type = ModuleType.objects.create(manufacturer=manufacturer, model='Module Type 1')
-        device_role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+
+        roles = (
+            DeviceRole(name='Device Role 1', slug='device-role-1'),
+            DeviceRole(name='Device Role 2', slug='device-role-2'),
+            DeviceRole(name='Device Role 3', slug='device-role-3'),
+        )
+        DeviceRole.objects.bulk_create(roles)
 
         locations = (
             Location(name='Location 1', slug='location-1', site=sites[0]),
@@ -2333,10 +2451,10 @@ class PowerPortTestCase(TestCase, ChangeLoggedFilterSetTests):
         Rack.objects.bulk_create(racks)
 
         devices = (
-            Device(name='Device 1', device_type=device_type, device_role=device_role, site=sites[0], location=locations[0], rack=racks[0]),
-            Device(name='Device 2', device_type=device_type, device_role=device_role, site=sites[1], location=locations[1], rack=racks[1]),
-            Device(name='Device 3', device_type=device_type, device_role=device_role, site=sites[2], location=locations[2], rack=racks[2]),
-            Device(name=None, device_type=device_type, device_role=device_role, site=sites[3]),  # For cable connections
+            Device(name='Device 1', device_type=device_types[0], role=roles[0], site=sites[0], location=locations[0], rack=racks[0]),
+            Device(name='Device 2', device_type=device_types[1], role=roles[1], site=sites[1], location=locations[1], rack=racks[1]),
+            Device(name='Device 3', device_type=device_types[2], role=roles[2], site=sites[2], location=locations[2], rack=racks[2]),
+            Device(name=None, device_type=device_types[2], role=roles[2], site=sites[3]),  # For cable connections
         )
         Device.objects.bulk_create(devices)
 
@@ -2458,7 +2576,7 @@ class PowerPortTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
 
 
-class PowerOutletTestCase(TestCase, ChangeLoggedFilterSetTests):
+class PowerOutletTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = PowerOutlet.objects.all()
     filterset = PowerOutletFilterSet
 
@@ -2487,10 +2605,23 @@ class PowerOutletTestCase(TestCase, ChangeLoggedFilterSetTests):
             Site(name='Site 3', slug='site-3', region=regions[2], group=groups[2]),
             Site(name='Site X', slug='site-x'),
         ))
+
         manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
-        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1')
+        device_types = (
+            DeviceType(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 2', slug='device-type-2'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 3', slug='device-type-3'),
+        )
+        DeviceType.objects.bulk_create(device_types)
+
         module_type = ModuleType.objects.create(manufacturer=manufacturer, model='Module Type 1')
-        device_role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+
+        roles = (
+            DeviceRole(name='Device Role 1', slug='device-role-1'),
+            DeviceRole(name='Device Role 2', slug='device-role-2'),
+            DeviceRole(name='Device Role 3', slug='device-role-3'),
+        )
+        DeviceRole.objects.bulk_create(roles)
 
         locations = (
             Location(name='Location 1', slug='location-1', site=sites[0]),
@@ -2508,10 +2639,10 @@ class PowerOutletTestCase(TestCase, ChangeLoggedFilterSetTests):
         Rack.objects.bulk_create(racks)
 
         devices = (
-            Device(name='Device 1', device_type=device_type, device_role=device_role, site=sites[0], location=locations[0], rack=racks[0]),
-            Device(name='Device 2', device_type=device_type, device_role=device_role, site=sites[1], location=locations[1], rack=racks[1]),
-            Device(name='Device 3', device_type=device_type, device_role=device_role, site=sites[2], location=locations[2], rack=racks[2]),
-            Device(name=None, device_type=device_type, device_role=device_role, site=sites[3]),  # For cable connections
+            Device(name='Device 1', device_type=device_types[0], role=roles[0], site=sites[0], location=locations[0], rack=racks[0]),
+            Device(name='Device 2', device_type=device_types[1], role=roles[1], site=sites[1], location=locations[1], rack=racks[1]),
+            Device(name='Device 3', device_type=device_types[2], role=roles[2], site=sites[2], location=locations[2], rack=racks[2]),
+            Device(name=None, device_type=device_types[2], role=roles[2], site=sites[3]),  # For cable connections
         )
         Device.objects.bulk_create(devices)
 
@@ -2629,7 +2760,7 @@ class PowerOutletTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
 
 
-class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
+class InterfaceTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = Interface.objects.all()
     filterset = InterfaceFilterSet
 
@@ -2658,10 +2789,23 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
             Site(name='Site 3', slug='site-3', region=regions[2], group=groups[2]),
             Site(name='Site X', slug='site-x'),
         ))
+
         manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
-        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1')
+        device_types = (
+            DeviceType(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 2', slug='device-type-2'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 3', slug='device-type-3'),
+        )
+        DeviceType.objects.bulk_create(device_types)
+
         module_type = ModuleType.objects.create(manufacturer=manufacturer, model='Module Type 1')
-        device_role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+
+        roles = (
+            DeviceRole(name='Device Role 1', slug='device-role-1'),
+            DeviceRole(name='Device Role 2', slug='device-role-2'),
+            DeviceRole(name='Device Role 3', slug='device-role-3'),
+        )
+        DeviceRole.objects.bulk_create(roles)
 
         locations = (
             Location(name='Location 1', slug='location-1', site=sites[0]),
@@ -2678,11 +2822,56 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
         )
         Rack.objects.bulk_create(racks)
 
+        # VirtualChassis assignment for filtering
+        virtual_chassis = VirtualChassis(name='Virtual Chassis')
+        virtual_chassis.save()
+
         devices = (
-            Device(name='Device 1', device_type=device_type, device_role=device_role, site=sites[0], location=locations[0], rack=racks[0]),
-            Device(name='Device 2', device_type=device_type, device_role=device_role, site=sites[1], location=locations[1], rack=racks[1]),
-            Device(name='Device 3', device_type=device_type, device_role=device_role, site=sites[2], location=locations[2], rack=racks[2]),
-            Device(name=None, device_type=device_type, device_role=device_role, site=sites[3]),  # For cable connections
+            Device(
+                name='Device 1A',
+                device_type=device_types[0],
+                role=roles[0],
+                site=sites[0],
+                location=locations[0],
+                rack=racks[0],
+                virtual_chassis=virtual_chassis,
+                vc_position=1,
+                vc_priority=1
+            ),
+            Device(
+                name='Device 1B',
+                device_type=device_types[2],
+                role=roles[2],
+                site=sites[2],
+                location=locations[2],
+                rack=racks[2],
+                virtual_chassis=virtual_chassis,
+                vc_position=2,
+                vc_priority=1
+            ),
+            Device(
+                name='Device 2',
+                device_type=device_types[1],
+                role=roles[1],
+                site=sites[1],
+                location=locations[1],
+                rack=racks[1]
+            ),
+            Device(
+                name='Device 3',
+                device_type=device_types[2],
+                role=roles[2],
+                site=sites[2],
+                location=locations[2],
+                rack=racks[2]
+            ),
+            # For cable connections
+            Device(
+                name=None,
+                device_type=device_types[2],
+                role=roles[2],
+                site=sites[3]
+            ),
         )
         Device.objects.bulk_create(devices)
 
@@ -2690,6 +2879,7 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
             ModuleBay(device=devices[0], name='Module Bay 1'),
             ModuleBay(device=devices[1], name='Module Bay 2'),
             ModuleBay(device=devices[2], name='Module Bay 3'),
+            ModuleBay(device=devices[3], name='Module Bay 4'),
         )
         ModuleBay.objects.bulk_create(module_bays)
 
@@ -2697,6 +2887,7 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
             Module(device=devices[0], module_bay=module_bays[0], module_type=module_type),
             Module(device=devices[1], module_bay=module_bays[1], module_type=module_type),
             Module(device=devices[2], module_bay=module_bays[2], module_type=module_type),
+            Module(device=devices[3], module_bay=module_bays[3], module_type=module_type),
         )
         Module.objects.bulk_create(modules)
 
@@ -2709,15 +2900,10 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
 
         # Virtual Device Context Creation
         vdcs = (
-            VirtualDeviceContext(device=devices[3], name='VDC 1', identifier=1, status=VirtualDeviceContextStatusChoices.STATUS_ACTIVE),
-            VirtualDeviceContext(device=devices[3], name='VDC 2', identifier=2, status=VirtualDeviceContextStatusChoices.STATUS_PLANNED),
+            VirtualDeviceContext(device=devices[4], name='VDC 1', identifier=1, status=VirtualDeviceContextStatusChoices.STATUS_ACTIVE),
+            VirtualDeviceContext(device=devices[4], name='VDC 2', identifier=2, status=VirtualDeviceContextStatusChoices.STATUS_PLANNED),
         )
         VirtualDeviceContext.objects.bulk_create(vdcs)
-
-        # VirtualChassis assignment for filtering
-        virtual_chassis = VirtualChassis.objects.create(master=devices[0])
-        Device.objects.filter(pk=devices[0].pk).update(virtual_chassis=virtual_chassis, vc_position=1, vc_priority=1)
-        Device.objects.filter(pk=devices[1].pk).update(virtual_chassis=virtual_chassis, vc_position=2, vc_priority=2)
 
         interfaces = (
             Interface(
@@ -2741,6 +2927,13 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
             Interface(
                 device=devices[1],
                 module=modules[1],
+                name='VC Chassis Interface',
+                type=InterfaceTypeChoices.TYPE_1GE_SFP,
+                enabled=True
+            ),
+            Interface(
+                device=devices[2],
+                module=modules[2],
                 name='Interface 2',
                 label='B',
                 type=InterfaceTypeChoices.TYPE_1GE_GBIC,
@@ -2757,8 +2950,8 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
                 poe_type=InterfacePoETypeChoices.TYPE_1_8023AF
             ),
             Interface(
-                device=devices[2],
-                module=modules[2],
+                device=devices[3],
+                module=modules[3],
                 name='Interface 3',
                 label='C',
                 type=InterfaceTypeChoices.TYPE_1GE_FIXED,
@@ -2775,7 +2968,7 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
                 poe_type=InterfacePoETypeChoices.TYPE_2_8023AT
             ),
             Interface(
-                device=devices[3],
+                device=devices[4],
                 name='Interface 4',
                 label='D',
                 type=InterfaceTypeChoices.TYPE_OTHER,
@@ -2788,7 +2981,7 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
                 poe_type=InterfacePoETypeChoices.TYPE_2_8023AT
             ),
             Interface(
-                device=devices[3],
+                device=devices[4],
                 name='Interface 5',
                 label='E',
                 type=InterfaceTypeChoices.TYPE_OTHER,
@@ -2797,7 +2990,7 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
                 tx_power=40
             ),
             Interface(
-                device=devices[3],
+                device=devices[4],
                 name='Interface 6',
                 label='F',
                 type=InterfaceTypeChoices.TYPE_OTHER,
@@ -2806,7 +2999,7 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
                 tx_power=40
             ),
             Interface(
-                device=devices[3],
+                device=devices[4],
                 name='Interface 7',
                 type=InterfaceTypeChoices.TYPE_80211AC,
                 rf_role=WirelessRoleChoices.ROLE_AP,
@@ -2815,7 +3008,7 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
                 rf_channel_width=22
             ),
             Interface(
-                device=devices[3],
+                device=devices[4],
                 name='Interface 8',
                 type=InterfaceTypeChoices.TYPE_80211AC,
                 rf_role=WirelessRoleChoices.ROLE_STATION,
@@ -2833,8 +3026,8 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
         interfaces[7].vdcs.set([vdcs[1]])
 
         # Cables
-        Cable(a_terminations=[interfaces[0]], b_terminations=[interfaces[3]]).save()
-        Cable(a_terminations=[interfaces[1]], b_terminations=[interfaces[4]]).save()
+        Cable(a_terminations=[interfaces[0]], b_terminations=[interfaces[5]]).save()
+        Cable(a_terminations=[interfaces[1]], b_terminations=[interfaces[6]]).save()
         # Third pair is not connected
 
     def test_name(self):
@@ -2847,7 +3040,7 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
 
     def test_enabled(self):
         params = {'enabled': 'true'}
-        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 6)
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 7)
         params = {'enabled': 'false'}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
@@ -2867,7 +3060,7 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
         params = {'mgmt_only': 'true'}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
         params = {'mgmt_only': 'false'}
-        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 5)
 
     def test_poe_mode(self):
         params = {'poe_mode': [InterfacePoEModeChoices.MODE_PD, InterfacePoEModeChoices.MODE_PSE]}
@@ -2972,6 +3165,14 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
         params = {'device': [devices[0].name, devices[1].name]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
+    def test_virtual_chassis_member(self):
+        # Device 1A & 3 have 1 management interface, Device 1B has 1 interfaces
+        devices = Device.objects.filter(name__in=['Device 1A', 'Device 3'])
+        params = {'virtual_chassis_member_id': [devices[0].pk, devices[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+        params = {'virtual_chassis_member': [devices[0].name, devices[1].name]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+
     def test_module(self):
         modules = Module.objects.all()[:2]
         params = {'module_id': [modules[0].pk, modules[1].pk]}
@@ -2981,23 +3182,23 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
         params = {'cabled': True}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
         params = {'cabled': False}
-        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 5)
 
     def test_occupied(self):
         params = {'occupied': True}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
         params = {'occupied': False}
-        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 5)
 
     def test_connected(self):
         params = {'connected': True}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
         params = {'connected': False}
-        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 5)
 
     def test_kind(self):
         params = {'kind': 'physical'}
-        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 6)
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 7)
         params = {'kind': 'virtual'}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 0)
 
@@ -3052,7 +3253,7 @@ class InterfaceTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
 
 
-class FrontPortTestCase(TestCase, ChangeLoggedFilterSetTests):
+class FrontPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = FrontPort.objects.all()
     filterset = FrontPortFilterSet
 
@@ -3081,10 +3282,23 @@ class FrontPortTestCase(TestCase, ChangeLoggedFilterSetTests):
             Site(name='Site 3', slug='site-3', region=regions[2], group=groups[2]),
             Site(name='Site X', slug='site-x'),
         ))
+
         manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
-        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1')
+        device_types = (
+            DeviceType(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 2', slug='device-type-2'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 3', slug='device-type-3'),
+        )
+        DeviceType.objects.bulk_create(device_types)
+
         module_type = ModuleType.objects.create(manufacturer=manufacturer, model='Module Type 1')
-        device_role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+
+        roles = (
+            DeviceRole(name='Device Role 1', slug='device-role-1'),
+            DeviceRole(name='Device Role 2', slug='device-role-2'),
+            DeviceRole(name='Device Role 3', slug='device-role-3'),
+        )
+        DeviceRole.objects.bulk_create(roles)
 
         locations = (
             Location(name='Location 1', slug='location-1', site=sites[0]),
@@ -3102,10 +3316,10 @@ class FrontPortTestCase(TestCase, ChangeLoggedFilterSetTests):
         Rack.objects.bulk_create(racks)
 
         devices = (
-            Device(name='Device 1', device_type=device_type, device_role=device_role, site=sites[0], location=locations[0], rack=racks[0]),
-            Device(name='Device 2', device_type=device_type, device_role=device_role, site=sites[1], location=locations[1], rack=racks[1]),
-            Device(name='Device 3', device_type=device_type, device_role=device_role, site=sites[2], location=locations[2], rack=racks[2]),
-            Device(name=None, device_type=device_type, device_role=device_role, site=sites[3]),  # For cable connections
+            Device(name='Device 1', device_type=device_types[0], role=roles[0], site=sites[0], location=locations[0], rack=racks[0]),
+            Device(name='Device 2', device_type=device_types[1], role=roles[1], site=sites[1], location=locations[1], rack=racks[1]),
+            Device(name='Device 3', device_type=device_types[2], role=roles[2], site=sites[2], location=locations[2], rack=racks[2]),
+            Device(name=None, device_type=device_types[2], role=roles[2], site=sites[3]),  # For cable connections
         )
         Device.objects.bulk_create(devices)
 
@@ -3228,7 +3442,7 @@ class FrontPortTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
 
-class RearPortTestCase(TestCase, ChangeLoggedFilterSetTests):
+class RearPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = RearPort.objects.all()
     filterset = RearPortFilterSet
 
@@ -3257,10 +3471,23 @@ class RearPortTestCase(TestCase, ChangeLoggedFilterSetTests):
             Site(name='Site 3', slug='site-3', region=regions[2], group=groups[2]),
             Site(name='Site X', slug='site-x'),
         ))
+
         manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
-        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1')
+        device_types = (
+            DeviceType(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 2', slug='device-type-2'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 3', slug='device-type-3'),
+        )
+        DeviceType.objects.bulk_create(device_types)
+
         module_type = ModuleType.objects.create(manufacturer=manufacturer, model='Module Type 1')
-        device_role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+
+        roles = (
+            DeviceRole(name='Device Role 1', slug='device-role-1'),
+            DeviceRole(name='Device Role 2', slug='device-role-2'),
+            DeviceRole(name='Device Role 3', slug='device-role-3'),
+        )
+        DeviceRole.objects.bulk_create(roles)
 
         locations = (
             Location(name='Location 1', slug='location-1', site=sites[0]),
@@ -3278,10 +3505,10 @@ class RearPortTestCase(TestCase, ChangeLoggedFilterSetTests):
         Rack.objects.bulk_create(racks)
 
         devices = (
-            Device(name='Device 1', device_type=device_type, device_role=device_role, site=sites[0], location=locations[0], rack=racks[0]),
-            Device(name='Device 2', device_type=device_type, device_role=device_role, site=sites[1], location=locations[1], rack=racks[1]),
-            Device(name='Device 3', device_type=device_type, device_role=device_role, site=sites[2], location=locations[2], rack=racks[2]),
-            Device(name=None, device_type=device_type, device_role=device_role, site=sites[3]),  # For cable connections
+            Device(name='Device 1', device_type=device_types[0], role=roles[0], site=sites[0], location=locations[0], rack=racks[0]),
+            Device(name='Device 2', device_type=device_types[1], role=roles[1], site=sites[1], location=locations[1], rack=racks[1]),
+            Device(name='Device 3', device_type=device_types[2], role=roles[2], site=sites[2], location=locations[2], rack=racks[2]),
+            Device(name=None, device_type=device_types[2], role=roles[2], site=sites[3]),  # For cable connections
         )
         Device.objects.bulk_create(devices)
 
@@ -3398,7 +3625,7 @@ class RearPortTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
 
-class ModuleBayTestCase(TestCase, ChangeLoggedFilterSetTests):
+class ModuleBayTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = ModuleBay.objects.all()
     filterset = ModuleBayFilterSet
 
@@ -3427,9 +3654,21 @@ class ModuleBayTestCase(TestCase, ChangeLoggedFilterSetTests):
             Site(name='Site 3', slug='site-3', region=regions[2], group=groups[2]),
             Site(name='Site X', slug='site-x'),
         ))
+
         manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
-        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='Model 1', slug='model-1')
-        device_role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+        device_types = (
+            DeviceType(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 2', slug='device-type-2'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 3', slug='device-type-3'),
+        )
+        DeviceType.objects.bulk_create(device_types)
+
+        roles = (
+            DeviceRole(name='Device Role 1', slug='device-role-1'),
+            DeviceRole(name='Device Role 2', slug='device-role-2'),
+            DeviceRole(name='Device Role 3', slug='device-role-3'),
+        )
+        DeviceRole.objects.bulk_create(roles)
 
         locations = (
             Location(name='Location 1', slug='location-1', site=sites[0]),
@@ -3447,9 +3686,9 @@ class ModuleBayTestCase(TestCase, ChangeLoggedFilterSetTests):
         Rack.objects.bulk_create(racks)
 
         devices = (
-            Device(name='Device 1', device_type=device_type, device_role=device_role, site=sites[0], location=locations[0], rack=racks[0]),
-            Device(name='Device 2', device_type=device_type, device_role=device_role, site=sites[1], location=locations[1], rack=racks[1]),
-            Device(name='Device 3', device_type=device_type, device_role=device_role, site=sites[2], location=locations[2], rack=racks[2]),
+            Device(name='Device 1', device_type=device_types[0], role=roles[0], site=sites[0], location=locations[0], rack=racks[0]),
+            Device(name='Device 2', device_type=device_types[1], role=roles[1], site=sites[1], location=locations[1], rack=racks[1]),
+            Device(name='Device 3', device_type=device_types[2], role=roles[2], site=sites[2], location=locations[2], rack=racks[2]),
         )
         Device.objects.bulk_create(devices)
 
@@ -3515,7 +3754,7 @@ class ModuleBayTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
 
-class DeviceBayTestCase(TestCase, ChangeLoggedFilterSetTests):
+class DeviceBayTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = DeviceBay.objects.all()
     filterset = DeviceBayFilterSet
 
@@ -3544,9 +3783,21 @@ class DeviceBayTestCase(TestCase, ChangeLoggedFilterSetTests):
             Site(name='Site 3', slug='site-3', region=regions[2], group=groups[2]),
             Site(name='Site X', slug='site-x'),
         ))
+
         manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
-        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='Model 1', slug='model-1')
-        device_role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+        device_types = (
+            DeviceType(manufacturer=manufacturer, model='Device Type 1', slug='device-type-1'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 2', slug='device-type-2'),
+            DeviceType(manufacturer=manufacturer, model='Device Type 3', slug='device-type-3'),
+        )
+        DeviceType.objects.bulk_create(device_types)
+
+        roles = (
+            DeviceRole(name='Device Role 1', slug='device-role-1'),
+            DeviceRole(name='Device Role 2', slug='device-role-2'),
+            DeviceRole(name='Device Role 3', slug='device-role-3'),
+        )
+        DeviceRole.objects.bulk_create(roles)
 
         locations = (
             Location(name='Location 1', slug='location-1', site=sites[0]),
@@ -3564,9 +3815,9 @@ class DeviceBayTestCase(TestCase, ChangeLoggedFilterSetTests):
         Rack.objects.bulk_create(racks)
 
         devices = (
-            Device(name='Device 1', device_type=device_type, device_role=device_role, site=sites[0], location=locations[0], rack=racks[0]),
-            Device(name='Device 2', device_type=device_type, device_role=device_role, site=sites[1], location=locations[1], rack=racks[1]),
-            Device(name='Device 3', device_type=device_type, device_role=device_role, site=sites[2], location=locations[2], rack=racks[2]),
+            Device(name='Device 1', device_type=device_types[0], role=roles[0], site=sites[0], location=locations[0], rack=racks[0]),
+            Device(name='Device 2', device_type=device_types[1], role=roles[1], site=sites[1], location=locations[1], rack=racks[1]),
+            Device(name='Device 3', device_type=device_types[2], role=roles[2], site=sites[2], location=locations[2], rack=racks[2]),
         )
         Device.objects.bulk_create(devices)
 
@@ -3645,8 +3896,19 @@ class InventoryItemTestCase(TestCase, ChangeLoggedFilterSetTests):
         )
         Manufacturer.objects.bulk_create(manufacturers)
 
-        device_type = DeviceType.objects.create(manufacturer=manufacturers[0], model='Model 1', slug='model-1')
-        device_role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+        device_types = (
+            DeviceType(manufacturer=manufacturers[0], model='Device Type 1', slug='device-type-1'),
+            DeviceType(manufacturer=manufacturers[0], model='Device Type 2', slug='device-type-2'),
+            DeviceType(manufacturer=manufacturers[0], model='Device Type 3', slug='device-type-3'),
+        )
+        DeviceType.objects.bulk_create(device_types)
+
+        roles = (
+            DeviceRole(name='Device Role 1', slug='device-role-1'),
+            DeviceRole(name='Device Role 2', slug='device-role-2'),
+            DeviceRole(name='Device Role 3', slug='device-role-3'),
+        )
+        DeviceRole.objects.bulk_create(roles)
 
         regions = (
             Region(name='Region 1', slug='region-1'),
@@ -3687,9 +3949,9 @@ class InventoryItemTestCase(TestCase, ChangeLoggedFilterSetTests):
         Rack.objects.bulk_create(racks)
 
         devices = (
-            Device(name='Device 1', device_type=device_type, device_role=device_role, site=sites[0], location=locations[0], rack=racks[0]),
-            Device(name='Device 2', device_type=device_type, device_role=device_role, site=sites[1], location=locations[1], rack=racks[1]),
-            Device(name='Device 3', device_type=device_type, device_role=device_role, site=sites[2], location=locations[2], rack=racks[2]),
+            Device(name='Device 1', device_type=device_types[0], role=roles[0], site=sites[0], location=locations[0], rack=racks[0]),
+            Device(name='Device 2', device_type=device_types[1], role=roles[1], site=sites[1], location=locations[1], rack=racks[1]),
+            Device(name='Device 3', device_type=device_types[2], role=roles[2], site=sites[2], location=locations[2], rack=racks[2]),
         )
         Device.objects.bulk_create(devices)
 
@@ -3780,6 +4042,20 @@ class InventoryItemTestCase(TestCase, ChangeLoggedFilterSetTests):
         params = {'rack': [racks[0].name, racks[1].name]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
 
+    def test_device_type(self):
+        device_types = DeviceType.objects.all()[:2]
+        params = {'device_type_id': [device_types[0].pk, device_types[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
+        params = {'device_type': [device_types[0].model, device_types[1].model]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
+
+    def test_role(self):
+        role = DeviceRole.objects.all()[:2]
+        params = {'role_id': [role[0].pk, role[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
+        params = {'role': [role[0].slug, role[1].slug]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
+
     def test_device(self):
         devices = Device.objects.all()[:2]
         params = {'device_id': [devices[0].pk, devices[1].pk]}
@@ -3853,7 +4129,7 @@ class VirtualChassisTestCase(TestCase, ChangeLoggedFilterSetTests):
 
         manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
         device_type = DeviceType.objects.create(manufacturer=manufacturer, model='Model 1', slug='model-1')
-        device_role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+        role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
 
         regions = (
             Region(name='Region 1', slug='region-1'),
@@ -3879,12 +4155,12 @@ class VirtualChassisTestCase(TestCase, ChangeLoggedFilterSetTests):
         Site.objects.bulk_create(sites)
 
         devices = (
-            Device(name='Device 1', device_type=device_type, device_role=device_role, site=sites[0], vc_position=1),
-            Device(name='Device 2', device_type=device_type, device_role=device_role, site=sites[0], vc_position=2),
-            Device(name='Device 3', device_type=device_type, device_role=device_role, site=sites[1], vc_position=1),
-            Device(name='Device 4', device_type=device_type, device_role=device_role, site=sites[1], vc_position=2),
-            Device(name='Device 5', device_type=device_type, device_role=device_role, site=sites[2], vc_position=1),
-            Device(name='Device 6', device_type=device_type, device_role=device_role, site=sites[2], vc_position=2),
+            Device(name='Device 1', device_type=device_type, role=role, site=sites[0], vc_position=1),
+            Device(name='Device 2', device_type=device_type, role=role, site=sites[0], vc_position=2),
+            Device(name='Device 3', device_type=device_type, role=role, site=sites[1], vc_position=1),
+            Device(name='Device 4', device_type=device_type, role=role, site=sites[1], vc_position=2),
+            Device(name='Device 5', device_type=device_type, role=role, site=sites[2], vc_position=1),
+            Device(name='Device 6', device_type=device_type, role=role, site=sites[2], vc_position=2),
         )
         Device.objects.bulk_create(devices)
 
@@ -3974,15 +4250,15 @@ class CableTestCase(TestCase, ChangeLoggedFilterSetTests):
 
         manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
         device_type = DeviceType.objects.create(manufacturer=manufacturer, model='Model 1', slug='model-1')
-        device_role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+        role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
 
         devices = (
-            Device(name='Device 1', device_type=device_type, device_role=device_role, site=sites[0], rack=racks[0], location=locations[0], position=1),
-            Device(name='Device 2', device_type=device_type, device_role=device_role, site=sites[0], rack=racks[0], location=locations[0], position=2),
-            Device(name='Device 3', device_type=device_type, device_role=device_role, site=sites[1], rack=racks[1], location=locations[1], position=1),
-            Device(name='Device 4', device_type=device_type, device_role=device_role, site=sites[1], rack=racks[1], location=locations[1], position=2),
-            Device(name='Device 5', device_type=device_type, device_role=device_role, site=sites[2], rack=racks[2], location=locations[2], position=1),
-            Device(name='Device 6', device_type=device_type, device_role=device_role, site=sites[2], rack=racks[2], location=locations[2], position=2),
+            Device(name='Device 1', device_type=device_type, role=role, site=sites[0], rack=racks[0], location=locations[0], position=1),
+            Device(name='Device 2', device_type=device_type, role=role, site=sites[0], rack=racks[0], location=locations[0], position=2),
+            Device(name='Device 3', device_type=device_type, role=role, site=sites[1], rack=racks[1], location=locations[1], position=1),
+            Device(name='Device 4', device_type=device_type, role=role, site=sites[1], rack=racks[1], location=locations[1], position=2),
+            Device(name='Device 5', device_type=device_type, role=role, site=sites[2], rack=racks[2], location=locations[2], position=1),
+            Device(name='Device 6', device_type=device_type, role=role, site=sites[2], rack=racks[2], location=locations[2], position=2),
         )
         Device.objects.bulk_create(devices)
 
@@ -3999,6 +4275,7 @@ class CableTestCase(TestCase, ChangeLoggedFilterSetTests):
             Interface(device=devices[4], name='Interface 10', type=InterfaceTypeChoices.TYPE_1GE_FIXED),
             Interface(device=devices[5], name='Interface 11', type=InterfaceTypeChoices.TYPE_1GE_FIXED),
             Interface(device=devices[5], name='Interface 12', type=InterfaceTypeChoices.TYPE_1GE_FIXED),
+            Interface(device=devices[5], name='Interface 13', type=InterfaceTypeChoices.TYPE_1GE_FIXED),
         )
         Interface.objects.bulk_create(interfaces)
 
@@ -4013,6 +4290,9 @@ class CableTestCase(TestCase, ChangeLoggedFilterSetTests):
         Cable(a_terminations=[interfaces[9]], b_terminations=[interfaces[10]], label='Cable 5', type=CableTypeChoices.TYPE_CAT6, tenant=tenants[2], status=LinkStatusChoices.STATUS_PLANNED, color='e91e63', length=10, length_unit=CableLengthUnitChoices.UNIT_METER).save()
         Cable(a_terminations=[interfaces[11]], b_terminations=[interfaces[0]], label='Cable 6', type=CableTypeChoices.TYPE_CAT6, tenant=tenants[2], status=LinkStatusChoices.STATUS_PLANNED, color='e91e63', length=20, length_unit=CableLengthUnitChoices.UNIT_METER).save()
         Cable(a_terminations=[console_port], b_terminations=[console_server_port], label='Cable 7').save()
+
+        # Cable for unterminated test
+        Cable(a_terminations=[interfaces[12]], label='Cable 8', type=CableTypeChoices.TYPE_CAT6, status=LinkStatusChoices.STATUS_DECOMMISSIONING).save()
 
     def test_label(self):
         params = {'label': ['Cable 1', 'Cable 2']}
@@ -4091,6 +4371,12 @@ class CableTestCase(TestCase, ChangeLoggedFilterSetTests):
             'termination_a_id': list(interface_ids),
         }
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+
+    def test_unterminated(self):
+        params = {'unterminated': True}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
+        params = {'unterminated': False}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 7)
 
 
 class PowerPanelTestCase(TestCase, ChangeLoggedFilterSetTests):
@@ -4206,6 +4492,21 @@ class PowerFeedTestCase(TestCase, ChangeLoggedFilterSetTests):
         )
         Rack.objects.bulk_create(racks)
 
+        tenant_groups = (
+            TenantGroup(name='Tenant group 1', slug='tenant-group-1'),
+            TenantGroup(name='Tenant group 2', slug='tenant-group-2'),
+            TenantGroup(name='Tenant group 3', slug='tenant-group-3'),
+        )
+        for tenantgroup in tenant_groups:
+            tenantgroup.save()
+
+        tenants = (
+            Tenant(name='Tenant 1', slug='tenant-1', group=tenant_groups[0]),
+            Tenant(name='Tenant 2', slug='tenant-2', group=tenant_groups[1]),
+            Tenant(name='Tenant 3', slug='tenant-3', group=tenant_groups[2]),
+        )
+        Tenant.objects.bulk_create(tenants)
+
         power_panels = (
             PowerPanel(name='Power Panel 1', site=sites[0]),
             PowerPanel(name='Power Panel 2', site=sites[1]),
@@ -4214,16 +4515,51 @@ class PowerFeedTestCase(TestCase, ChangeLoggedFilterSetTests):
         PowerPanel.objects.bulk_create(power_panels)
 
         power_feeds = (
-            PowerFeed(power_panel=power_panels[0], rack=racks[0], name='Power Feed 1', status=PowerFeedStatusChoices.STATUS_ACTIVE, type=PowerFeedTypeChoices.TYPE_PRIMARY, supply=PowerFeedSupplyChoices.SUPPLY_AC, phase=PowerFeedPhaseChoices.PHASE_3PHASE, voltage=100, amperage=100, max_utilization=10),
-            PowerFeed(power_panel=power_panels[1], rack=racks[1], name='Power Feed 2', status=PowerFeedStatusChoices.STATUS_FAILED, type=PowerFeedTypeChoices.TYPE_PRIMARY, supply=PowerFeedSupplyChoices.SUPPLY_AC, phase=PowerFeedPhaseChoices.PHASE_3PHASE, voltage=200, amperage=200, max_utilization=20),
-            PowerFeed(power_panel=power_panels[2], rack=racks[2], name='Power Feed 3', status=PowerFeedStatusChoices.STATUS_OFFLINE, type=PowerFeedTypeChoices.TYPE_REDUNDANT, supply=PowerFeedSupplyChoices.SUPPLY_DC, phase=PowerFeedPhaseChoices.PHASE_SINGLE, voltage=300, amperage=300, max_utilization=30),
+            PowerFeed(
+                power_panel=power_panels[0],
+                rack=racks[0],
+                name='Power Feed 1',
+                tenant=tenants[0],
+                status=PowerFeedStatusChoices.STATUS_ACTIVE,
+                type=PowerFeedTypeChoices.TYPE_PRIMARY,
+                supply=PowerFeedSupplyChoices.SUPPLY_AC,
+                phase=PowerFeedPhaseChoices.PHASE_3PHASE,
+                voltage=100,
+                amperage=100,
+                max_utilization=10
+            ),
+            PowerFeed(
+                power_panel=power_panels[1],
+                rack=racks[1],
+                name='Power Feed 2',
+                tenant=tenants[1],
+                status=PowerFeedStatusChoices.STATUS_FAILED,
+                type=PowerFeedTypeChoices.TYPE_PRIMARY,
+                supply=PowerFeedSupplyChoices.SUPPLY_AC,
+                phase=PowerFeedPhaseChoices.PHASE_3PHASE,
+                voltage=200,
+                amperage=200,
+                max_utilization=20),
+            PowerFeed(
+                power_panel=power_panels[2],
+                rack=racks[2],
+                name='Power Feed 3',
+                tenant=tenants[2],
+                status=PowerFeedStatusChoices.STATUS_OFFLINE,
+                type=PowerFeedTypeChoices.TYPE_REDUNDANT,
+                supply=PowerFeedSupplyChoices.SUPPLY_DC,
+                phase=PowerFeedPhaseChoices.PHASE_SINGLE,
+                voltage=300,
+                amperage=300,
+                max_utilization=30
+            ),
         )
         PowerFeed.objects.bulk_create(power_feeds)
 
         manufacturer = Manufacturer.objects.create(name='Manufacturer', slug='manufacturer')
         device_type = DeviceType.objects.create(manufacturer=manufacturer, model='Model', slug='model')
-        device_role = DeviceRole.objects.create(name='Device Role', slug='device-role')
-        device = Device.objects.create(name='Device', device_type=device_type, device_role=device_role, site=sites[0])
+        role = DeviceRole.objects.create(name='Device Role', slug='device-role')
+        device = Device.objects.create(name='Device', device_type=device_type, role=role, site=sites[0])
         power_ports = [
             PowerPort(device=device, name='Power Port 1'),
             PowerPort(device=device, name='Power Port 2'),
@@ -4307,6 +4643,20 @@ class PowerFeedTestCase(TestCase, ChangeLoggedFilterSetTests):
         params = {'connected': False}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
 
+    def test_tenant(self):
+        tenants = Tenant.objects.all()[:2]
+        params = {'tenant_id': [tenants[0].pk, tenants[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        params = {'tenant': [tenants[0].slug, tenants[1].slug]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_tenant_group(self):
+        tenant_groups = TenantGroup.objects.all()[:2]
+        params = {'tenant_group_id': [tenant_groups[0].pk, tenant_groups[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        params = {'tenant_group': [tenant_groups[0].slug, tenant_groups[1].slug]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
 
 class VirtualDeviceContextTestCase(TestCase, ChangeLoggedFilterSetTests):
     queryset = VirtualDeviceContext.objects.all()
@@ -4331,12 +4681,12 @@ class VirtualDeviceContextTestCase(TestCase, ChangeLoggedFilterSetTests):
 
         manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
         device_type = DeviceType.objects.create(manufacturer=manufacturer, model='Model 1', slug='model-1')
-        device_role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+        role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
 
         devices = (
-            Device(name='Device 1', device_type=device_type, device_role=device_role, site=sites[0]),
-            Device(name='Device 2', device_type=device_type, device_role=device_role, site=sites[1]),
-            Device(name='Device 3', device_type=device_type, device_role=device_role, site=sites[2]),
+            Device(name='Device 1', device_type=device_type, role=role, site=sites[0]),
+            Device(name='Device 2', device_type=device_type, role=role, site=sites[1]),
+            Device(name='Device 3', device_type=device_type, role=role, site=sites[2]),
         )
         Device.objects.bulk_create(devices)
 

@@ -35,11 +35,8 @@ class MyScript(Script):
 
 The `run()` method should accept two arguments:
 
-* `data` - A dictionary containing all of the variable data passed via the web form.
+* `data` - A dictionary containing all the variable data passed via the web form.
 * `commit` - A boolean indicating whether database changes will be committed.
-
-!!! note
-    The `commit` argument was introduced in NetBox v2.7.8. Backward compatibility is maintained for scripts which accept only the `data` argument, however beginning with v2.10 NetBox will require the `run()` method of every script to accept both arguments. (Either argument may still be ignored within the method.)
 
 Defining script variables is optional: You may create a script with only a `run()` method if no user input is needed.
 
@@ -79,7 +76,22 @@ A human-friendly description of what your script does.
 
 ### `field_order`
 
-By default, script variables will be ordered in the form as they are defined in the script. `field_order` may be defined as an iterable of field names to determine the order in which variables are rendered. Any fields not included in this iterable be listed last.
+By default, script variables will be ordered in the form as they are defined in the script. `field_order` may be defined as an iterable of field names to determine the order in which variables are rendered within a default "Script Data" group. Any fields not included in this iterable be listed last. If `fieldsets` is defined, `field_order` will be ignored.  A fieldset group for "Script Execution Parameters" will be added to the end of the form by default for the user.
+
+### `fieldsets`
+
+`fieldsets` may be defined as an iterable of field groups and their field names to determine the order in which variables are group and rendered. Any fields not included in this iterable will not be displayed in the form. If `fieldsets` is defined, `field_order` will be ignored.  A fieldset group for "Script Execution Parameters" will be added to the end of the fieldsets by default for the user.
+
+An example fieldset definition is provided below:
+
+```python
+class MyScript(Script):
+    class Meta:
+        fieldsets = (
+            ('First group', ('field1', 'field2', 'field3')),
+            ('Second group', ('field4', 'field5')),
+        )
+```
 
 ### `commit_default`
 
@@ -89,11 +101,13 @@ The checkbox to commit database changes when executing a script is checked by de
 commit_default = False
 ```
 
+### `scheduling_enabled`
+
+By default, a script can be scheduled for execution at a later time. Setting `scheduling_enabled` to False disables this ability: Only immediate execution will be possible. (This also disables the ability to set a recurring execution interval.)
+
 ### `job_timeout`
 
 Set the maximum allowed runtime for the script. If not set, `RQ_DEFAULT_TIMEOUT` will be used.
-
-!!! info "This feature was introduced in v3.2.1"
 
 ## Accessing Request Data
 
@@ -274,7 +288,7 @@ An IPv4 or IPv6 network with a mask. Returns a `netaddr.IPNetwork` object. Two a
 ## Running Custom Scripts
 
 !!! note
-    To run a custom script, a user must be assigned the `extras.run_script` permission. This is achieved by assigning the user (or group) a permission on the Script object and specifying the `run` action in the admin UI as shown below.
+    To run a custom script, a user must be assigned via permissions for `Extras > Script`, `Extras > ScriptModule`, and `Core > ManagedFile` objects. They must also be assigned the `extras.run_script` permission. This is achieved by assigning the user (or group) a permission on the Script object and specifying the `run` action in the admin UI as shown below.
 
     ![Adding the run action to a permission](../media/admin_ui_run_permission.png)
 
@@ -302,7 +316,7 @@ Optionally `schedule_at` can be passed in the form data with a datetime string t
 Scripts can be run on the CLI by invoking the management command:
 
 ```
-python3 manage.py runscript [--commit] [--loglevel {debug,info,warning,error,critical}] [--data "<data>"] <module>.<script> 
+python3 manage.py runscript [--commit] [--loglevel {debug,info,warning,error,critical}] [--data "<data>"] <module>.<script>
 ```
 
 The required ``<module>.<script>`` argument is the script to run where ``<module>`` is the name of the python file in the ``scripts`` directory without the ``.py`` extension and ``<script>`` is the name of the script class in the ``<module>`` to run.
@@ -364,6 +378,7 @@ class NewBranchScript(Script):
             slug=slugify(data['site_name']),
             status=SiteStatusChoices.STATUS_PLANNED
         )
+        site.full_clean()
         site.save()
         self.log_success(f"Created new site: {site}")
 
@@ -375,8 +390,9 @@ class NewBranchScript(Script):
                 name=f'{site.slug}-switch{i}',
                 site=site,
                 status=DeviceStatusChoices.STATUS_PLANNED,
-                device_role=switch_role
+                role=switch_role
             )
+            switch.full_clean()
             switch.save()
             self.log_success(f"Created new switch: {switch}")
 

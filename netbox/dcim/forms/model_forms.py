@@ -1,21 +1,23 @@
 from django import forms
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _
 from timezone_field import TimeZoneFormField
 
 from dcim.choices import *
 from dcim.constants import *
 from dcim.models import *
+from extras.models import ConfigTemplate
 from ipam.models import ASN, IPAddress, VLAN, VLANGroup, VRF
 from netbox.forms import NetBoxModelForm
 from tenancy.forms import TenancyForm
-from utilities.forms import (
-    APISelect, add_blank_choice, BootstrapMixin, ClearableFileInput, CommentField, ContentTypeChoiceField,
-    DynamicModelChoiceField, DynamicModelMultipleChoiceField, JSONField, NumericArrayField, SelectWithPK, SmallTextarea,
-    SlugField, StaticSelect, SelectSpeedWidget,
+from utilities.forms import BootstrapMixin, add_blank_choice
+from utilities.forms.fields import (
+    CommentField, ContentTypeChoiceField, DynamicModelChoiceField, DynamicModelMultipleChoiceField, JSONField,
+    NumericArrayField, SlugField,
 )
-from virtualization.models import Cluster, ClusterGroup
+from utilities.forms.widgets import APISelect, ClearableFileInput, HTMXSelect, NumberWithOptions, SelectWithPK
+from virtualization.models import Cluster
 from wireless.models import WirelessLAN, WirelessLANGroup
 from .common import InterfaceCommonForm, ModuleCommonForm
 
@@ -65,22 +67,17 @@ __all__ = (
     'VirtualDeviceContextForm'
 )
 
-INTERFACE_MODE_HELP_TEXT = """
-Access: One untagged VLAN<br />
-Tagged: One untagged VLAN and/or one or more tagged VLANs<br />
-Tagged (All): Implies all VLANs are available (w/optional untagged VLAN)
-"""
-
 
 class RegionForm(NetBoxModelForm):
     parent = DynamicModelChoiceField(
+        label=_('Parent'),
         queryset=Region.objects.all(),
         required=False
     )
     slug = SlugField()
 
     fieldsets = (
-        ('Region', (
+        (_('Region'), (
             'parent', 'name', 'slug', 'description', 'tags',
         )),
     )
@@ -94,13 +91,14 @@ class RegionForm(NetBoxModelForm):
 
 class SiteGroupForm(NetBoxModelForm):
     parent = DynamicModelChoiceField(
+        label=_('Parent'),
         queryset=SiteGroup.objects.all(),
         required=False
     )
     slug = SlugField()
 
     fieldsets = (
-        ('Site Group', (
+        (_('Site Group'), (
             'parent', 'name', 'slug', 'description', 'tags',
         )),
     )
@@ -114,10 +112,12 @@ class SiteGroupForm(NetBoxModelForm):
 
 class SiteForm(TenancyForm, NetBoxModelForm):
     region = DynamicModelChoiceField(
+        label=_('Region'),
         queryset=Region.objects.all(),
         required=False
     )
     group = DynamicModelChoiceField(
+        label=_('Group'),
         queryset=SiteGroup.objects.all(),
         required=False
     )
@@ -128,18 +128,18 @@ class SiteForm(TenancyForm, NetBoxModelForm):
     )
     slug = SlugField()
     time_zone = TimeZoneFormField(
+        label=_('Time zone'),
         choices=add_blank_choice(TimeZoneFormField().choices),
-        required=False,
-        widget=StaticSelect()
+        required=False
     )
     comments = CommentField()
 
     fieldsets = (
-        ('Site', (
+        (_('Site'), (
             'name', 'slug', 'status', 'region', 'group', 'facility', 'asns', 'time_zone', 'description', 'tags',
         )),
-        ('Tenancy', ('tenant_group', 'tenant')),
-        ('Contact Info', ('physical_address', 'shipping_address', 'latitude', 'longitude')),
+        (_('Tenancy'), ('tenant_group', 'tenant')),
+        (_('Contact Info'), ('physical_address', 'shipping_address', 'latitude', 'longitude')),
     )
 
     class Meta:
@@ -149,54 +149,27 @@ class SiteForm(TenancyForm, NetBoxModelForm):
             'description', 'physical_address', 'shipping_address', 'latitude', 'longitude', 'comments', 'tags',
         )
         widgets = {
-            'physical_address': SmallTextarea(
+            'physical_address': forms.Textarea(
                 attrs={
                     'rows': 3,
                 }
             ),
-            'shipping_address': SmallTextarea(
+            'shipping_address': forms.Textarea(
                 attrs={
                     'rows': 3,
                 }
             ),
-            'status': StaticSelect(),
-            'time_zone': StaticSelect(),
-        }
-        help_texts = {
-            'name': _("Full name of the site"),
-            'facility': _("Data center provider and facility (e.g. Equinix NY7)"),
-            'time_zone': _("Local time zone"),
-            'description': _("Short description (will appear in sites list)"),
-            'physical_address': _("Physical location of the building (e.g. for GPS)"),
-            'shipping_address': _("If different from the physical address"),
-            'latitude': _("Latitude in decimal format (xx.yyyyyy)"),
-            'longitude': _("Longitude in decimal format (xx.yyyyyy)")
         }
 
 
 class LocationForm(TenancyForm, NetBoxModelForm):
-    region = DynamicModelChoiceField(
-        queryset=Region.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
-    site_group = DynamicModelChoiceField(
-        queryset=SiteGroup.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
     site = DynamicModelChoiceField(
+        label=_('Site'),
         queryset=Site.objects.all(),
-        query_params={
-            'region_id': '$region',
-            'group_id': '$site_group',
-        }
+        selector=True
     )
     parent = DynamicModelChoiceField(
+        label=_('Parent'),
         queryset=Location.objects.all(),
         required=False,
         query_params={
@@ -206,28 +179,22 @@ class LocationForm(TenancyForm, NetBoxModelForm):
     slug = SlugField()
 
     fieldsets = (
-        ('Location', (
-            'region', 'site_group', 'site', 'parent', 'name', 'slug', 'status', 'description', 'tags',
-        )),
-        ('Tenancy', ('tenant_group', 'tenant')),
+        (_('Location'), ('site', 'parent', 'name', 'slug', 'status', 'description', 'tags')),
+        (_('Tenancy'), ('tenant_group', 'tenant')),
     )
 
     class Meta:
         model = Location
         fields = (
-            'region', 'site_group', 'site', 'parent', 'name', 'slug', 'status', 'description', 'tenant_group', 'tenant',
-            'tags',
+            'site', 'parent', 'name', 'slug', 'status', 'description', 'tenant_group', 'tenant', 'tags',
         )
-        widgets = {
-            'status': StaticSelect(),
-        }
 
 
 class RackRoleForm(NetBoxModelForm):
     slug = SlugField()
 
     fieldsets = (
-        ('Rack Role', (
+        (_('Rack Role'), (
             'name', 'slug', 'color', 'description', 'tags',
         )),
     )
@@ -240,28 +207,13 @@ class RackRoleForm(NetBoxModelForm):
 
 
 class RackForm(TenancyForm, NetBoxModelForm):
-    region = DynamicModelChoiceField(
-        queryset=Region.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
-    site_group = DynamicModelChoiceField(
-        queryset=SiteGroup.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
     site = DynamicModelChoiceField(
+        label=_('Site'),
         queryset=Site.objects.all(),
-        query_params={
-            'region_id': '$region',
-            'group_id': '$site_group',
-        }
+        selector=True
     )
     location = DynamicModelChoiceField(
+        label=_('Location'),
         queryset=Location.objects.all(),
         required=False,
         query_params={
@@ -269,6 +221,7 @@ class RackForm(TenancyForm, NetBoxModelForm):
         }
     )
     role = DynamicModelChoiceField(
+        label=_('Role'),
         queryset=RackRole.objects.all(),
         required=False
     )
@@ -277,84 +230,40 @@ class RackForm(TenancyForm, NetBoxModelForm):
     class Meta:
         model = Rack
         fields = [
-            'region', 'site_group', 'site', 'location', 'name', 'facility_id', 'tenant_group', 'tenant', 'status',
-            'role', 'serial', 'asset_tag', 'type', 'width', 'u_height', 'desc_units', 'outer_width', 'outer_depth',
+            'site', 'location', 'name', 'facility_id', 'tenant_group', 'tenant', 'status', 'role', 'serial',
+            'asset_tag', 'type', 'width', 'u_height', 'starting_unit', 'desc_units', 'outer_width', 'outer_depth',
             'outer_unit', 'mounting_depth', 'weight', 'max_weight', 'weight_unit', 'description', 'comments', 'tags',
         ]
-        help_texts = {
-            'site': _("The site at which the rack exists"),
-            'name': _("Organizational rack name"),
-            'facility_id': _("The unique rack ID assigned by the facility"),
-            'u_height': _("Height in rack units"),
-        }
-        widgets = {
-            'status': StaticSelect(),
-            'type': StaticSelect(),
-            'width': StaticSelect(),
-            'outer_unit': StaticSelect(),
-            'weight_unit': StaticSelect(),
-        }
 
 
 class RackReservationForm(TenancyForm, NetBoxModelForm):
-    region = DynamicModelChoiceField(
-        queryset=Region.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
-    site_group = DynamicModelChoiceField(
-        queryset=SiteGroup.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
-    site = DynamicModelChoiceField(
-        queryset=Site.objects.all(),
-        required=False,
-        query_params={
-            'region_id': '$region',
-            'group_id': '$site_group',
-        }
-    )
-    location = DynamicModelChoiceField(
-        queryset=Location.objects.all(),
-        required=False,
-        query_params={
-            'site_id': '$site'
-        }
-    )
     rack = DynamicModelChoiceField(
+        label=_('Rack'),
         queryset=Rack.objects.all(),
-        query_params={
-            'site_id': '$site',
-            'location_id': '$location',
-        }
+        selector=True
     )
     units = NumericArrayField(
+        label=_('Units'),
         base_field=forms.IntegerField(),
         help_text=_("Comma-separated list of numeric unit IDs. A range may be specified using a hyphen.")
     )
     user = forms.ModelChoiceField(
-        queryset=User.objects.order_by(
+        label=_('User'),
+        queryset=get_user_model().objects.order_by(
             'username'
-        ),
-        widget=StaticSelect()
+        )
     )
     comments = CommentField()
 
     fieldsets = (
-        ('Reservation', ('region', 'site_group', 'site', 'location', 'rack', 'units', 'user', 'description', 'tags')),
-        ('Tenancy', ('tenant_group', 'tenant')),
+        (_('Reservation'), ('rack', 'units', 'user', 'description', 'tags')),
+        (_('Tenancy'), ('tenant_group', 'tenant')),
     )
 
     class Meta:
         model = RackReservation
         fields = [
-            'region', 'site_group', 'site', 'location', 'rack', 'units', 'user', 'tenant_group', 'tenant',
-            'description', 'comments', 'tags',
+            'rack', 'units', 'user', 'tenant_group', 'tenant', 'description', 'comments', 'tags',
         ]
 
 
@@ -362,7 +271,7 @@ class ManufacturerForm(NetBoxModelForm):
     slug = SlugField()
 
     fieldsets = (
-        ('Manufacturer', (
+        (_('Manufacturer'), (
             'name', 'slug', 'description', 'tags',
         )),
     )
@@ -376,49 +285,55 @@ class ManufacturerForm(NetBoxModelForm):
 
 class DeviceTypeForm(NetBoxModelForm):
     manufacturer = DynamicModelChoiceField(
+        label=_('Manufacturer'),
         queryset=Manufacturer.objects.all()
     )
+    default_platform = DynamicModelChoiceField(
+        label=_('Default platform'),
+        queryset=Platform.objects.all(),
+        required=False
+    )
     slug = SlugField(
+        label=_('Slug'),
         slug_source='model'
     )
     comments = CommentField()
 
     fieldsets = (
-        ('Device Type', ('manufacturer', 'model', 'slug', 'description', 'tags')),
-        ('Chassis', (
+        (_('Device Type'), ('manufacturer', 'model', 'slug', 'default_platform', 'description', 'tags')),
+        (_('Chassis'), (
             'u_height', 'is_full_depth', 'part_number', 'subdevice_role', 'airflow', 'weight', 'weight_unit',
         )),
-        ('Images', ('front_image', 'rear_image')),
+        (_('Images'), ('front_image', 'rear_image')),
     )
 
     class Meta:
         model = DeviceType
         fields = [
-            'manufacturer', 'model', 'slug', 'part_number', 'u_height', 'is_full_depth', 'subdevice_role', 'airflow',
-            'weight', 'weight_unit', 'front_image', 'rear_image', 'description', 'comments', 'tags',
+            'manufacturer', 'model', 'slug', 'default_platform', 'part_number', 'u_height', 'is_full_depth',
+            'subdevice_role', 'airflow', 'weight', 'weight_unit', 'front_image', 'rear_image', 'description',
+            'comments', 'tags',
         ]
         widgets = {
-            'airflow': StaticSelect(),
-            'subdevice_role': StaticSelect(),
             'front_image': ClearableFileInput(attrs={
                 'accept': DEVICETYPE_IMAGE_FORMATS
             }),
             'rear_image': ClearableFileInput(attrs={
                 'accept': DEVICETYPE_IMAGE_FORMATS
             }),
-            'weight_unit': StaticSelect(),
         }
 
 
 class ModuleTypeForm(NetBoxModelForm):
     manufacturer = DynamicModelChoiceField(
+        label=_('Manufacturer'),
         queryset=Manufacturer.objects.all()
     )
     comments = CommentField()
 
     fieldsets = (
-        ('Module Type', ('manufacturer', 'model', 'part_number', 'description', 'tags')),
-        ('Weight', ('weight', 'weight_unit'))
+        (_('Module Type'), ('manufacturer', 'model', 'part_number', 'description', 'tags')),
+        (_('Weight'), ('weight', 'weight_unit'))
     )
 
     class Meta:
@@ -427,76 +342,63 @@ class ModuleTypeForm(NetBoxModelForm):
             'manufacturer', 'model', 'part_number', 'weight', 'weight_unit', 'description', 'comments', 'tags',
         ]
 
-        widgets = {
-            'weight_unit': StaticSelect(),
-        }
-
 
 class DeviceRoleForm(NetBoxModelForm):
+    config_template = DynamicModelChoiceField(
+        label=_('Config template'),
+        queryset=ConfigTemplate.objects.all(),
+        required=False
+    )
     slug = SlugField()
 
     fieldsets = (
-        ('Device Role', (
-            'name', 'slug', 'color', 'vm_role', 'description', 'tags',
+        (_('Device Role'), (
+            'name', 'slug', 'color', 'vm_role', 'config_template', 'description', 'tags',
         )),
     )
 
     class Meta:
         model = DeviceRole
         fields = [
-            'name', 'slug', 'color', 'vm_role', 'description', 'tags',
+            'name', 'slug', 'color', 'vm_role', 'config_template', 'description', 'tags',
         ]
 
 
 class PlatformForm(NetBoxModelForm):
     manufacturer = DynamicModelChoiceField(
+        label=_('Manufacturer'),
         queryset=Manufacturer.objects.all(),
         required=False
     )
+    config_template = DynamicModelChoiceField(
+        label=_('Config template'),
+        queryset=ConfigTemplate.objects.all(),
+        required=False
+    )
     slug = SlugField(
+        label=_('Slug'),
         max_length=64
     )
 
     fieldsets = (
-        ('Platform', (
-            'name', 'slug', 'manufacturer', 'napalm_driver', 'napalm_args', 'description', 'tags',
-
-        )),
+        (_('Platform'), ('name', 'slug', 'manufacturer', 'config_template', 'description', 'tags')),
     )
 
     class Meta:
         model = Platform
         fields = [
-            'name', 'slug', 'manufacturer', 'napalm_driver', 'napalm_args', 'description', 'tags',
+            'name', 'slug', 'manufacturer', 'config_template', 'description', 'tags',
         ]
-        widgets = {
-            'napalm_args': SmallTextarea(),
-        }
 
 
 class DeviceForm(TenancyForm, NetBoxModelForm):
-    region = DynamicModelChoiceField(
-        queryset=Region.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
-    site_group = DynamicModelChoiceField(
-        queryset=SiteGroup.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
     site = DynamicModelChoiceField(
+        label=_('Site'),
         queryset=Site.objects.all(),
-        query_params={
-            'region_id': '$region',
-            'group_id': '$site_group',
-        }
+        selector=True
     )
     location = DynamicModelChoiceField(
+        label=_('Location'),
         queryset=Location.objects.all(),
         required=False,
         query_params={
@@ -507,6 +409,7 @@ class DeviceForm(TenancyForm, NetBoxModelForm):
         }
     )
     rack = DynamicModelChoiceField(
+        label=_('Rack'),
         queryset=Rack.objects.all(),
         required=False,
         query_params={
@@ -515,53 +418,37 @@ class DeviceForm(TenancyForm, NetBoxModelForm):
         }
     )
     position = forms.DecimalField(
+        label=_('Position'),
         required=False,
         help_text=_("The lowest-numbered unit occupied by the device"),
+        localize=True,
         widget=APISelect(
             api_url='/api/dcim/racks/{{rack}}/elevation/',
             attrs={
                 'disabled-indicator': 'device',
                 'data-dynamic-params': '[{"fieldName":"face","queryParam":"face"}]'
-            }
+            },
         )
     )
-    manufacturer = DynamicModelChoiceField(
-        queryset=Manufacturer.objects.all(),
-        required=False,
-        initial_params={
-            'device_types': '$device_type'
-        }
-    )
     device_type = DynamicModelChoiceField(
+        label=_('Device type'),
         queryset=DeviceType.objects.all(),
-        query_params={
-            'manufacturer_id': '$manufacturer'
-        }
+        selector=True
     )
-    device_role = DynamicModelChoiceField(
+    role = DynamicModelChoiceField(
+        label=_('Device role'),
         queryset=DeviceRole.objects.all()
     )
     platform = DynamicModelChoiceField(
+        label=_('Platform'),
         queryset=Platform.objects.all(),
-        required=False,
-        query_params={
-            'manufacturer_id': ['$manufacturer', 'null']
-        }
-    )
-    cluster_group = DynamicModelChoiceField(
-        queryset=ClusterGroup.objects.all(),
-        required=False,
-        null_option='None',
-        initial_params={
-            'clusters': '$cluster'
-        }
+        required=False
     )
     cluster = DynamicModelChoiceField(
+        label=_('Cluster'),
         queryset=Cluster.objects.all(),
         required=False,
-        query_params={
-            'group_id': '$cluster_group'
-        }
+        selector=True
     )
     comments = CommentField()
     local_context_data = JSONField(
@@ -569,8 +456,10 @@ class DeviceForm(TenancyForm, NetBoxModelForm):
         label=''
     )
     virtual_chassis = DynamicModelChoiceField(
+        label=_('Virtual chassis'),
         queryset=VirtualChassis.objects.all(),
-        required=False
+        required=False,
+        selector=True
     )
     vc_position = forms.IntegerField(
         required=False,
@@ -582,28 +471,20 @@ class DeviceForm(TenancyForm, NetBoxModelForm):
         label=_('Priority'),
         help_text=_("The priority of the device in the virtual chassis")
     )
+    config_template = DynamicModelChoiceField(
+        label=_('Config template'),
+        queryset=ConfigTemplate.objects.all(),
+        required=False
+    )
 
     class Meta:
         model = Device
         fields = [
-            'name', 'device_role', 'device_type', 'serial', 'asset_tag', 'region', 'site_group', 'site', 'rack',
-            'location', 'position', 'face', 'status', 'airflow', 'platform', 'primary_ip4', 'primary_ip6',
-            'cluster_group', 'cluster', 'tenant_group', 'tenant', 'virtual_chassis', 'vc_position', 'vc_priority',
-            'description', 'comments', 'tags', 'local_context_data'
+            'name', 'role', 'device_type', 'serial', 'asset_tag', 'site', 'rack', 'location', 'position', 'face',
+            'latitude', 'longitude', 'status', 'airflow', 'platform', 'primary_ip4', 'primary_ip6', 'oob_ip', 'cluster',
+            'tenant_group', 'tenant', 'virtual_chassis', 'vc_position', 'vc_priority', 'description', 'config_template',
+            'comments', 'tags', 'local_context_data',
         ]
-        help_texts = {
-            'device_role': _("The function this device serves"),
-            'serial': _("Chassis serial number"),
-            'local_context_data': _("Local config context data overwrites all source contexts in the final rendered "
-                                    "config context"),
-        }
-        widgets = {
-            'face': StaticSelect(),
-            'status': StaticSelect(),
-            'airflow': StaticSelect(),
-            'primary_ip4': StaticSelect(),
-            'primary_ip6': StaticSelect(),
-        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -611,6 +492,7 @@ class DeviceForm(TenancyForm, NetBoxModelForm):
         if self.instance.pk:
 
             # Compile list of choices for primary IPv4 and IPv6 addresses
+            oob_ip_choices = [(None, '---------')]
             for family in [4, 6]:
                 ip_choices = [(None, '---------')]
 
@@ -626,6 +508,7 @@ class DeviceForm(TenancyForm, NetBoxModelForm):
                 if interface_ips:
                     ip_list = [(ip.id, f'{ip.address} ({ip.assigned_object})') for ip in interface_ips]
                     ip_choices.append(('Interface IPs', ip_list))
+                    oob_ip_choices.extend(ip_list)
                 # Collect NAT IPs
                 nat_ips = IPAddress.objects.prefetch_related('nat_inside').filter(
                     address__family=family,
@@ -636,6 +519,7 @@ class DeviceForm(TenancyForm, NetBoxModelForm):
                     ip_list = [(ip.id, f'{ip.address} (NAT)') for ip in nat_ips]
                     ip_choices.append(('NAT IPs', ip_list))
                 self.fields['primary_ip{}'.format(family)].choices = ip_choices
+            self.fields['oob_ip'].choices = oob_ip_choices
 
             # If editing an existing device, exclude it from the list of occupied rack units. This ensures that a device
             # can be flipped from one face to another.
@@ -655,6 +539,8 @@ class DeviceForm(TenancyForm, NetBoxModelForm):
             self.fields['primary_ip4'].widget.attrs['readonly'] = True
             self.fields['primary_ip6'].choices = []
             self.fields['primary_ip6'].widget.attrs['readonly'] = True
+            self.fields['oob_ip'].choices = []
+            self.fields['oob_ip'].widget.attrs['readonly'] = True
 
         # Rack position
         position = self.data.get('position') or self.initial.get('position')
@@ -664,48 +550,41 @@ class DeviceForm(TenancyForm, NetBoxModelForm):
 
 class ModuleForm(ModuleCommonForm, NetBoxModelForm):
     device = DynamicModelChoiceField(
+        label=_('Device'),
         queryset=Device.objects.all(),
         initial_params={
             'modulebays': '$module_bay'
         }
     )
     module_bay = DynamicModelChoiceField(
+        label=_('Module bay'),
         queryset=ModuleBay.objects.all(),
         query_params={
             'device_id': '$device'
         }
     )
-    manufacturer = DynamicModelChoiceField(
-        queryset=Manufacturer.objects.all(),
-        required=False,
-        initial_params={
-            'module_types': '$module_type'
-        }
-    )
     module_type = DynamicModelChoiceField(
+        label=_('Module type'),
         queryset=ModuleType.objects.all(),
-        query_params={
-            'manufacturer_id': '$manufacturer'
-        }
+        selector=True
     )
     comments = CommentField()
     replicate_components = forms.BooleanField(
+        label=_('Replicate components'),
         required=False,
         initial=True,
         help_text=_("Automatically populate components associated with this module type")
     )
-
     adopt_components = forms.BooleanField(
+        label=_('Adopt components'),
         required=False,
         initial=False,
         help_text=_("Adopt already existing components")
     )
 
     fieldsets = (
-        ('Module', (
-            'device', 'module_bay', 'manufacturer', 'module_type', 'status', 'description', 'tags',
-        )),
-        ('Hardware', (
+        (_('Module'), ('device', 'module_bay', 'module_type', 'status', 'description', 'tags')),
+        (_('Hardware'), (
             'serial', 'asset_tag', 'replicate_components', 'adopt_components',
         )),
     )
@@ -713,8 +592,8 @@ class ModuleForm(ModuleCommonForm, NetBoxModelForm):
     class Meta:
         model = Module
         fields = [
-            'device', 'module_bay', 'manufacturer', 'module_type', 'status', 'serial', 'asset_tag', 'tags',
-            'replicate_components', 'adopt_components', 'description', 'comments',
+            'device', 'module_bay', 'module_type', 'status', 'serial', 'asset_tag', 'tags', 'replicate_components',
+            'adopt_components', 'description', 'comments',
         ]
 
     def __init__(self, *args, **kwargs):
@@ -737,41 +616,21 @@ class CableForm(TenancyForm, NetBoxModelForm):
             'type', 'status', 'tenant_group', 'tenant', 'label', 'color', 'length', 'length_unit', 'description',
             'comments', 'tags',
         ]
-        widgets = {
-            'status': StaticSelect,
-            'type': StaticSelect,
-            'length_unit': StaticSelect,
-        }
         error_messages = {
             'length': {
-                'max_value': 'Maximum length is 32767 (any unit)'
+                'max_value': _('Maximum length is 32767 (any unit)')
             }
         }
 
 
 class PowerPanelForm(NetBoxModelForm):
-    region = DynamicModelChoiceField(
-        queryset=Region.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
-    site_group = DynamicModelChoiceField(
-        queryset=SiteGroup.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
     site = DynamicModelChoiceField(
+        label=_('Site'),
         queryset=Site.objects.all(),
-        query_params={
-            'region_id': '$region',
-            'group_id': '$site_group',
-        }
+        selector=True
     )
     location = DynamicModelChoiceField(
+        label=_('Location'),
         queryset=Location.objects.all(),
         required=False,
         query_params={
@@ -781,87 +640,42 @@ class PowerPanelForm(NetBoxModelForm):
     comments = CommentField()
 
     fieldsets = (
-        ('Power Panel', ('region', 'site_group', 'site', 'location', 'name', 'description', 'tags')),
+        ('Power Panel', ('site', 'location', 'name', 'description', 'tags')),
     )
 
     class Meta:
         model = PowerPanel
         fields = [
-            'region', 'site_group', 'site', 'location', 'name', 'description', 'comments', 'tags',
+            'site', 'location', 'name', 'description', 'comments', 'tags',
         ]
 
 
-class PowerFeedForm(NetBoxModelForm):
-    region = DynamicModelChoiceField(
-        queryset=Region.objects.all(),
-        required=False,
-        initial_params={
-            'sites__powerpanel': '$power_panel'
-        }
-    )
-    site_group = DynamicModelChoiceField(
-        queryset=SiteGroup.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
-    site = DynamicModelChoiceField(
-        queryset=Site.objects.all(),
-        required=False,
-        initial_params={
-            'powerpanel': '$power_panel'
-        },
-        query_params={
-            'region_id': '$region',
-            'group_id': '$site_group',
-        }
-    )
+class PowerFeedForm(TenancyForm, NetBoxModelForm):
     power_panel = DynamicModelChoiceField(
+        label=_('Power panel'),
         queryset=PowerPanel.objects.all(),
-        query_params={
-            'site_id': '$site'
-        }
-    )
-    location = DynamicModelChoiceField(
-        queryset=Location.objects.all(),
-        required=False,
-        query_params={
-            'site_id': '$site'
-        },
-        initial_params={
-            'racks': '$rack'
-        }
+        selector=True
     )
     rack = DynamicModelChoiceField(
+        label=_('Rack'),
         queryset=Rack.objects.all(),
         required=False,
-        query_params={
-            'location_id': '$location',
-            'site_id': '$site'
-        }
+        selector=True
     )
     comments = CommentField()
 
     fieldsets = (
-        ('Power Panel', ('region', 'site', 'power_panel')),
-        ('Power Feed', ('location', 'rack', 'name', 'status', 'type', 'description', 'mark_connected', 'tags')),
-        ('Characteristics', ('supply', 'voltage', 'amperage', 'phase', 'max_utilization')),
+        (_('Power Feed'), ('power_panel', 'rack', 'name', 'status', 'type', 'description', 'mark_connected', 'tags')),
+        (_('Characteristics'), ('supply', 'voltage', 'amperage', 'phase', 'max_utilization')),
+        (_('Tenancy'), ('tenant_group', 'tenant')),
     )
 
     class Meta:
         model = PowerFeed
         fields = [
-            'region', 'site_group', 'site', 'power_panel', 'location', 'rack', 'name', 'status', 'type',
-            'mark_connected', 'supply', 'phase', 'voltage', 'amperage', 'max_utilization', 'description', 'comments',
-            'tags',
+            'power_panel', 'rack', 'name', 'status', 'type', 'mark_connected', 'supply', 'phase', 'voltage', 'amperage',
+            'max_utilization', 'tenant_group', 'tenant', 'description', 'comments', 'tags'
         ]
-        widgets = {
-            'status': StaticSelect(),
-            'type': StaticSelect(),
-            'supply': StaticSelect(),
-            'phase': StaticSelect(),
-        }
 
 
 #
@@ -870,6 +684,7 @@ class PowerFeedForm(NetBoxModelForm):
 
 class VirtualChassisForm(NetBoxModelForm):
     master = forms.ModelChoiceField(
+        label=_('Master'),
         queryset=Device.objects.all(),
         required=False,
     )
@@ -932,43 +747,13 @@ class DeviceVCMembershipForm(forms.ModelForm):
 
 
 class VCMemberSelectForm(BootstrapMixin, forms.Form):
-    region = DynamicModelChoiceField(
-        queryset=Region.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
-    site_group = DynamicModelChoiceField(
-        queryset=SiteGroup.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
-    site = DynamicModelChoiceField(
-        queryset=Site.objects.all(),
-        required=False,
-        query_params={
-            'region_id': '$region',
-            'group_id': '$site_group',
-        }
-    )
-    rack = DynamicModelChoiceField(
-        queryset=Rack.objects.all(),
-        required=False,
-        null_option='None',
-        query_params={
-            'site_id': '$site'
-        }
-    )
     device = DynamicModelChoiceField(
+        label=_('Device'),
         queryset=Device.objects.all(),
         query_params={
-            'site_id': '$site',
-            'rack_id': '$rack',
             'virtual_chassis_id': 'null',
-        }
+        },
+        selector=True
     )
 
     def clean_device(self):
@@ -986,6 +771,7 @@ class VCMemberSelectForm(BootstrapMixin, forms.Form):
 
 class ComponentTemplateForm(BootstrapMixin, forms.ModelForm):
     device_type = DynamicModelChoiceField(
+        label=_('Device type'),
         queryset=DeviceType.objects.all()
     )
 
@@ -999,10 +785,12 @@ class ComponentTemplateForm(BootstrapMixin, forms.ModelForm):
 
 class ModularComponentTemplateForm(ComponentTemplateForm):
     device_type = DynamicModelChoiceField(
+        label=_('Device type'),
         queryset=DeviceType.objects.all().all(),
         required=False
     )
     module_type = DynamicModelChoiceField(
+        label=_('Module type'),
         queryset=ModuleType.objects.all(),
         required=False
     )
@@ -1025,9 +813,6 @@ class ConsolePortTemplateForm(ModularComponentTemplateForm):
         fields = [
             'device_type', 'module_type', 'name', 'label', 'type', 'description',
         ]
-        widgets = {
-            'type': StaticSelect,
-        }
 
 
 class ConsoleServerPortTemplateForm(ModularComponentTemplateForm):
@@ -1040,9 +825,6 @@ class ConsoleServerPortTemplateForm(ModularComponentTemplateForm):
         fields = [
             'device_type', 'module_type', 'name', 'label', 'type', 'description',
         ]
-        widgets = {
-            'type': StaticSelect,
-        }
 
 
 class PowerPortTemplateForm(ModularComponentTemplateForm):
@@ -1057,13 +839,11 @@ class PowerPortTemplateForm(ModularComponentTemplateForm):
         fields = [
             'device_type', 'module_type', 'name', 'label', 'type', 'maximum_draw', 'allocated_draw', 'description',
         ]
-        widgets = {
-            'type': StaticSelect(),
-        }
 
 
 class PowerOutletTemplateForm(ModularComponentTemplateForm):
     power_port = DynamicModelChoiceField(
+        label=_('Power port'),
         queryset=PowerPortTemplate.objects.all(),
         required=False,
         query_params={
@@ -1080,32 +860,35 @@ class PowerOutletTemplateForm(ModularComponentTemplateForm):
         fields = [
             'device_type', 'module_type', 'name', 'label', 'type', 'power_port', 'feed_leg', 'description',
         ]
-        widgets = {
-            'type': StaticSelect(),
-            'feed_leg': StaticSelect(),
-        }
 
 
 class InterfaceTemplateForm(ModularComponentTemplateForm):
+    bridge = DynamicModelChoiceField(
+        label=_('Bridge'),
+        queryset=InterfaceTemplate.objects.all(),
+        required=False,
+        query_params={
+            'devicetype_id': '$device_type',
+            'moduletype_id': '$module_type',
+        }
+    )
+
     fieldsets = (
-        (None, ('device_type', 'module_type', 'name', 'label', 'type', 'mgmt_only', 'description')),
-        ('PoE', ('poe_mode', 'poe_type'))
+        (None, ('device_type', 'module_type', 'name', 'label', 'type', 'enabled', 'mgmt_only', 'description', 'bridge')),
+        (_('PoE'), ('poe_mode', 'poe_type')),
+        (_('Wireless'), ('rf_role',)),
     )
 
     class Meta:
         model = InterfaceTemplate
         fields = [
-            'device_type', 'module_type', 'name', 'label', 'type', 'mgmt_only', 'description', 'poe_mode', 'poe_type',
+            'device_type', 'module_type', 'name', 'label', 'type', 'mgmt_only', 'enabled', 'description', 'poe_mode', 'poe_type', 'bridge', 'rf_role',
         ]
-        widgets = {
-            'type': StaticSelect(),
-            'poe_mode': StaticSelect(),
-            'poe_type': StaticSelect(),
-        }
 
 
 class FrontPortTemplateForm(ModularComponentTemplateForm):
     rear_port = DynamicModelChoiceField(
+        label=_('Rear port'),
         queryset=RearPortTemplate.objects.all(),
         required=False,
         query_params={
@@ -1127,9 +910,6 @@ class FrontPortTemplateForm(ModularComponentTemplateForm):
             'device_type', 'module_type', 'name', 'label', 'type', 'color', 'rear_port', 'rear_port_position',
             'description',
         ]
-        widgets = {
-            'type': StaticSelect(),
-        }
 
 
 class RearPortTemplateForm(ModularComponentTemplateForm):
@@ -1142,9 +922,6 @@ class RearPortTemplateForm(ModularComponentTemplateForm):
         fields = [
             'device_type', 'module_type', 'name', 'label', 'type', 'color', 'positions', 'description',
         ]
-        widgets = {
-            'type': StaticSelect(),
-        }
 
 
 class ModuleBayTemplateForm(ComponentTemplateForm):
@@ -1173,6 +950,7 @@ class DeviceBayTemplateForm(ComponentTemplateForm):
 
 class InventoryItemTemplateForm(ComponentTemplateForm):
     parent = DynamicModelChoiceField(
+        label=_('Parent'),
         queryset=InventoryItemTemplate.objects.all(),
         required=False,
         query_params={
@@ -1180,10 +958,12 @@ class InventoryItemTemplateForm(ComponentTemplateForm):
         }
     )
     role = DynamicModelChoiceField(
+        label=_('Role'),
         queryset=InventoryItemRole.objects.all(),
         required=False
     )
     manufacturer = DynamicModelChoiceField(
+        label=_('Manufacturer'),
         queryset=Manufacturer.objects.all(),
         required=False
     )
@@ -1219,7 +999,9 @@ class InventoryItemTemplateForm(ComponentTemplateForm):
 
 class DeviceComponentForm(NetBoxModelForm):
     device = DynamicModelChoiceField(
-        queryset=Device.objects.all()
+        label=_('Device'),
+        queryset=Device.objects.all(),
+        selector=True
     )
 
     def __init__(self, *args, **kwargs):
@@ -1232,6 +1014,7 @@ class DeviceComponentForm(NetBoxModelForm):
 
 class ModularDeviceComponentForm(DeviceComponentForm):
     module = DynamicModelChoiceField(
+        label=_('Module'),
         queryset=Module.objects.all(),
         required=False,
         query_params={
@@ -1252,10 +1035,6 @@ class ConsolePortForm(ModularDeviceComponentForm):
         fields = [
             'device', 'module', 'name', 'label', 'type', 'speed', 'mark_connected', 'description', 'tags',
         ]
-        widgets = {
-            'type': StaticSelect(),
-            'speed': StaticSelect(),
-        }
 
 
 class ConsoleServerPortForm(ModularDeviceComponentForm):
@@ -1271,10 +1050,6 @@ class ConsoleServerPortForm(ModularDeviceComponentForm):
         fields = [
             'device', 'module', 'name', 'label', 'type', 'speed', 'mark_connected', 'description', 'tags',
         ]
-        widgets = {
-            'type': StaticSelect(),
-            'speed': StaticSelect(),
-        }
 
 
 class PowerPortForm(ModularDeviceComponentForm):
@@ -1292,13 +1067,11 @@ class PowerPortForm(ModularDeviceComponentForm):
             'device', 'module', 'name', 'label', 'type', 'maximum_draw', 'allocated_draw', 'mark_connected',
             'description', 'tags',
         ]
-        widgets = {
-            'type': StaticSelect(),
-        }
 
 
 class PowerOutletForm(ModularDeviceComponentForm):
     power_port = DynamicModelChoiceField(
+        label=_('Power port'),
         queryset=PowerPort.objects.all(),
         required=False,
         query_params={
@@ -1319,17 +1092,16 @@ class PowerOutletForm(ModularDeviceComponentForm):
             'device', 'module', 'name', 'label', 'type', 'power_port', 'feed_leg', 'mark_connected', 'description',
             'tags',
         ]
-        widgets = {
-            'type': StaticSelect(),
-            'feed_leg': StaticSelect(),
-        }
 
 
 class InterfaceForm(InterfaceCommonForm, ModularDeviceComponentForm):
     vdcs = DynamicModelMultipleChoiceField(
         queryset=VirtualDeviceContext.objects.all(),
         required=False,
-        label='Virtual Device Contexts',
+        label=_('Virtual device contexts'),
+        initial_params={
+            'interfaces': '$parent',
+        },
         query_params={
             'device_id': '$device',
         }
@@ -1339,7 +1111,7 @@ class InterfaceForm(InterfaceCommonForm, ModularDeviceComponentForm):
         required=False,
         label=_('Parent interface'),
         query_params={
-            'device_id': '$device',
+            'virtual_chassis_member_id': '$device',
         }
     )
     bridge = DynamicModelChoiceField(
@@ -1347,7 +1119,7 @@ class InterfaceForm(InterfaceCommonForm, ModularDeviceComponentForm):
         required=False,
         label=_('Bridged interface'),
         query_params={
-            'device_id': '$device',
+            'virtual_chassis_member_id': '$device',
         }
     )
     lag = DynamicModelChoiceField(
@@ -1355,7 +1127,7 @@ class InterfaceForm(InterfaceCommonForm, ModularDeviceComponentForm):
         required=False,
         label=_('LAG interface'),
         query_params={
-            'device_id': '$device',
+            'virtual_chassis_member_id': '$device',
             'type': 'lag',
         }
     )
@@ -1407,13 +1179,13 @@ class InterfaceForm(InterfaceCommonForm, ModularDeviceComponentForm):
     )
 
     fieldsets = (
-        ('Interface', ('device', 'module', 'name', 'label', 'type', 'speed', 'duplex', 'description', 'tags')),
-        ('Addressing', ('vrf', 'mac_address', 'wwn')),
-        ('Operation', ('vdcs', 'mtu', 'tx_power', 'enabled', 'mgmt_only', 'mark_connected')),
-        ('Related Interfaces', ('parent', 'bridge', 'lag')),
-        ('PoE', ('poe_mode', 'poe_type')),
-        ('802.1Q Switching', ('mode', 'vlan_group', 'untagged_vlan', 'tagged_vlans')),
-        ('Wireless', (
+        (_('Interface'), ('device', 'module', 'name', 'label', 'type', 'speed', 'duplex', 'description', 'tags')),
+        (_('Addressing'), ('vrf', 'mac_address', 'wwn')),
+        (_('Operation'), ('vdcs', 'mtu', 'tx_power', 'enabled', 'mgmt_only', 'mark_connected')),
+        (_('Related Interfaces'), ('parent', 'bridge', 'lag')),
+        (_('PoE'), ('poe_mode', 'poe_type')),
+        (_('802.1Q Switching'), ('mode', 'vlan_group', 'untagged_vlan', 'tagged_vlans')),
+        (_('Wireless'), (
             'rf_role', 'rf_channel', 'rf_channel_frequency', 'rf_channel_width', 'wireless_lan_group', 'wireless_lans',
         )),
     )
@@ -1427,22 +1199,13 @@ class InterfaceForm(InterfaceCommonForm, ModularDeviceComponentForm):
             'untagged_vlan', 'tagged_vlans', 'vrf', 'tags',
         ]
         widgets = {
-            'type': StaticSelect(),
-            'speed': SelectSpeedWidget(),
-            'poe_mode': StaticSelect(),
-            'poe_type': StaticSelect(),
-            'duplex': StaticSelect(),
-            'mode': StaticSelect(),
-            'rf_role': StaticSelect(),
-            'rf_channel': StaticSelect(),
+            'speed': NumberWithOptions(
+                options=InterfaceSpeedChoices
+            ),
+            'mode': HTMXSelect(),
         }
         labels = {
             'mode': '802.1Q Mode',
-        }
-        help_texts = {
-            'mode': INTERFACE_MODE_HELP_TEXT,
-            'rf_channel_frequency': _("Populated by selected channel (if set)"),
-            'rf_channel_width': _("Populated by selected channel (if set)"),
         }
 
 
@@ -1467,9 +1230,6 @@ class FrontPortForm(ModularDeviceComponentForm):
             'device', 'module', 'name', 'label', 'type', 'color', 'rear_port', 'rear_port_position', 'mark_connected',
             'description', 'tags',
         ]
-        widgets = {
-            'type': StaticSelect(),
-        }
 
 
 class RearPortForm(ModularDeviceComponentForm):
@@ -1484,9 +1244,6 @@ class RearPortForm(ModularDeviceComponentForm):
         fields = [
             'device', 'module', 'name', 'label', 'type', 'color', 'positions', 'mark_connected', 'description', 'tags',
         ]
-        widgets = {
-            'type': StaticSelect(),
-        }
 
 
 class ModuleBayForm(DeviceComponentForm):
@@ -1517,8 +1274,7 @@ class PopulateDeviceBayForm(BootstrapMixin, forms.Form):
     installed_device = forms.ModelChoiceField(
         queryset=Device.objects.all(),
         label=_('Child Device'),
-        help_text=_("Child devices must first be created and assigned to the site/rack of the parent device."),
-        widget=StaticSelect(),
+        help_text=_("Child devices must first be created and assigned to the site and rack of the parent device.")
     )
 
     def __init__(self, device_bay, *args, **kwargs):
@@ -1535,6 +1291,7 @@ class PopulateDeviceBayForm(BootstrapMixin, forms.Form):
 
 class InventoryItemForm(DeviceComponentForm):
     parent = DynamicModelChoiceField(
+        label=_('Parent'),
         queryset=InventoryItem.objects.all(),
         required=False,
         query_params={
@@ -1542,10 +1299,12 @@ class InventoryItemForm(DeviceComponentForm):
         }
     )
     role = DynamicModelChoiceField(
+        label=_('Role'),
         queryset=InventoryItemRole.objects.all(),
         required=False
     )
     manufacturer = DynamicModelChoiceField(
+        label=_('Manufacturer'),
         queryset=Manufacturer.objects.all(),
         required=False
     )
@@ -1609,8 +1368,8 @@ class InventoryItemForm(DeviceComponentForm):
     )
 
     fieldsets = (
-        ('Inventory Item', ('device', 'parent', 'name', 'label', 'role', 'description', 'tags')),
-        ('Hardware', ('manufacturer', 'part_id', 'serial', 'asset_tag')),
+        (_('Inventory Item'), ('device', 'parent', 'name', 'label', 'role', 'description', 'tags')),
+        (_('Hardware'), ('manufacturer', 'part_id', 'serial', 'asset_tag')),
     )
 
     class Meta:
@@ -1661,7 +1420,7 @@ class InventoryItemForm(DeviceComponentForm):
             ) if self.cleaned_data[field]
         ]
         if len(selected_objects) > 1:
-            raise forms.ValidationError("An InventoryItem can only be assigned to a single component.")
+            raise forms.ValidationError(_("An InventoryItem can only be assigned to a single component."))
         elif selected_objects:
             self.instance.component = self.cleaned_data[selected_objects[0]]
         else:
@@ -1675,7 +1434,7 @@ class InventoryItemRoleForm(NetBoxModelForm):
     slug = SlugField()
 
     fieldsets = (
-        ('Inventory Item Role', (
+        (_('Inventory Item Role'), (
             'name', 'slug', 'color', 'description', 'tags',
         )),
     )
@@ -1688,57 +1447,14 @@ class InventoryItemRoleForm(NetBoxModelForm):
 
 
 class VirtualDeviceContextForm(TenancyForm, NetBoxModelForm):
-    region = DynamicModelChoiceField(
-        queryset=Region.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
-    site_group = DynamicModelChoiceField(
-        queryset=SiteGroup.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
-    site = DynamicModelChoiceField(
-        queryset=Site.objects.all(),
-        required=False,
-        query_params={
-            'region_id': '$region',
-            'group_id': '$site_group',
-        }
-    )
-    location = DynamicModelChoiceField(
-        queryset=Location.objects.all(),
-        required=False,
-        query_params={
-            'site_id': '$site'
-        },
-        initial_params={
-            'racks': '$rack'
-        }
-    )
-    rack = DynamicModelChoiceField(
-        queryset=Rack.objects.all(),
-        required=False,
-        query_params={
-            'site_id': '$site',
-            'location_id': '$location',
-        }
-    )
     device = DynamicModelChoiceField(
+        label=_('Device'),
         queryset=Device.objects.all(),
-        query_params={
-            'site_id': '$site',
-            'location_id': '$location',
-            'rack_id': '$rack',
-        }
+        selector=True
     )
     primary_ip4 = DynamicModelChoiceField(
         queryset=IPAddress.objects.all(),
-        label='Primary IPv4',
+        label=_('Primary IPv4'),
         required=False,
         query_params={
             'device_id': '$device',
@@ -1747,7 +1463,7 @@ class VirtualDeviceContextForm(TenancyForm, NetBoxModelForm):
     )
     primary_ip6 = DynamicModelChoiceField(
         queryset=IPAddress.objects.all(),
-        label='Primary IPv6',
+        label=_('Primary IPv6'),
         required=False,
         query_params={
             'device_id': '$device',
@@ -1756,19 +1472,13 @@ class VirtualDeviceContextForm(TenancyForm, NetBoxModelForm):
     )
 
     fieldsets = (
-        ('Assigned Device', ('region', 'site_group', 'site', 'location', 'rack', 'device')),
-        ('Virtual Device Context', ('name', 'status', 'identifier', 'primary_ip4', 'primary_ip6', 'tags')),
-        ('Tenancy', ('tenant_group', 'tenant'))
+        (_('Virtual Device Context'), ('device', 'name', 'status', 'identifier', 'primary_ip4', 'primary_ip6', 'tags')),
+        (_('Tenancy'), ('tenant_group', 'tenant'))
     )
 
     class Meta:
         model = VirtualDeviceContext
         fields = [
-            'region', 'site_group', 'site', 'location', 'rack', 'device', 'name', 'status', 'identifier',
-            'primary_ip4', 'primary_ip6', 'tenant_group', 'tenant', 'comments', 'tags'
+            'device', 'name', 'status', 'identifier', 'primary_ip4', 'primary_ip6', 'tenant_group', 'tenant',
+            'comments', 'tags'
         ]
-        widgets = {
-            'status': StaticSelect(),
-            'primary_ip4': StaticSelect(),
-            'primary_ip6': StaticSelect(),
-        }

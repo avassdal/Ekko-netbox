@@ -1,4 +1,6 @@
 from django.core.exceptions import ObjectDoesNotExist
+from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.types import OpenApiTypes
 from netaddr import IPNetwork
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -44,12 +46,13 @@ class ChoiceField(serializers.Field):
         return super().validate_empty_values(data)
 
     def to_representation(self, obj):
-        if obj == '':
-            return None
-        return {
-            'value': obj,
-            'label': self._choices[obj],
-        }
+        if obj != '':
+            # Use an empty string in place of the choice label if it cannot be resolved (i.e. because a previously
+            # configured choice has been removed from FIELD_CHOICES).
+            return {
+                'value': obj,
+                'label': self._choices.get(obj, ''),
+            }
 
     def to_internal_value(self, data):
         if data == '':
@@ -86,6 +89,7 @@ class ChoiceField(serializers.Field):
         return self._choices
 
 
+@extend_schema_field(OpenApiTypes.STR)
 class ContentTypeField(RelatedField):
     """
     Represent a ContentType as '<app_label>.<model>'

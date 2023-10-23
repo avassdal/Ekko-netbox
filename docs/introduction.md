@@ -37,7 +37,6 @@ NetBox was built specifically to serve the needs of network engineers and operat
 * Robust object-based permissions
 * Detailed, automatic change logging
 * Global search engine
-* NAPALM integration
 
 ## What NetBox Is Not
 
@@ -76,6 +75,5 @@ NetBox is built on the [Django](https://djangoproject.com/) Python framework and
 | HTTP service       | nginx or Apache   |
 | WSGI service       | gunicorn or uWSGI |
 | Application        | Django/Python     |
-| Database           | PostgreSQL 11+    |
+| Database           | PostgreSQL 12+    |
 | Task queuing       | Redis/django-rq   |
-| Live device access | NAPALM (optional) |

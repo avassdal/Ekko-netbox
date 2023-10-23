@@ -29,6 +29,17 @@ This defines custom content to be displayed on the login page above the login fo
 
 ---
 
+## BANNER_MAINTENANCE
+
+!!! tip "Dynamic Configuration Parameter"
+
+!!! note
+    This parameter was added in NetBox v3.5.
+
+This adds a banner to the top of every page when maintenance mode is enabled. HTML is allowed.
+
+---
+
 ## BANNER_TOP
 
 !!! tip "Dynamic Configuration Parameter"
@@ -42,6 +53,16 @@ Sets content for the top banner in the user interface.
     BANNER_TOP = 'Your banner text'
     BANNER_BOTTOM = BANNER_TOP
     ```
+
+---
+
+## CENSUS_REPORTING_ENABLED
+
+Default: True
+
+Enables anonymous census reporting. To opt out of census reporting, set this to False.
+
+This data enables the project maintainers to estimate how many NetBox deployments exist and track the adoption of new versions over time. Census reporting effects a single HTTP request each time a worker starts. The only data reported by this function are the NetBox version, Python version, and a pseudorandom unique identifier.
 
 ---
 
@@ -59,6 +80,14 @@ changes in the database indefinitely.
 
 ---
 
+## DATA_UPLOAD_MAX_MEMORY_SIZE
+
+Default: `2621440` (2.5 MB)
+
+The maximum size (in bytes) of an incoming HTTP request (i.e. `GET` or `POST` data). Requests which exceed this size will raise a `RequestDataTooBig` exception.
+
+---
+
 ## ENFORCE_GLOBAL_UNIQUE
 
 !!! tip "Dynamic Configuration Parameter"
@@ -69,9 +98,9 @@ By default, NetBox will permit users to create duplicate prefixes and IP address
 
 ---
 
-## `FILE_UPLOAD_MAX_MEMORY_SIZE`
+## FILE_UPLOAD_MAX_MEMORY_SIZE
 
-Default: `2621440` (2.5 MB).
+Default: `2621440` (2.5 MB)
 
 The maximum amount (in bytes) of uploaded data that will be held in memory before being written to the filesystem. Changing this setting can be useful for example to be able to upload files bigger than 2.5MB to custom scripts for processing.
 
@@ -87,14 +116,16 @@ Setting this to False will disable the GraphQL API.
 
 ---
 
-## JOBRESULT_RETENTION
+## JOB_RETENTION
 
 !!! tip "Dynamic Configuration Parameter"
 
+!!! note
+    This parameter was renamed from `JOBRESULT_RETENTION` in NetBox v3.5.
+
 Default: 90
 
-The number of days to retain job results (scripts and reports). Set this to `0` to retain
-job results in the database indefinitely.
+The number of days to retain job results (scripts and reports). Set this to `0` to retain job results in the database indefinitely.
 
 !!! warning
     If enabling indefinite job results retention, it is recommended to periodically delete old entries. Otherwise, the database may eventually exceed capacity.
@@ -117,7 +148,7 @@ Setting this to True will display a "maintenance mode" banner at the top of ever
 
 Default: `https://maps.google.com/?q=` (Google Maps)
 
-This specifies the URL to use when presenting a map of a physical location by street address or GPS coordinates. The URL must accept either a free-form street address or a comma-separated pair of numeric coordinates appended to it.
+This specifies the URL to use when presenting a map of a physical location by street address or GPS coordinates. The URL must accept either a free-form street address or a comma-separated pair of numeric coordinates appended to it. Set this to `None` to disable the "map it" button within the UI.
 
 ---
 
@@ -181,3 +212,25 @@ This parameter defines the URL of the repository that will be checked for new Ne
 Default: `300`
 
 The maximum execution time of a background task (such as running a custom script), in seconds.
+
+---
+
+## RQ_RETRY_INTERVAL
+
+!!! note
+    This parameter was added in NetBox v3.5.
+
+Default: `60`
+
+This parameter controls how frequently a failed job is retried, up to the maximum number of times specified by `RQ_RETRY_MAX`. This must be either an integer specifying the number of seconds to wait between successive attempts, or a list of such values. For example, `[60, 300, 3600]` will retry the task after 1 minute, 5 minutes, and 1 hour.
+
+---
+
+## RQ_RETRY_MAX
+
+!!! note
+    This parameter was added in NetBox v3.5.
+
+Default: `0` (retries disabled)
+
+The maximum number of times a background task will be retried before being marked as failed.

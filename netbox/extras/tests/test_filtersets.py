@@ -1,11 +1,12 @@
 import uuid
 from datetime import datetime, timezone
 
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 
 from circuits.models import Provider
+from dcim.filtersets import SiteFilterSet
 from dcim.models import DeviceRole, DeviceType, Manufacturer, Platform, Rack, Region, Site, SiteGroup
 from dcim.models import Location
 from extras.choices import *
@@ -17,13 +18,20 @@ from utilities.testing import BaseFilterSetTests, ChangeLoggedFilterSetTests, cr
 from virtualization.models import Cluster, ClusterGroup, ClusterType
 
 
+User = get_user_model()
+
+
 class CustomFieldTestCase(TestCase, BaseFilterSetTests):
     queryset = CustomField.objects.all()
     filterset = CustomFieldFilterSet
 
     @classmethod
     def setUpTestData(cls):
-        content_types = ContentType.objects.filter(model__in=['site', 'rack', 'device'])
+        choice_sets = (
+            CustomFieldChoiceSet(name='Choice Set 1', extra_choices=['A', 'B', 'C']),
+            CustomFieldChoiceSet(name='Choice Set 2', extra_choices=['D', 'E', 'F']),
+        )
+        CustomFieldChoiceSet.objects.bulk_create(choice_sets)
 
         custom_fields = (
             CustomField(
@@ -50,11 +58,31 @@ class CustomFieldTestCase(TestCase, BaseFilterSetTests):
                 filter_logic=CustomFieldFilterLogicChoices.FILTER_DISABLED,
                 ui_visibility=CustomFieldVisibilityChoices.VISIBILITY_HIDDEN
             ),
+            CustomField(
+                name='Custom Field 4',
+                type=CustomFieldTypeChoices.TYPE_SELECT,
+                required=False,
+                weight=400,
+                filter_logic=CustomFieldFilterLogicChoices.FILTER_DISABLED,
+                ui_visibility=CustomFieldVisibilityChoices.VISIBILITY_HIDDEN,
+                choice_set=choice_sets[0]
+            ),
+            CustomField(
+                name='Custom Field 5',
+                type=CustomFieldTypeChoices.TYPE_MULTISELECT,
+                required=False,
+                weight=500,
+                filter_logic=CustomFieldFilterLogicChoices.FILTER_DISABLED,
+                ui_visibility=CustomFieldVisibilityChoices.VISIBILITY_HIDDEN,
+                choice_set=choice_sets[1]
+            ),
         )
         CustomField.objects.bulk_create(custom_fields)
-        custom_fields[0].content_types.add(content_types[0])
-        custom_fields[1].content_types.add(content_types[1])
-        custom_fields[2].content_types.add(content_types[2])
+        custom_fields[0].content_types.add(ContentType.objects.get_by_natural_key('dcim', 'site'))
+        custom_fields[1].content_types.add(ContentType.objects.get_by_natural_key('dcim', 'rack'))
+        custom_fields[2].content_types.add(ContentType.objects.get_by_natural_key('dcim', 'device'))
+        custom_fields[3].content_types.add(ContentType.objects.get_by_natural_key('dcim', 'device'))
+        custom_fields[4].content_types.add(ContentType.objects.get_by_natural_key('dcim', 'device'))
 
     def test_name(self):
         params = {'name': ['Custom Field 1', 'Custom Field 2']}
@@ -63,7 +91,7 @@ class CustomFieldTestCase(TestCase, BaseFilterSetTests):
     def test_content_types(self):
         params = {'content_types': 'dcim.site'}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
-        params = {'content_type_id': [ContentType.objects.get_for_model(Site).pk]}
+        params = {'content_type_id': [ContentType.objects.get_by_natural_key('dcim', 'site').pk]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
 
     def test_required(self):
@@ -82,6 +110,34 @@ class CustomFieldTestCase(TestCase, BaseFilterSetTests):
         params = {'ui_visibility': CustomFieldVisibilityChoices.VISIBILITY_READ_WRITE}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
 
+    def test_choice_set(self):
+        params = {'choice_set': ['Choice Set 1', 'Choice Set 2']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        params = {'choice_set_id': CustomFieldChoiceSet.objects.values_list('pk', flat=True)}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+
+class CustomFieldChoiceSetTestCase(TestCase, BaseFilterSetTests):
+    queryset = CustomFieldChoiceSet.objects.all()
+    filterset = CustomFieldChoiceSetFilterSet
+
+    @classmethod
+    def setUpTestData(cls):
+        choice_sets = (
+            CustomFieldChoiceSet(name='Choice Set 1', extra_choices=['A', 'B', 'C']),
+            CustomFieldChoiceSet(name='Choice Set 2', extra_choices=['D', 'E', 'F']),
+            CustomFieldChoiceSet(name='Choice Set 3', extra_choices=['G', 'H', 'I']),
+        )
+        CustomFieldChoiceSet.objects.bulk_create(choice_sets)
+
+    def test_name(self):
+        params = {'name': ['Choice Set 1', 'Choice Set 2']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_choice(self):
+        params = {'choice': ['A', 'D']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
 
 class WebhookTestCase(TestCase, BaseFilterSetTests):
     queryset = Webhook.objects.all()
@@ -89,12 +145,16 @@ class WebhookTestCase(TestCase, BaseFilterSetTests):
 
     @classmethod
     def setUpTestData(cls):
-        content_types = ContentType.objects.filter(model__in=['site', 'rack', 'device'])
+        content_types = ContentType.objects.filter(model__in=['region', 'site', 'rack', 'location', 'device'])
 
         webhooks = (
             Webhook(
                 name='Webhook 1',
                 type_create=True,
+                type_update=False,
+                type_delete=False,
+                type_job_start=False,
+                type_job_end=False,
                 payload_url='http://example.com/?1',
                 enabled=True,
                 http_method='GET',
@@ -102,7 +162,11 @@ class WebhookTestCase(TestCase, BaseFilterSetTests):
             ),
             Webhook(
                 name='Webhook 2',
+                type_create=False,
                 type_update=True,
+                type_delete=False,
+                type_job_start=False,
+                type_job_end=False,
                 payload_url='http://example.com/?2',
                 enabled=True,
                 http_method='POST',
@@ -110,8 +174,36 @@ class WebhookTestCase(TestCase, BaseFilterSetTests):
             ),
             Webhook(
                 name='Webhook 3',
+                type_create=False,
+                type_update=False,
                 type_delete=True,
+                type_job_start=False,
+                type_job_end=False,
                 payload_url='http://example.com/?3',
+                enabled=False,
+                http_method='PATCH',
+                ssl_verification=False,
+            ),
+            Webhook(
+                name='Webhook 4',
+                type_create=False,
+                type_update=False,
+                type_delete=False,
+                type_job_start=True,
+                type_job_end=False,
+                payload_url='http://example.com/?4',
+                enabled=False,
+                http_method='PATCH',
+                ssl_verification=False,
+            ),
+            Webhook(
+                name='Webhook 5',
+                type_create=False,
+                type_update=False,
+                type_delete=False,
+                type_job_start=False,
+                type_job_end=True,
+                payload_url='http://example.com/?5',
                 enabled=False,
                 http_method='PATCH',
                 ssl_verification=False,
@@ -121,15 +213,17 @@ class WebhookTestCase(TestCase, BaseFilterSetTests):
         webhooks[0].content_types.add(content_types[0])
         webhooks[1].content_types.add(content_types[1])
         webhooks[2].content_types.add(content_types[2])
+        webhooks[3].content_types.add(content_types[3])
+        webhooks[4].content_types.add(content_types[4])
 
     def test_name(self):
         params = {'name': ['Webhook 1', 'Webhook 2']}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
     def test_content_types(self):
-        params = {'content_types': 'dcim.site'}
+        params = {'content_types': 'dcim.region'}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
-        params = {'content_type_id': [ContentType.objects.get_for_model(Site).pk]}
+        params = {'content_type_id': [ContentType.objects.get_for_model(Region).pk]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
 
     def test_type_create(self):
@@ -142,6 +236,14 @@ class WebhookTestCase(TestCase, BaseFilterSetTests):
 
     def test_type_delete(self):
         params = {'type_delete': True}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
+
+    def test_type_job_start(self):
+        params = {'type_job_start': True}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
+
+    def test_type_job_end(self):
+        params = {'type_job_end': True}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
 
     def test_enabled(self):
@@ -313,6 +415,77 @@ class SavedFilterTestCase(TestCase, BaseFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
         params = {'usable': False}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
+
+
+class BookmarkTestCase(TestCase, BaseFilterSetTests):
+    queryset = Bookmark.objects.all()
+    filterset = BookmarkFilterSet
+
+    @classmethod
+    def setUpTestData(cls):
+        content_types = ContentType.objects.filter(model__in=['site', 'rack', 'device'])
+
+        users = (
+            User(username='User 1'),
+            User(username='User 2'),
+            User(username='User 3'),
+        )
+        User.objects.bulk_create(users)
+
+        sites = (
+            Site(name='Site 1', slug='site-1'),
+            Site(name='Site 2', slug='site-2'),
+            Site(name='Site 3', slug='site-3'),
+        )
+        Site.objects.bulk_create(sites)
+
+        tenants = (
+            Tenant(name='Tenant 1', slug='tenant-1'),
+            Tenant(name='Tenant 2', slug='tenant-2'),
+            Tenant(name='Tenant 3', slug='tenant-3'),
+        )
+        Tenant.objects.bulk_create(tenants)
+
+        bookmarks = (
+            Bookmark(
+                object=sites[0],
+                user=users[0],
+            ),
+            Bookmark(
+                object=sites[1],
+                user=users[1],
+            ),
+            Bookmark(
+                object=sites[2],
+                user=users[2],
+            ),
+            Bookmark(
+                object=tenants[0],
+                user=users[0],
+            ),
+            Bookmark(
+                object=tenants[1],
+                user=users[1],
+            ),
+            Bookmark(
+                object=tenants[2],
+                user=users[2],
+            ),
+        )
+        Bookmark.objects.bulk_create(bookmarks)
+
+    def test_object_type(self):
+        params = {'object_type': 'dcim.site'}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+        params = {'object_type_id': [ContentType.objects.get_for_model(Site).pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+
+    def test_user(self):
+        users = User.objects.filter(username__startswith='User')
+        params = {'user': [users[0].username, users[1].username]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
+        params = {'user_id': [users[0].pk, users[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
 
 
 class ExportTemplateTestCase(TestCase, BaseFilterSetTests):
@@ -743,12 +916,38 @@ class ConfigContextTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
 
+class ConfigTemplateTestCase(TestCase, BaseFilterSetTests):
+    queryset = ConfigTemplate.objects.all()
+    filterset = ConfigTemplateFilterSet
+
+    @classmethod
+    def setUpTestData(cls):
+        config_templates = (
+            ConfigTemplate(name='Config Template 1', template_code='TESTING', description='foobar1'),
+            ConfigTemplate(name='Config Template 2', template_code='TESTING', description='foobar2'),
+            ConfigTemplate(name='Config Template 3', template_code='TESTING'),
+        )
+        ConfigTemplate.objects.bulk_create(config_templates)
+
+    def test_name(self):
+        params = {'name': ['Config Template 1', 'Config Template 2']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_description(self):
+        params = {'description': ['foobar1', 'foobar2']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+
 class TagTestCase(TestCase, ChangeLoggedFilterSetTests):
     queryset = Tag.objects.all()
     filterset = TagFilterSet
 
     @classmethod
     def setUpTestData(cls):
+        content_types = {
+            'site': ContentType.objects.get_by_natural_key('dcim', 'site'),
+            'provider': ContentType.objects.get_by_natural_key('circuits', 'provider'),
+        }
 
         tags = (
             Tag(name='Tag 1', slug='tag-1', color='ff0000', description='foobar1'),
@@ -756,6 +955,8 @@ class TagTestCase(TestCase, ChangeLoggedFilterSetTests):
             Tag(name='Tag 3', slug='tag-3', color='0000ff'),
         )
         Tag.objects.bulk_create(tags)
+        tags[0].object_types.add(content_types['site'])
+        tags[1].object_types.add(content_types['provider'])
 
         # Apply some tags so we can filter by content type
         site = Site.objects.create(name='Site 1', slug='site-1')
@@ -787,6 +988,18 @@ class TagTestCase(TestCase, ChangeLoggedFilterSetTests):
         provider_ct = ContentType.objects.get_for_model(Provider).pk
         params = {'content_type_id': [site_ct, provider_ct]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_object_types(self):
+        params = {'for_object_type_id': [ContentType.objects.get_by_natural_key('dcim', 'site').pk]}
+        self.assertEqual(
+            list(self.filterset(params, self.queryset).qs.values_list('name', flat=True)),
+            ['Tag 1', 'Tag 3']
+        )
+        params = {'for_object_type_id': [ContentType.objects.get_by_natural_key('circuits', 'provider').pk]}
+        self.assertEqual(
+            list(self.filterset(params, self.queryset).qs.values_list('name', flat=True)),
+            ['Tag 2', 'Tag 3']
+        )
 
 
 class ObjectChangeTestCase(TestCase, BaseFilterSetTests):
@@ -878,3 +1091,96 @@ class ObjectChangeTestCase(TestCase, BaseFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
         params = {'changed_object_type_id': [ContentType.objects.get(app_label='dcim', model='site').pk]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+
+
+class ChangeLoggedFilterSetTestCase(TestCase):
+    """
+    Evaluate base ChangeLoggedFilterSet filters using the Site model.
+    """
+    queryset = Site.objects.all()
+    filterset = SiteFilterSet
+
+    @classmethod
+    def setUpTestData(cls):
+        content_type = ContentType.objects.get_for_model(Site)
+
+        # Create three sites
+        sites = (
+            Site(name='Site 1', slug='site-1'),
+            Site(name='Site 2', slug='site-2'),
+            Site(name='Site 3', slug='site-3'),
+            Site(name='Site 4', slug='site-4'),
+        )
+        Site.objects.bulk_create(sites)
+
+        # Simulate *creation* changelog records for two of the sites
+        request_id = uuid.uuid4()
+        cls.create_request_id = request_id
+        objectchanges = (
+            ObjectChange(
+                changed_object_type=content_type,
+                changed_object_id=sites[0].pk,
+                action=ObjectChangeActionChoices.ACTION_CREATE,
+                request_id=request_id
+            ),
+            ObjectChange(
+                changed_object_type=content_type,
+                changed_object_id=sites[1].pk,
+                action=ObjectChangeActionChoices.ACTION_CREATE,
+                request_id=request_id
+            ),
+        )
+        ObjectChange.objects.bulk_create(objectchanges)
+
+        # Simulate *update* changelog records for two of the sites
+        request_id = uuid.uuid4()
+        cls.update_request_id = request_id
+        objectchanges = (
+            ObjectChange(
+                changed_object_type=content_type,
+                changed_object_id=sites[0].pk,
+                action=ObjectChangeActionChoices.ACTION_UPDATE,
+                request_id=request_id
+            ),
+            ObjectChange(
+                changed_object_type=content_type,
+                changed_object_id=sites[1].pk,
+                action=ObjectChangeActionChoices.ACTION_UPDATE,
+                request_id=request_id
+            ),
+        )
+        ObjectChange.objects.bulk_create(objectchanges)
+
+        # Simulate *create* and *update* changelog records for two of the sites
+        request_id = uuid.uuid4()
+        cls.create_update_request_id = request_id
+        objectchanges = (
+            ObjectChange(
+                changed_object_type=content_type,
+                changed_object_id=sites[2].pk,
+                action=ObjectChangeActionChoices.ACTION_CREATE,
+                request_id=request_id
+            ),
+            ObjectChange(
+                changed_object_type=content_type,
+                changed_object_id=sites[3].pk,
+                action=ObjectChangeActionChoices.ACTION_UPDATE,
+                request_id=request_id
+            ),
+        )
+        ObjectChange.objects.bulk_create(objectchanges)
+
+    def test_created_by_request(self):
+        params = {'created_by_request': self.create_request_id}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        self.assertEqual(self.queryset.count(), 4)
+
+    def test_updated_by_request(self):
+        params = {'updated_by_request': self.update_request_id}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        self.assertEqual(self.queryset.count(), 4)
+
+    def test_modified_by_request(self):
+        params = {'modified_by_request': self.create_update_request_id}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        self.assertEqual(self.queryset.count(), 4)

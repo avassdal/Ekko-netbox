@@ -61,6 +61,10 @@ If installed in a rack, this field indicates the base rack unit in which the dev
 !!! tip
     Devices with a height of more than one rack unit should be set to the lowest-numbered rack unit that they occupy.
 
+### Latitude & Longitude
+
+GPS coordinates of the device for geolocation.
+
 ### Status
 
 The device's operational status.
@@ -72,12 +76,20 @@ The device's operational status.
 
 A device may be associated with a particular [platform](./platform.md) to indicate its operating system. Note that only platforms assigned to the associated manufacturer (or to no manufacturer) will be available for selection.
 
+### Configuration Template
+
+The [configuration template](../extras/configtemplate.md) from which the configuration for this device can be rendered. If set, this will override any config template referenced by the device's role or platform.
+
 ### Primary IPv4 & IPv6 Addresses
 
 Each device may designate one primary IPv4 address and/or one primary IPv6 address for management purposes.
 
 !!! tip
     NetBox will prefer IPv6 addresses over IPv4 addresses by default. This can be changed by setting the `PREFER_IPV4` configuration parameter.
+
+### Out-of-band (OOB) IP Address
+
+Each device may designate its out-of-band IP address. Out-of-band IPs are typically used to access network infrastructure via a physically separate management network.
 
 ### Cluster
 

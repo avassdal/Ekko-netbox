@@ -1,10 +1,9 @@
 from django import forms
 from django.test import TestCase
 
-from ipam.forms import IPAddressImportForm
 from utilities.choices import ImportFormatChoices
-from utilities.forms import ImportForm
-from utilities.forms.fields import CSVDataField
+from utilities.forms.bulk_import import BulkImportForm
+from utilities.forms.forms import BulkRenameForm
 from utilities.forms.utils import expand_alphanumeric_pattern, expand_ipaddress_pattern
 
 
@@ -266,8 +265,9 @@ class ExpandAlphanumeric(TestCase):
         self.assertEqual(sorted(expand_alphanumeric_pattern('r[a-9]a')), [])
 
     def test_invalid_range_bounds(self):
-        self.assertEqual(sorted(expand_alphanumeric_pattern('r[9-8]a')), [])
-        self.assertEqual(sorted(expand_alphanumeric_pattern('r[b-a]a')), [])
+        with self.assertRaises(forms.ValidationError):
+            sorted(expand_alphanumeric_pattern('r[9-8]a'))
+            sorted(expand_alphanumeric_pattern('r[b-a]a'))
 
     def test_invalid_range_len(self):
         with self.assertRaises(forms.ValidationError):
@@ -287,92 +287,10 @@ class ExpandAlphanumeric(TestCase):
             sorted(expand_alphanumeric_pattern('r[a,,b]a'))
 
 
-class CSVDataFieldTest(TestCase):
-
-    def setUp(self):
-        self.field = CSVDataField(from_form=IPAddressImportForm)
-
-    def test_clean(self):
-        input = """
-        address,status,vrf
-        192.0.2.1/32,Active,Test VRF
-        """
-        output = (
-            {'address': None, 'status': None, 'vrf': None},
-            [{'address': '192.0.2.1/32', 'status': 'Active', 'vrf': 'Test VRF'}]
-        )
-        self.assertEqual(self.field.clean(input), output)
-
-    def test_clean_invalid_header(self):
-        input = """
-        address,status,vrf,xxx
-        192.0.2.1/32,Active,Test VRF,123
-        """
-        with self.assertRaises(forms.ValidationError):
-            self.field.clean(input)
-
-    def test_clean_missing_required_header(self):
-        input = """
-        status,vrf
-        Active,Test VRF
-        """
-        with self.assertRaises(forms.ValidationError):
-            self.field.clean(input)
-
-    def test_clean_default_to_field(self):
-        input = """
-        address,status,vrf.name
-        192.0.2.1/32,Active,Test VRF
-        """
-        output = (
-            {'address': None, 'status': None, 'vrf': 'name'},
-            [{'address': '192.0.2.1/32', 'status': 'Active', 'vrf': 'Test VRF'}]
-        )
-        self.assertEqual(self.field.clean(input), output)
-
-    def test_clean_pk_to_field(self):
-        input = """
-        address,status,vrf.pk
-        192.0.2.1/32,Active,123
-        """
-        output = (
-            {'address': None, 'status': None, 'vrf': 'pk'},
-            [{'address': '192.0.2.1/32', 'status': 'Active', 'vrf': '123'}]
-        )
-        self.assertEqual(self.field.clean(input), output)
-
-    def test_clean_custom_to_field(self):
-        input = """
-        address,status,vrf.rd
-        192.0.2.1/32,Active,123:456
-        """
-        output = (
-            {'address': None, 'status': None, 'vrf': 'rd'},
-            [{'address': '192.0.2.1/32', 'status': 'Active', 'vrf': '123:456'}]
-        )
-        self.assertEqual(self.field.clean(input), output)
-
-    def test_clean_invalid_to_field(self):
-        input = """
-        address,status,vrf.xxx
-        192.0.2.1/32,Active,123:456
-        """
-        with self.assertRaises(forms.ValidationError):
-            self.field.clean(input)
-
-    def test_clean_to_field_on_non_object(self):
-        input = """
-        address,status.foo,vrf
-        192.0.2.1/32,Bar,Test VRF
-        """
-        with self.assertRaises(forms.ValidationError):
-            self.field.clean(input)
-
-
 class ImportFormTest(TestCase):
 
     def test_format_detection(self):
-        form = ImportForm()
+        form = BulkImportForm()
 
         data = (
             "a,b,c\n"
@@ -414,3 +332,49 @@ class ImportFormTest(TestCase):
             form._detect_format('')
         with self.assertRaises(forms.ValidationError):
             form._detect_format('?')
+
+    def test_csv_delimiters(self):
+        form = BulkImportForm()
+
+        data = (
+            "a,b,c\n"
+            "1,2,3\n"
+            "4,5,6\n"
+        )
+        self.assertEqual(form._clean_csv(data, delimiter=','), [
+            {'a': '1', 'b': '2', 'c': '3'},
+            {'a': '4', 'b': '5', 'c': '6'},
+        ])
+
+        data = (
+            "a;b;c\n"
+            "1;2;3\n"
+            "4;5;6\n"
+        )
+        self.assertEqual(form._clean_csv(data, delimiter=';'), [
+            {'a': '1', 'b': '2', 'c': '3'},
+            {'a': '4', 'b': '5', 'c': '6'},
+        ])
+
+        data = (
+            "a\tb\tc\n"
+            "1\t2\t3\n"
+            "4\t5\t6\n"
+        )
+        self.assertEqual(form._clean_csv(data, delimiter='\t'), [
+            {'a': '1', 'b': '2', 'c': '3'},
+            {'a': '4', 'b': '5', 'c': '6'},
+        ])
+
+
+class BulkRenameFormTest(TestCase):
+    def test_no_strip_whitespace(self):
+        # Tests to make sure Bulk Rename Form isn't stripping whitespaces
+        # See: https://github.com/netbox-community/netbox/issues/13791
+        form = BulkRenameForm(data={
+            "find": " hello ",
+            "replace": " world "
+        })
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data["find"], " hello ")
+        self.assertEqual(form.cleaned_data["replace"], " world ")

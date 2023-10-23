@@ -1,5 +1,94 @@
 # NetBox v3.4
 
+## v3.4.10 (2023-04-27)
+
+### Bug Fixes
+
+* [#11607](https://github.com/netbox-community/netbox/issues/11607) - Fix custom object field assignments made via REST API for for cables
+* [#12252](https://github.com/netbox-community/netbox/issues/12252) - Fix ordering of search results when sorting by object name
+* [#12355](https://github.com/netbox-community/netbox/issues/12355) - Fix escaping of certain characters in URL when rendering custom links
+
+---
+
+## v3.4.9 (2023-04-26)
+
+### Enhancements
+
+* [#10987](https://github.com/netbox-community/netbox/issues/10987) - Show peer racks as a dropdown list under rack view
+* [#11386](https://github.com/netbox-community/netbox/issues/11386) - Introduce `CSRF_COOKIE_SECURE`, `SECURE_SSL_REDIRECT`, and `SESSION_COOKIE_SECURE` configuration parameters
+* [#11623](https://github.com/netbox-community/netbox/issues/11623) - Hide PSK strings under wireless LAN & link views
+* [#12205](https://github.com/netbox-community/netbox/issues/12205) - Sanitize rendered custom links to mitigate malicious links
+* [#12226](https://github.com/netbox-community/netbox/issues/12226) - Enable setting user name & email values via remote authenticate headers
+* [#12337](https://github.com/netbox-community/netbox/issues/12337) - Enable anonymized reporting of census data
+
+### Bug Fixes
+
+* [#11383](https://github.com/netbox-community/netbox/issues/11383) - Fix ordering of global search results by object type
+* [#11902](https://github.com/netbox-community/netbox/issues/11902) - Fix import of inventory items for devices with duplicated names
+* [#12238](https://github.com/netbox-community/netbox/issues/12238) - Improve error message for API token IP prefix validation failures
+* [#12255](https://github.com/netbox-community/netbox/issues/12255) - Restore the ability to move inventory items among devices
+* [#12270](https://github.com/netbox-community/netbox/issues/12270) - Fix pre-population of list values when creating a saved filter
+* [#12296](https://github.com/netbox-community/netbox/issues/12296) - Fix "mark connected" form field for bulk editing front & rear ports
+
+---
+
+## v3.4.8 (2023-04-12)
+
+### Enhancements
+
+* [#10414](https://github.com/netbox-community/netbox/issues/10414) - Enable general purpose image attachments for device types
+* [#10600](https://github.com/netbox-community/netbox/issues/10600) - Allow custom object fields to reference a user or group
+* [#11015](https://github.com/netbox-community/netbox/issues/11015) - Remove unit from commit rate column header in circuits table
+* [#11431](https://github.com/netbox-community/netbox/issues/11431) - Disallow changing custom field type after creation
+* [#11453](https://github.com/netbox-community/netbox/issues/11453) - Display a warning banner when `DEBUG` is enabled
+* [#12007](https://github.com/netbox-community/netbox/issues/12007) - Enable filtering of VM Interfaces by assigned VLAN
+* [#12095](https://github.com/netbox-community/netbox/issues/12095) - Specify UTF-8 encoding for default export template MIME type
+* [#12207](https://github.com/netbox-community/netbox/issues/12207) - Introduce the `grant_token` permission for controlling the creation of API tokens on behalf of other users
+
+### Bug Fixes
+
+* [#10221](https://github.com/netbox-community/netbox/issues/10221) - Validate generic foreign key relations assigned via REST API requests
+* [#11432](https://github.com/netbox-community/netbox/issues/11432) - Prevent existing components & component templates from being reassigned to different devices/device types via the REST API
+* [#11454](https://github.com/netbox-community/netbox/issues/11454) - Raise validation error if generic foreign key assignment does not specify both object type and ID
+* [#11746](https://github.com/netbox-community/netbox/issues/11746) - Fix cleanup of object data when deleting a custom field
+* [#12011](https://github.com/netbox-community/netbox/issues/12011) - Fix KeyError exception when attempting to add module bays in bulk
+* [#12040](https://github.com/netbox-community/netbox/issues/12040) - Display relevant UI tab upon bulk import validation failure
+* [#12074](https://github.com/netbox-community/netbox/issues/12074) - Fix the automatic assignment of racks to devices via the REST API
+* [#12084](https://github.com/netbox-community/netbox/issues/12084) - Fix exception when attempting to create a saved filter for applied filters
+* [#12087](https://github.com/netbox-community/netbox/issues/12087) - Fix bulk editing of many-to-many relationships
+* [#12117](https://github.com/netbox-community/netbox/issues/12117) - Hide clone button for objects with no clonable attributes
+* [#12118](https://github.com/netbox-community/netbox/issues/12118) - Fix instantiation of nested inventory item templates when creating a device
+* [#12184](https://github.com/netbox-community/netbox/issues/12184) - Fix filtered bulk deletion for various models
+* [#12190](https://github.com/netbox-community/netbox/issues/12190) - Fix form layout for plugin textarea fields
+* [#12227](https://github.com/netbox-community/netbox/issues/12227) - Fix tenant assignment on bulk import of L2VPNs
+
+---
+
+## v3.4.7 (2023-03-28)
+
+### Enhancements
+
+* [#11645](https://github.com/netbox-community/netbox/issues/11645) - Automatically set the scheduled time when executing reports/scripts at a recurring interval
+* [#11833](https://github.com/netbox-community/netbox/issues/11833) - Add fieldset support for custom script forms
+* [#11973](https://github.com/netbox-community/netbox/issues/11833) - Use SSID for representing wireless links, if set
+* [#11977](https://github.com/netbox-community/netbox/issues/11977) - Support designating multiple backends via `REMOTE_AUTH_BACKEND` config parameter
+* [#11990](https://github.com/netbox-community/netbox/issues/11990) - Improve error reporting for duplicate CSV column headings
+* [#11991](https://github.com/netbox-community/netbox/issues/11991) - Enable VDC assignment during bulk import/edit of interfaces
+
+### Bug Fixes
+
+* [#11914](https://github.com/netbox-community/netbox/issues/11914) - Include parameters when exporting saved filters
+* [#11933](https://github.com/netbox-community/netbox/issues/11933) - Fix cloning of saved filters
+* [#11984](https://github.com/netbox-community/netbox/issues/11984) - Remove erroneous 802.3az PoE type
+* [#11979](https://github.com/netbox-community/netbox/issues/11979) - Correct URL for tags in route targets list
+* [#12008](https://github.com/netbox-community/netbox/issues/12008) - Enable cloning of export templates
+* [#12029](https://github.com/netbox-community/netbox/issues/12029) - Restore missing description field on virtual chassis form
+* [#12038](https://github.com/netbox-community/netbox/issues/12038) - Correct display of zero values for virtual chassis member priority
+* [#12048](https://github.com/netbox-community/netbox/issues/12048) - Enable cloning of tags
+* [#12058](https://github.com/netbox-community/netbox/issues/12058) - Enable cloning of config contexts
+
+---
+
 ## v3.4.6 (2023-03-13)
 
 ### Enhancements

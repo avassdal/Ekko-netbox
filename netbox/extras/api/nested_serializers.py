@@ -1,17 +1,17 @@
 from rest_framework import serializers
 
-from extras import choices, models
-from netbox.api.fields import ChoiceField
+from extras import models
 from netbox.api.serializers import NestedTagSerializer, WritableNestedSerializer
-from users.api.nested_serializers import NestedUserSerializer
 
 __all__ = [
+    'NestedBookmarkSerializer',
     'NestedConfigContextSerializer',
+    'NestedConfigTemplateSerializer',
+    'NestedCustomFieldChoiceSetSerializer',
     'NestedCustomFieldSerializer',
     'NestedCustomLinkSerializer',
     'NestedExportTemplateSerializer',
     'NestedImageAttachmentSerializer',
-    'NestedJobResultSerializer',
     'NestedJournalEntrySerializer',
     'NestedSavedFilterSerializer',
     'NestedTagSerializer',  # Defined in netbox.api.serializers
@@ -35,6 +35,14 @@ class NestedCustomFieldSerializer(WritableNestedSerializer):
         fields = ['id', 'url', 'display', 'name']
 
 
+class NestedCustomFieldChoiceSetSerializer(WritableNestedSerializer):
+    url = serializers.HyperlinkedIdentityField(view_name='extras-api:customfieldchoiceset-detail')
+
+    class Meta:
+        model = models.CustomFieldChoiceSet
+        fields = ['id', 'url', 'display', 'name', 'choices_count']
+
+
 class NestedCustomLinkSerializer(WritableNestedSerializer):
     url = serializers.HyperlinkedIdentityField(view_name='extras-api:customlink-detail')
 
@@ -48,6 +56,14 @@ class NestedConfigContextSerializer(WritableNestedSerializer):
 
     class Meta:
         model = models.ConfigContext
+        fields = ['id', 'url', 'display', 'name']
+
+
+class NestedConfigTemplateSerializer(WritableNestedSerializer):
+    url = serializers.HyperlinkedIdentityField(view_name='extras-api:configtemplate-detail')
+
+    class Meta:
+        model = models.ConfigTemplate
         fields = ['id', 'url', 'display', 'name']
 
 
@@ -67,6 +83,14 @@ class NestedSavedFilterSerializer(WritableNestedSerializer):
         fields = ['id', 'url', 'display', 'name', 'slug']
 
 
+class NestedBookmarkSerializer(WritableNestedSerializer):
+    url = serializers.HyperlinkedIdentityField(view_name='extras-api:bookmark-detail')
+
+    class Meta:
+        model = models.Bookmark
+        fields = ['id', 'url', 'display', 'object_id', 'object_type']
+
+
 class NestedImageAttachmentSerializer(WritableNestedSerializer):
     url = serializers.HyperlinkedIdentityField(view_name='extras-api:imageattachment-detail')
 
@@ -81,15 +105,3 @@ class NestedJournalEntrySerializer(WritableNestedSerializer):
     class Meta:
         model = models.JournalEntry
         fields = ['id', 'url', 'display', 'created']
-
-
-class NestedJobResultSerializer(serializers.ModelSerializer):
-    url = serializers.HyperlinkedIdentityField(view_name='extras-api:jobresult-detail')
-    status = ChoiceField(choices=choices.JobResultStatusChoices)
-    user = NestedUserSerializer(
-        read_only=True
-    )
-
-    class Meta:
-        model = models.JobResult
-        fields = ['url', 'created', 'completed', 'user', 'status']

@@ -2,32 +2,33 @@
 {% load buttons %}
 {% load helpers %}
 {% load plugins %}
+{% load i18n %}
 
 {% block content %}
   <div class="row">
     <div class="col col-md-6">
       <div class="card">
-        <h5 class="card-header">Module Type</h5>
+        <h5 class="card-header">{% trans "Module Type" %}</h5>
         <div class="card-body">
           <table class="table table-hover attr-table">
             <tr>
-              <td>Manufacturer</td>
+              <td>{% trans "Manufacturer" %}</td>
               <td>{{ object.manufacturer|linkify }}</td>
             </tr>
             <tr>
-              <td>Model Name</td>
+              <td>{% trans "Model Name" %}</td>
               <td>{{ object.model }}</td>
             </tr>
             <tr>
-              <td>Part Number</td>
+              <td>{% trans "Part Number" %}</td>
               <td>{{ object.part_number|placeholder }}</td>
             </tr>
             <tr>
-              <th scope="row">Description</th>
+              <th scope="row">{% trans "Description" %}</th>
               <td>{{ object.description|placeholder }}</td>
             </tr>
             <tr>
-                <td>Weight</td>
+                <td>{% trans "Weight" %}</td>
                 <td>
                 {% if object.weight %}
                   {{ object.weight|floatformat }} {{ object.get_weight_unit_display }}
@@ -36,19 +37,16 @@
                 {% endif %}
                 </td>
             </tr>
-            <tr>
-              <td>Instances</td>
-              <td><a href="{% url 'dcim:module_list' %}?module_type_id={{ object.pk }}">{{ instance_count }}</a></td>
-            </tr>
           </table>
         </div>
       </div>
-      {% include 'inc/panels/custom_fields.html' %}
+      {% include 'inc/panels/tags.html' %}
+      {% include 'inc/panels/comments.html' %}
       {% plugin_left_page object %}
     </div>
     <div class="col col-md-6">
-      {% include 'inc/panels/tags.html' %}
-      {% include 'inc/panels/comments.html' %}
+      {% include 'inc/panels/related_objects.html' %}
+      {% include 'inc/panels/custom_fields.html' %}
       {% include 'inc/panels/image_attachments.html' %}
       {% plugin_right_page object %}
     </div>

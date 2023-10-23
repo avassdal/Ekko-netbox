@@ -1,8 +1,9 @@
 from django import forms
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _
 
 from dcim.choices import *
 from dcim.constants import *
+from utilities.forms import get_field_value
 
 __all__ = (
     'InterfaceCommonForm',
@@ -23,6 +24,20 @@ class InterfaceCommonForm(forms.Form):
         label=_('MTU')
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Determine the selected 802.1Q mode
+        interface_mode = get_field_value(self, 'mode')
+
+        # Delete VLAN tagging fields which are not relevant for the selected mode
+        if interface_mode in (InterfaceModeChoices.MODE_ACCESS, InterfaceModeChoices.MODE_TAGGED_ALL):
+            del self.fields['tagged_vlans']
+        elif not interface_mode:
+            del self.fields['vlan_group']
+            del self.fields['untagged_vlan']
+            del self.fields['tagged_vlans']
+
     def clean(self):
         super().clean()
 
@@ -32,7 +47,7 @@ class InterfaceCommonForm(forms.Form):
         # Untagged interfaces cannot be assigned tagged VLANs
         if self.cleaned_data['mode'] == InterfaceModeChoices.MODE_ACCESS and tagged_vlans:
             raise forms.ValidationError({
-                'mode': "An access interface cannot have tagged VLANs assigned."
+                'mode': _("An access interface cannot have tagged VLANs assigned.")
             })
 
         # Remove all tagged VLAN assignments from "tagged all" interfaces
@@ -46,8 +61,10 @@ class InterfaceCommonForm(forms.Form):
 
             if invalid_vlans:
                 raise forms.ValidationError({
-                    'tagged_vlans': f"The tagged VLANs ({', '.join(invalid_vlans)}) must belong to the same site as "
-                                    f"the interface's parent device/VM, or they must be global"
+                    'tagged_vlans': _(
+                        "The tagged VLANs ({vlans}) must belong to the same site as the interface's parent device/VM, "
+                        "or they must be global"
+                    ).format(vlans=', '.join(invalid_vlans))
                 })
 
 
@@ -90,7 +107,7 @@ class ModuleCommonForm(forms.Form):
                 # Installing modules with placeholders require that the bay has a position value
                 if MODULE_TOKEN in template.name and not module_bay.position:
                     raise forms.ValidationError(
-                        "Cannot install module with placeholder values in a module bay with no position defined"
+                        _("Cannot install module with placeholder values in a module bay with no position defined.")
                     )
 
                 resolved_name = template.name.replace(MODULE_TOKEN, module_bay.position)
@@ -99,12 +116,17 @@ class ModuleCommonForm(forms.Form):
                 # It is not possible to adopt components already belonging to a module
                 if adopt_components and existing_item and existing_item.module:
                     raise forms.ValidationError(
-                        f"Cannot adopt {template.component_model.__name__} '{resolved_name}' as it already belongs "
-                        f"to a module"
+                        _("Cannot adopt {name} '{resolved_name}' as it already belongs to a module").format(
+                            name=template.component_model.__name__,
+                            resolved_name=resolved_name
+                        )
                     )
 
                 # If we are not adopting components we error if the component exists
                 if not adopt_components and resolved_name in installed_components:
                     raise forms.ValidationError(
-                        f"{template.component_model.__name__} - {resolved_name} already exists"
+                        _("{name} - {resolved_name} already exists").format(
+                            name=template.component_model.__name__,
+                            resolved_name=resolved_name
+                        )
                     )
