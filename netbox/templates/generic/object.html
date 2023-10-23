@@ -5,13 +5,13 @@
 {% load perms %}
 {% load plugins %}
 {% load tabs %}
+{% load i18n %}
 
 {% comment %}
 Blocks:
   breadcrumbs: Breadcrumb list items (HTML <li> elements)
   object_identifier: Unique identifier for the object
   extra_controls: Additional action buttons to display
-  extra_tabs: Additional tabs to include
   content: Page content
 
 Context:
@@ -39,17 +39,19 @@ Context:
     </div>
   </div>
   {{ block.super }}
-{% endblock %}
+{% endblock header %}
 
 {% block title %}{{ object }}{% endblock %}
 
 {% block subtitle %}
   <div class="object-subtitle">
-    <span>Created {{ object.created|annotated_date }}</span>
-    <span class="separator">&middot;</span>
-    <span>Updated <span title="{{ object.last_updated }}">{{ object.last_updated|timesince }}</span> ago</span>
+    <span>{% trans "Created" %} {{ object.created|annotated_date }}</span>
+    {% if object.last_updated %}
+      <span class="separator">&middot;</span>
+      <span>{% trans "Updated" %} <span title="{{ object.last_updated }}">{{ object.last_updated|timesince }}</span> {% trans "ago" %}</span>
+    {% endif %}
   </div>
-{% endblock %}
+{% endblock subtitle %}
 
 {% block controls %}
   {# Clone/Edit/Delete Buttons #}
@@ -60,6 +62,9 @@ Context:
       {# Extra buttons #}
       {% block extra_controls %}{% endblock %}
 
+      {% if perms.extras.add_bookmark and object.bookmarks %}
+        {% bookmark_button object %}
+      {% endif %}
       {% if request.user|can_add:object %}
         {% clone_button object %}
       {% endif %}
@@ -83,9 +88,6 @@ Context:
     <li class="nav-item" role="presentation">
       <a class="nav-link{% if not tab %} active{% endif %}" href="{{ object.get_absolute_url }}">{{ object|meta:"verbose_name"|bettertitle }}</a>
     </li>
-
-    {# Include any extra tabs passed by the view #}
-    {% block extra_tabs %}{% endblock %}
 
     {# Include tabs for registered model views #}
     {% model_view_tabs object %}

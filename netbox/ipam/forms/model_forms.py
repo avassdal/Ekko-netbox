@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _
 
 from dcim.models import Device, Interface, Location, Rack, Region, Site, SiteGroup
 from ipam.choices import *
@@ -11,15 +11,18 @@ from ipam.models import *
 from netbox.forms import NetBoxModelForm
 from tenancy.forms import TenancyForm
 from utilities.exceptions import PermissionsViolation
-from utilities.forms import (
-    add_blank_choice, BootstrapMixin, CommentField, ContentTypeChoiceField, DatePicker, DynamicModelChoiceField,
-    DynamicModelMultipleChoiceField, NumericArrayField, SlugField, StaticSelect, StaticSelectMultiple,
+from utilities.forms import BootstrapMixin, add_blank_choice
+from utilities.forms.fields import (
+    CommentField, ContentTypeChoiceField, DynamicModelChoiceField, DynamicModelMultipleChoiceField, NumericArrayField,
+    SlugField,
 )
+from utilities.forms.widgets import DatePicker
 from virtualization.models import Cluster, ClusterGroup, VirtualMachine, VMInterface
 
 __all__ = (
     'AggregateForm',
     'ASNForm',
+    'ASNRangeForm',
     'FHRPGroupForm',
     'FHRPGroupAssignmentForm',
     'IPAddressAssignForm',
@@ -43,19 +46,21 @@ __all__ = (
 
 class VRFForm(TenancyForm, NetBoxModelForm):
     import_targets = DynamicModelMultipleChoiceField(
+        label=_('Import targets'),
         queryset=RouteTarget.objects.all(),
         required=False
     )
     export_targets = DynamicModelMultipleChoiceField(
+        label=_('Export targets'),
         queryset=RouteTarget.objects.all(),
         required=False
     )
     comments = CommentField()
 
     fieldsets = (
-        ('VRF', ('name', 'rd', 'enforce_unique', 'description', 'tags')),
-        ('Route Targets', ('import_targets', 'export_targets')),
-        ('Tenancy', ('tenant_group', 'tenant')),
+        (_('VRF'), ('name', 'rd', 'enforce_unique', 'description', 'tags')),
+        (_('Route Targets'), ('import_targets', 'export_targets')),
+        (_('Tenancy'), ('tenant_group', 'tenant')),
     )
 
     class Meta:
@@ -66,9 +71,6 @@ class VRFForm(TenancyForm, NetBoxModelForm):
         ]
         labels = {
             'rd': "RD",
-        }
-        help_texts = {
-            'rd': _("Route distinguisher in any format"),
         }
 
 
@@ -90,7 +92,7 @@ class RIRForm(NetBoxModelForm):
     slug = SlugField()
 
     fieldsets = (
-        ('RIR', (
+        (_('RIR'), (
             'name', 'slug', 'is_private', 'description', 'tags',
         )),
     )
@@ -110,8 +112,8 @@ class AggregateForm(TenancyForm, NetBoxModelForm):
     comments = CommentField()
 
     fieldsets = (
-        ('Aggregate', ('prefix', 'rir', 'date_added', 'description', 'tags')),
-        ('Tenancy', ('tenant_group', 'tenant')),
+        (_('Aggregate'), ('prefix', 'rir', 'date_added', 'description', 'tags')),
+        (_('Tenancy'), ('tenant_group', 'tenant')),
     )
 
     class Meta:
@@ -119,13 +121,27 @@ class AggregateForm(TenancyForm, NetBoxModelForm):
         fields = [
             'prefix', 'rir', 'date_added', 'tenant_group', 'tenant', 'description', 'comments', 'tags',
         ]
-        help_texts = {
-            'prefix': _("IPv4 or IPv6 network"),
-            'rir': _("Regional Internet Registry responsible for this prefix"),
-        }
         widgets = {
             'date_added': DatePicker(),
         }
+
+
+class ASNRangeForm(TenancyForm, NetBoxModelForm):
+    rir = DynamicModelChoiceField(
+        queryset=RIR.objects.all(),
+        label=_('RIR'),
+    )
+    slug = SlugField()
+    fieldsets = (
+        (_('ASN Range'), ('name', 'slug', 'rir', 'start', 'end', 'description', 'tags')),
+        (_('Tenancy'), ('tenant_group', 'tenant')),
+    )
+
+    class Meta:
+        model = ASNRange
+        fields = [
+            'name', 'slug', 'rir', 'start', 'end', 'tenant_group', 'tenant', 'description', 'tags'
+        ]
 
 
 class ASNForm(TenancyForm, NetBoxModelForm):
@@ -141,8 +157,8 @@ class ASNForm(TenancyForm, NetBoxModelForm):
     comments = CommentField()
 
     fieldsets = (
-        ('ASN', ('asn', 'rir', 'sites', 'description', 'tags')),
-        ('Tenancy', ('tenant_group', 'tenant')),
+        (_('ASN'), ('asn', 'rir', 'sites', 'description', 'tags')),
+        (_('Tenancy'), ('tenant_group', 'tenant')),
     )
 
     class Meta:
@@ -150,10 +166,6 @@ class ASNForm(TenancyForm, NetBoxModelForm):
         fields = [
             'asn', 'rir', 'sites', 'tenant_group', 'tenant', 'description', 'comments', 'tags'
         ]
-        help_texts = {
-            'asn': _("AS number"),
-            'rir': _("Regional Internet Registry responsible for this prefix"),
-        }
         widgets = {
             'date_added': DatePicker(),
         }
@@ -174,7 +186,7 @@ class RoleForm(NetBoxModelForm):
     slug = SlugField()
 
     fieldsets = (
-        ('Role', (
+        (_('Role'), (
             'name', 'slug', 'weight', 'description', 'tags',
         )),
     )
@@ -192,60 +204,33 @@ class PrefixForm(TenancyForm, NetBoxModelForm):
         required=False,
         label=_('VRF')
     )
-    region = DynamicModelChoiceField(
-        queryset=Region.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
-    site_group = DynamicModelChoiceField(
-        queryset=SiteGroup.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
     site = DynamicModelChoiceField(
+        label=_('Site'),
         queryset=Site.objects.all(),
         required=False,
-        null_option='None',
-        query_params={
-            'region_id': '$region',
-            'group_id': '$site_group',
-        }
-    )
-    vlan_group = DynamicModelChoiceField(
-        queryset=VLANGroup.objects.all(),
-        required=False,
-        label=_('VLAN group'),
-        null_option='None',
-        query_params={
-            'site': '$site'
-        },
-        initial_params={
-            'vlans': '$vlan'
-        }
+        selector=True,
+        null_option='None'
     )
     vlan = DynamicModelChoiceField(
         queryset=VLAN.objects.all(),
         required=False,
-        label=_('VLAN'),
+        selector=True,
         query_params={
             'site_id': '$site',
-            'group_id': '$vlan_group',
-        }
+        },
+        label=_('VLAN'),
     )
     role = DynamicModelChoiceField(
+        label=_('Role'),
         queryset=Role.objects.all(),
         required=False
     )
     comments = CommentField()
 
     fieldsets = (
-        ('Prefix', ('prefix', 'status', 'vrf', 'role', 'is_pool', 'mark_utilized', 'description', 'tags')),
-        ('Site/VLAN Assignment', ('region', 'site_group', 'site', 'vlan_group', 'vlan')),
-        ('Tenancy', ('tenant_group', 'tenant')),
+        (_('Prefix'), ('prefix', 'status', 'vrf', 'role', 'is_pool', 'mark_utilized', 'description', 'tags')),
+        (_('Site/VLAN Assignment'), ('site', 'vlan')),
+        (_('Tenancy'), ('tenant_group', 'tenant')),
     )
 
     class Meta:
@@ -254,9 +239,6 @@ class PrefixForm(TenancyForm, NetBoxModelForm):
             'prefix', 'vrf', 'site', 'vlan', 'status', 'role', 'is_pool', 'mark_utilized', 'tenant_group', 'tenant',
             'description', 'comments', 'tags',
         ]
-        widgets = {
-            'status': StaticSelect(),
-        }
 
 
 class IPRangeForm(TenancyForm, NetBoxModelForm):
@@ -266,60 +248,42 @@ class IPRangeForm(TenancyForm, NetBoxModelForm):
         label=_('VRF')
     )
     role = DynamicModelChoiceField(
+        label=_('Role'),
         queryset=Role.objects.all(),
         required=False
     )
     comments = CommentField()
 
     fieldsets = (
-        ('IP Range', ('vrf', 'start_address', 'end_address', 'role', 'status', 'description', 'tags')),
-        ('Tenancy', ('tenant_group', 'tenant')),
+        (_('IP Range'), ('vrf', 'start_address', 'end_address', 'role', 'status', 'mark_utilized', 'description', 'tags')),
+        (_('Tenancy'), ('tenant_group', 'tenant')),
     )
 
     class Meta:
         model = IPRange
         fields = [
-            'vrf', 'start_address', 'end_address', 'status', 'role', 'tenant_group', 'tenant', 'description',
-            'comments', 'tags',
+            'vrf', 'start_address', 'end_address', 'status', 'role', 'tenant_group', 'tenant', 'mark_utilized',
+            'description', 'comments', 'tags',
         ]
-        widgets = {
-            'status': StaticSelect(),
-        }
 
 
 class IPAddressForm(TenancyForm, NetBoxModelForm):
-    device = DynamicModelChoiceField(
-        queryset=Device.objects.all(),
-        required=False,
-        initial_params={
-            'interfaces': '$interface'
-        }
-    )
     interface = DynamicModelChoiceField(
+        label=_('Interface'),
         queryset=Interface.objects.all(),
         required=False,
-        query_params={
-            'device_id': '$device'
-        }
-    )
-    virtual_machine = DynamicModelChoiceField(
-        queryset=VirtualMachine.objects.all(),
-        required=False,
-        initial_params={
-            'interfaces': '$vminterface'
-        }
+        selector=True,
     )
     vminterface = DynamicModelChoiceField(
         queryset=VMInterface.objects.all(),
         required=False,
+        selector=True,
         label=_('Interface'),
-        query_params={
-            'virtual_machine_id': '$virtual_machine'
-        }
     )
     fhrpgroup = DynamicModelChoiceField(
         queryset=FHRPGroup.objects.all(),
         required=False,
+        selector=True,
         label=_('FHRP Group')
     )
     vrf = DynamicModelChoiceField(
@@ -327,76 +291,11 @@ class IPAddressForm(TenancyForm, NetBoxModelForm):
         required=False,
         label=_('VRF')
     )
-    nat_region = DynamicModelChoiceField(
-        queryset=Region.objects.all(),
-        required=False,
-        label=_('Region'),
-        initial_params={
-            'sites': '$nat_site'
-        }
-    )
-    nat_site_group = DynamicModelChoiceField(
-        queryset=SiteGroup.objects.all(),
-        required=False,
-        label=_('Site group'),
-        initial_params={
-            'sites': '$nat_site'
-        }
-    )
-    nat_site = DynamicModelChoiceField(
-        queryset=Site.objects.all(),
-        required=False,
-        label=_('Site'),
-        query_params={
-            'region_id': '$nat_region',
-            'group_id': '$nat_site_group',
-        }
-    )
-    nat_rack = DynamicModelChoiceField(
-        queryset=Rack.objects.all(),
-        required=False,
-        label=_('Rack'),
-        null_option='None',
-        query_params={
-            'site_id': '$site'
-        }
-    )
-    nat_device = DynamicModelChoiceField(
-        queryset=Device.objects.all(),
-        required=False,
-        label=_('Device'),
-        query_params={
-            'site_id': '$site',
-            'rack_id': '$nat_rack',
-        }
-    )
-    nat_cluster = DynamicModelChoiceField(
-        queryset=Cluster.objects.all(),
-        required=False,
-        label=_('Cluster')
-    )
-    nat_virtual_machine = DynamicModelChoiceField(
-        queryset=VirtualMachine.objects.all(),
-        required=False,
-        label=_('Virtual Machine'),
-        query_params={
-            'cluster_id': '$nat_cluster',
-        }
-    )
-    nat_vrf = DynamicModelChoiceField(
-        queryset=VRF.objects.all(),
-        required=False,
-        label=_('VRF')
-    )
     nat_inside = DynamicModelChoiceField(
         queryset=IPAddress.objects.all(),
         required=False,
+        selector=True,
         label=_('IP Address'),
-        query_params={
-            'device_id': '$nat_device',
-            'virtual_machine_id': '$nat_virtual_machine',
-            'vrf_id': '$nat_vrf',
-        }
     )
     primary_for_parent = forms.BooleanField(
         required=False,
@@ -407,14 +306,9 @@ class IPAddressForm(TenancyForm, NetBoxModelForm):
     class Meta:
         model = IPAddress
         fields = [
-            'address', 'vrf', 'status', 'role', 'dns_name', 'primary_for_parent', 'nat_site', 'nat_rack', 'nat_device',
-            'nat_cluster', 'nat_virtual_machine', 'nat_vrf', 'nat_inside', 'tenant_group', 'tenant', 'description',
-            'comments', 'tags',
+            'address', 'vrf', 'status', 'role', 'dns_name', 'primary_for_parent', 'nat_inside', 'tenant_group',
+            'tenant', 'description', 'comments', 'tags',
         ]
-        widgets = {
-            'status': StaticSelect(),
-            'role': StaticSelect(),
-        }
 
     def __init__(self, *args, **kwargs):
 
@@ -428,17 +322,6 @@ class IPAddressForm(TenancyForm, NetBoxModelForm):
                 initial['vminterface'] = instance.assigned_object
             elif type(instance.assigned_object) is FHRPGroup:
                 initial['fhrpgroup'] = instance.assigned_object
-            if instance.nat_inside:
-                nat_inside_parent = instance.nat_inside.assigned_object
-                if type(nat_inside_parent) is Interface:
-                    initial['nat_site'] = nat_inside_parent.device.site.pk
-                    if nat_inside_parent.device.rack:
-                        initial['nat_rack'] = nat_inside_parent.device.rack.pk
-                    initial['nat_device'] = nat_inside_parent.device.pk
-                elif type(nat_inside_parent) is VMInterface:
-                    if cluster := nat_inside_parent.virtual_machine.cluster:
-                        initial['nat_cluster'] = cluster.pk
-                    initial['nat_virtual_machine'] = nat_inside_parent.virtual_machine.pk
         kwargs['initial'] = initial
 
         super().__init__(*args, **kwargs)
@@ -452,6 +335,12 @@ class IPAddressForm(TenancyForm, NetBoxModelForm):
             ):
                 self.initial['primary_for_parent'] = True
 
+        # Disable object assignment fields if the IP address is designated as primary
+        if self.initial.get('primary_for_parent'):
+            self.fields['interface'].disabled = True
+            self.fields['vminterface'].disabled = True
+            self.fields['fhrpgroup'].disabled = True
+
     def clean(self):
         super().clean()
 
@@ -461,10 +350,15 @@ class IPAddressForm(TenancyForm, NetBoxModelForm):
         ]
         if len(selected_objects) > 1:
             raise forms.ValidationError({
-                selected_objects[1]: "An IP address can only be assigned to a single object."
+                selected_objects[1]: _("An IP address can only be assigned to a single object.")
             })
         elif selected_objects:
-            self.instance.assigned_object = self.cleaned_data[selected_objects[0]]
+            assigned_object = self.cleaned_data[selected_objects[0]]
+            if self.instance.pk and self.instance.assigned_object and self.cleaned_data['primary_for_parent'] and assigned_object != self.instance.assigned_object:
+                raise ValidationError(
+                    _("Cannot reassign IP address while it is designated as the primary IP for the parent object")
+                )
+            self.instance.assigned_object = assigned_object
         else:
             self.instance.assigned_object = None
 
@@ -472,8 +366,22 @@ class IPAddressForm(TenancyForm, NetBoxModelForm):
         interface = self.cleaned_data.get('interface') or self.cleaned_data.get('vminterface')
         if self.cleaned_data.get('primary_for_parent') and not interface:
             self.add_error(
-                'primary_for_parent', "Only IP addresses assigned to an interface can be designated as primary IPs."
+                'primary_for_parent', _("Only IP addresses assigned to an interface can be designated as primary IPs.")
             )
+
+        # Do not allow assigning a network ID or broadcast address to an interface.
+        if interface and (address := self.cleaned_data.get('address')):
+            if address.ip == address.network:
+                msg = _("{address} is a network ID, which may not be assigned to an interface.").format(address=address)
+                if address.version == 4 and address.prefixlen not in (31, 32):
+                    raise ValidationError(msg)
+                if address.version == 6 and address.prefixlen not in (127, 128):
+                    raise ValidationError(msg)
+            if address.version == 4 and address.ip == address.broadcast and address.prefixlen not in (31, 32):
+                msg = _("{address} is a broadcast address, which may not be assigned to an interface.").format(
+                    address=address
+                )
+                raise ValidationError(msg)
 
     def save(self, *args, **kwargs):
         ipaddress = super().save(*args, **kwargs)
@@ -482,6 +390,7 @@ class IPAddressForm(TenancyForm, NetBoxModelForm):
         interface = self.instance.assigned_object
         if type(interface) in (Interface, VMInterface):
             parent = interface.parent_object
+            parent.snapshot()
             if self.cleaned_data['primary_for_parent']:
                 if ipaddress.address.version == 4:
                     parent.primary_ip4 = ipaddress
@@ -510,10 +419,6 @@ class IPAddressBulkAddForm(TenancyForm, NetBoxModelForm):
         fields = [
             'address', 'vrf', 'status', 'role', 'dns_name', 'description', 'tenant_group', 'tenant', 'tags',
         ]
-        widgets = {
-            'status': StaticSelect(),
-            'role': StaticSelect(),
-        }
 
 
 class IPAddressAssignForm(BootstrapMixin, forms.Form):
@@ -548,9 +453,9 @@ class FHRPGroupForm(NetBoxModelForm):
     comments = CommentField()
 
     fieldsets = (
-        ('FHRP Group', ('protocol', 'group_id', 'name', 'description', 'tags')),
-        ('Authentication', ('auth_type', 'auth_key')),
-        ('Virtual IP Address', ('ip_vrf', 'ip_address', 'ip_status'))
+        (_('FHRP Group'), ('protocol', 'group_id', 'name', 'description', 'tags')),
+        (_('Authentication'), ('auth_type', 'auth_key')),
+        (_('Virtual IP Address'), ('ip_vrf', 'ip_address', 'ip_status'))
     )
 
     class Meta:
@@ -559,11 +464,6 @@ class FHRPGroupForm(NetBoxModelForm):
             'protocol', 'group_id', 'auth_type', 'auth_key', 'name', 'ip_vrf', 'ip_address', 'ip_status', 'description',
             'comments', 'tags',
         )
-        widgets = {
-            'protocol': StaticSelect(),
-            'auth_type': StaticSelect(),
-            'ip_status': StaticSelect(),
-        }
 
     def save(self, *args, **kwargs):
         instance = super().save(*args, **kwargs)
@@ -608,6 +508,7 @@ class FHRPGroupForm(NetBoxModelForm):
 
 class FHRPGroupAssignmentForm(BootstrapMixin, forms.ModelForm):
     group = DynamicModelChoiceField(
+        label=_('Group'),
         queryset=FHRPGroup.objects.all()
     )
 
@@ -625,10 +526,12 @@ class FHRPGroupAssignmentForm(BootstrapMixin, forms.ModelForm):
 
 class VLANGroupForm(NetBoxModelForm):
     scope_type = ContentTypeChoiceField(
+        label=_('Scope type'),
         queryset=ContentType.objects.filter(model__in=VLANGROUP_SCOPE_TYPES),
         required=False
     )
     region = DynamicModelChoiceField(
+        label=_('Region'),
         queryset=Region.objects.all(),
         required=False,
         initial_params={
@@ -644,6 +547,7 @@ class VLANGroupForm(NetBoxModelForm):
         label=_('Site group')
     )
     site = DynamicModelChoiceField(
+        label=_('Site'),
         queryset=Site.objects.all(),
         required=False,
         initial_params={
@@ -655,6 +559,7 @@ class VLANGroupForm(NetBoxModelForm):
         }
     )
     location = DynamicModelChoiceField(
+        label=_('Location'),
         queryset=Location.objects.all(),
         required=False,
         initial_params={
@@ -665,6 +570,7 @@ class VLANGroupForm(NetBoxModelForm):
         }
     )
     rack = DynamicModelChoiceField(
+        label=_('Rack'),
         queryset=Rack.objects.all(),
         required=False,
         query_params={
@@ -681,6 +587,7 @@ class VLANGroupForm(NetBoxModelForm):
         label=_('Cluster group')
     )
     cluster = DynamicModelChoiceField(
+        label=_('Cluster'),
         queryset=Cluster.objects.all(),
         required=False,
         query_params={
@@ -690,9 +597,9 @@ class VLANGroupForm(NetBoxModelForm):
     slug = SlugField()
 
     fieldsets = (
-        ('VLAN Group', ('name', 'slug', 'description', 'tags')),
-        ('Child VLANs', ('min_vid', 'max_vid')),
-        ('Scope', ('scope_type', 'region', 'sitegroup', 'site', 'location', 'rack', 'clustergroup', 'cluster')),
+        (_('VLAN Group'), ('name', 'slug', 'description', 'tags')),
+        (_('Child VLANs'), ('min_vid', 'max_vid')),
+        (_('Scope'), ('scope_type', 'region', 'sitegroup', 'site', 'location', 'rack', 'clustergroup', 'cluster')),
     )
 
     class Meta:
@@ -701,9 +608,6 @@ class VLANGroupForm(NetBoxModelForm):
             'name', 'slug', 'description', 'scope_type', 'region', 'sitegroup', 'site', 'location', 'rack',
             'clustergroup', 'cluster', 'min_vid', 'max_vid', 'tags',
         ]
-        widgets = {
-            'scope_type': StaticSelect,
-        }
 
     def __init__(self, *args, **kwargs):
         instance = kwargs.get('instance')
@@ -728,60 +632,21 @@ class VLANGroupForm(NetBoxModelForm):
 
 
 class VLANForm(TenancyForm, NetBoxModelForm):
-    # VLANGroup assignment fields
-    scope_type = forms.ChoiceField(
-        choices=(
-            ('', ''),
-            ('dcim.region', 'Region'),
-            ('dcim.sitegroup', 'Site group'),
-            ('dcim.site', 'Site'),
-            ('dcim.location', 'Location'),
-            ('dcim.rack', 'Rack'),
-            ('virtualization.clustergroup', 'Cluster group'),
-            ('virtualization.cluster', 'Cluster'),
-        ),
-        required=False,
-        widget=StaticSelect,
-        label=_('Group scope')
-    )
     group = DynamicModelChoiceField(
         queryset=VLANGroup.objects.all(),
         required=False,
-        query_params={
-            'scope_type': '$scope_type',
-        },
+        selector=True,
         label=_('VLAN Group')
     )
-
-    # Site assignment fields
-    region = DynamicModelChoiceField(
-        queryset=Region.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        },
-        label=_('Region')
-    )
-    sitegroup = DynamicModelChoiceField(
-        queryset=SiteGroup.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        },
-        label=_('Site group')
-    )
     site = DynamicModelChoiceField(
+        label=_('Site'),
         queryset=Site.objects.all(),
         required=False,
         null_option='None',
-        query_params={
-            'region_id': '$region',
-            'group_id': '$sitegroup',
-        }
+        selector=True
     )
-
-    # Other fields
     role = DynamicModelChoiceField(
+        label=_('Role'),
         queryset=Role.objects.all(),
         required=False
     )
@@ -793,21 +658,11 @@ class VLANForm(TenancyForm, NetBoxModelForm):
             'site', 'group', 'vid', 'name', 'status', 'role', 'tenant_group', 'tenant', 'description', 'comments',
             'tags',
         ]
-        help_texts = {
-            'site': _("Leave blank if this VLAN spans multiple sites"),
-            'group': _("VLAN group (optional)"),
-            'vid': _("Configured VLAN ID"),
-            'name': _("Configured VLAN name"),
-            'status': _("Operational status of this VLAN"),
-            'role': _("The primary function of this VLAN"),
-        }
-        widgets = {
-            'status': StaticSelect(),
-        }
 
 
 class ServiceTemplateForm(NetBoxModelForm):
     ports = NumericArrayField(
+        label=_('Ports'),
         base_field=forms.IntegerField(
             min_value=SERVICE_PORT_MIN,
             max_value=SERVICE_PORT_MAX
@@ -817,7 +672,7 @@ class ServiceTemplateForm(NetBoxModelForm):
     comments = CommentField()
 
     fieldsets = (
-        ('Service Template', (
+        (_('Service Template'), (
             'name', 'protocol', 'ports', 'description', 'tags',
         )),
     )
@@ -825,21 +680,23 @@ class ServiceTemplateForm(NetBoxModelForm):
     class Meta:
         model = ServiceTemplate
         fields = ('name', 'protocol', 'ports', 'description', 'comments', 'tags')
-        widgets = {
-            'protocol': StaticSelect(),
-        }
 
 
 class ServiceForm(NetBoxModelForm):
     device = DynamicModelChoiceField(
+        label=_('Device'),
         queryset=Device.objects.all(),
-        required=False
+        required=False,
+        selector=True
     )
     virtual_machine = DynamicModelChoiceField(
+        label=_('Virtual machine'),
         queryset=VirtualMachine.objects.all(),
-        required=False
+        required=False,
+        selector=True
     )
     ports = NumericArrayField(
+        label=_('Ports'),
         base_field=forms.IntegerField(
             min_value=SERVICE_PORT_MIN,
             max_value=SERVICE_PORT_MAX
@@ -862,18 +719,11 @@ class ServiceForm(NetBoxModelForm):
         fields = [
             'device', 'virtual_machine', 'name', 'protocol', 'ports', 'ipaddresses', 'description', 'comments', 'tags',
         ]
-        help_texts = {
-            'ipaddresses': _("IP address assignment is optional. If no IPs are selected, the service is assumed to be "
-                             "reachable via all IPs assigned to the device."),
-        }
-        widgets = {
-            'protocol': StaticSelect(),
-            'ipaddresses': StaticSelectMultiple(),
-        }
 
 
 class ServiceCreateForm(ServiceForm):
     service_template = DynamicModelChoiceField(
+        label=_('Service template'),
         queryset=ServiceTemplate.objects.all(),
         required=False
     )
@@ -881,7 +731,7 @@ class ServiceCreateForm(ServiceForm):
     class Meta(ServiceForm.Meta):
         fields = [
             'device', 'virtual_machine', 'service_template', 'name', 'protocol', 'ports', 'ipaddresses', 'description',
-            'tags',
+            'comments', 'tags',
         ]
 
     def __init__(self, *args, **kwargs):
@@ -914,19 +764,21 @@ class ServiceCreateForm(ServiceForm):
 class L2VPNForm(TenancyForm, NetBoxModelForm):
     slug = SlugField()
     import_targets = DynamicModelMultipleChoiceField(
+        label=_('Import targets'),
         queryset=RouteTarget.objects.all(),
         required=False
     )
     export_targets = DynamicModelMultipleChoiceField(
+        label=_('Export targets'),
         queryset=RouteTarget.objects.all(),
         required=False
     )
     comments = CommentField()
 
     fieldsets = (
-        ('L2VPN', ('name', 'slug', 'type', 'identifier', 'description', 'tags')),
-        ('Route Targets', ('import_targets', 'export_targets')),
-        ('Tenancy', ('tenant_group', 'tenant')),
+        (_('L2VPN'), ('name', 'slug', 'type', 'identifier', 'description', 'tags')),
+        (_('Route Targets'), ('import_targets', 'export_targets')),
+        (_('Tenancy'), ('tenant_group', 'tenant')),
     )
 
     class Meta:
@@ -935,9 +787,6 @@ class L2VPNForm(TenancyForm, NetBoxModelForm):
             'name', 'slug', 'type', 'identifier', 'import_targets', 'export_targets', 'tenant', 'description',
             'comments', 'tags'
         )
-        widgets = {
-            'type': StaticSelect(),
-        }
 
 
 class L2VPNTerminationForm(NetBoxModelForm):
@@ -948,43 +797,22 @@ class L2VPNTerminationForm(NetBoxModelForm):
         label=_('L2VPN'),
         fetch_trigger='open'
     )
-    device_vlan = DynamicModelChoiceField(
-        queryset=Device.objects.all(),
-        label=_("Available on Device"),
-        required=False,
-        query_params={}
-    )
     vlan = DynamicModelChoiceField(
         queryset=VLAN.objects.all(),
         required=False,
-        query_params={
-            'available_on_device': '$device_vlan'
-        },
+        selector=True,
         label=_('VLAN')
     )
-    device = DynamicModelChoiceField(
-        queryset=Device.objects.all(),
-        required=False,
-        query_params={}
-    )
     interface = DynamicModelChoiceField(
+        label=_('Interface'),
         queryset=Interface.objects.all(),
         required=False,
-        query_params={
-            'device_id': '$device'
-        }
-    )
-    virtual_machine = DynamicModelChoiceField(
-        queryset=VirtualMachine.objects.all(),
-        required=False,
-        query_params={}
+        selector=True
     )
     vminterface = DynamicModelChoiceField(
         queryset=VMInterface.objects.all(),
         required=False,
-        query_params={
-            'virtual_machine_id': '$virtual_machine'
-        },
+        selector=True,
         label=_('Interface')
     )
 
@@ -998,7 +826,6 @@ class L2VPNTerminationForm(NetBoxModelForm):
 
         if instance:
             if type(instance.assigned_object) is Interface:
-                initial['device'] = instance.assigned_object.parent
                 initial['interface'] = instance.assigned_object
             elif type(instance.assigned_object) is VLAN:
                 initial['vlan'] = instance.assigned_object
@@ -1016,8 +843,8 @@ class L2VPNTerminationForm(NetBoxModelForm):
         vlan = self.cleaned_data.get('vlan')
 
         if not (interface or vminterface or vlan):
-            raise ValidationError('A termination must specify an interface or VLAN.')
+            raise ValidationError(_('A termination must specify an interface or VLAN.'))
         if len([x for x in (interface, vminterface, vlan) if x]) > 1:
-            raise ValidationError('A termination can only have one terminating object (an interface or VLAN).')
+            raise ValidationError(_('A termination can only have one terminating object (an interface or VLAN).'))
 
         self.instance.assigned_object = interface or vminterface or vlan

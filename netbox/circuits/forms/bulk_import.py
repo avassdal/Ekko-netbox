@@ -3,16 +3,18 @@ from django import forms
 from circuits.choices import CircuitStatusChoices
 from circuits.models import *
 from dcim.models import Site
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _
 from netbox.forms import NetBoxModelImportForm
 from tenancy.models import Tenant
-from utilities.forms import BootstrapMixin, CSVChoiceField, CSVModelChoiceField, SlugField
+from utilities.forms import BootstrapMixin
+from utilities.forms.fields import CSVChoiceField, CSVModelChoiceField, SlugField
 
 __all__ = (
     'CircuitImportForm',
     'CircuitTerminationImportForm',
     'CircuitTypeImportForm',
     'ProviderImportForm',
+    'ProviderAccountImportForm',
     'ProviderNetworkImportForm',
 )
 
@@ -23,12 +25,28 @@ class ProviderImportForm(NetBoxModelImportForm):
     class Meta:
         model = Provider
         fields = (
-            'name', 'slug', 'account', 'description', 'comments', 'tags',
+            'name', 'slug', 'description', 'comments', 'tags',
+        )
+
+
+class ProviderAccountImportForm(NetBoxModelImportForm):
+    provider = CSVModelChoiceField(
+        label=_('Provider'),
+        queryset=Provider.objects.all(),
+        to_field_name='name',
+        help_text=_('Assigned provider')
+    )
+
+    class Meta:
+        model = ProviderAccount
+        fields = (
+            'provider', 'name', 'account', 'description', 'comments', 'tags',
         )
 
 
 class ProviderNetworkImportForm(NetBoxModelImportForm):
     provider = CSVModelChoiceField(
+        label=_('Provider'),
         queryset=Provider.objects.all(),
         to_field_name='name',
         help_text=_('Assigned provider')
@@ -47,27 +65,35 @@ class CircuitTypeImportForm(NetBoxModelImportForm):
     class Meta:
         model = CircuitType
         fields = ('name', 'slug', 'description', 'tags')
-        help_texts = {
-            'name': _('Name of circuit type'),
-        }
 
 
 class CircuitImportForm(NetBoxModelImportForm):
     provider = CSVModelChoiceField(
+        label=_('Provider'),
         queryset=Provider.objects.all(),
         to_field_name='name',
         help_text=_('Assigned provider')
     )
+    provider_account = CSVModelChoiceField(
+        label=_('Provider account'),
+        queryset=ProviderAccount.objects.all(),
+        to_field_name='name',
+        help_text=_('Assigned provider account'),
+        required=False
+    )
     type = CSVModelChoiceField(
+        label=_('Type'),
         queryset=CircuitType.objects.all(),
         to_field_name='name',
         help_text=_('Type of circuit')
     )
     status = CSVChoiceField(
+        label=_('Status'),
         choices=CircuitStatusChoices,
         help_text=_('Operational status')
     )
     tenant = CSVModelChoiceField(
+        label=_('Tenant'),
         queryset=Tenant.objects.all(),
         required=False,
         to_field_name='name',
@@ -77,18 +103,20 @@ class CircuitImportForm(NetBoxModelImportForm):
     class Meta:
         model = Circuit
         fields = [
-            'cid', 'provider', 'type', 'status', 'tenant', 'install_date', 'termination_date', 'commit_rate',
-            'description', 'comments', 'tags'
+            'cid', 'provider', 'provider_account', 'type', 'status', 'tenant', 'install_date', 'termination_date',
+            'commit_rate', 'description', 'comments', 'tags'
         ]
 
 
 class CircuitTerminationImportForm(BootstrapMixin, forms.ModelForm):
     site = CSVModelChoiceField(
+        label=_('Site'),
         queryset=Site.objects.all(),
         to_field_name='name',
         required=False
     )
     provider_network = CSVModelChoiceField(
+        label=_('Provider network'),
         queryset=ProviderNetwork.objects.all(),
         to_field_name='name',
         required=False

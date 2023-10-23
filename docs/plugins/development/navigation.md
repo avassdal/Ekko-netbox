@@ -2,9 +2,6 @@
 
 ## Menus
 
-!!! note
-    This feature was introduced in NetBox v3.4.
-
 A plugin can register its own submenu as part of NetBox's navigation menu. This is done by defining a variable named `menu` in `navigation.py`, pointing to an instance of the `PluginMenu` class. Each menu must define a label and grouped menu items (discussed below), and may optionally specify an icon. An example is shown below.
 
 ```python title="navigation.py"
@@ -67,12 +64,15 @@ item1 = PluginMenuItem(
 
 A `PluginMenuItem` has the following attributes:
 
-| Attribute     | Required | Description                                          |
-|---------------|----------|------------------------------------------------------|
-| `link`        | Yes      | Name of the URL path to which this menu item links   |
-| `link_text`   | Yes      | The text presented to the user                       |
-| `permissions` | -        | A list of permissions required to display this link  |
-| `buttons`     | -        | An iterable of PluginMenuButton instances to include |
+| Attribute     | Required | Description                                                                                              |
+|---------------|----------|----------------------------------------------------------------------------------------------------------|
+| `link`        | Yes      | Name of the URL path to which this menu item links                                                       |
+| `link_text`   | Yes      | The text presented to the user                                                                           |
+| `permissions` | -        | A list of permissions required to display this link                                                      |
+| `staff_only`  | -        | Display only for users who have `is_staff` set to true (any specified permissions will also be required) |
+| `buttons`     | -        | An iterable of PluginMenuButton instances to include                                                     |
+
+!!! info "The `staff_only` attribute was introduced in NetBox v3.6.1."
 
 ## Menu Buttons
 

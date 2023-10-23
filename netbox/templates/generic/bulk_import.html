@@ -1,6 +1,7 @@
 {% extends 'base/layout.html' %}
 {% load helpers %}
 {% load form_helpers %}
+{% load i18n %}
 
 {% comment %}
 Context:
@@ -10,18 +11,23 @@ Context:
   return_url: The URL to which the user is redirected after submitting the form
 {% endcomment %}
 
-{% block title %}{{ model|meta:"verbose_name"|bettertitle }} Bulk Import{% endblock %}
+{% block title %}{{ model|meta:"verbose_name"|bettertitle }} {% trans "Bulk Import" %}{% endblock %}
 
 {% block tabs %}
   <ul class="nav nav-tabs px-3">
     <li class="nav-item" role="presentation">
-      <button class="nav-link active" id="data-import-tab" data-bs-toggle="tab" data-bs-target="#data-import-form" type="button" role="tab" aria-controls="data-import-form" aria-selected="true">
-        Data Import
+      <button class="nav-link active" id="import-form-tab" data-bs-toggle="tab" data-bs-target="#import-form" data-href="#tab_import-form" type="button" role="tab" aria-controls="import-form" aria-selected="true">
+        {% trans "Direct Import" %}
       </button>
     </li>
     <li class="nav-item" role="presentation">
-      <button class="nav-link" id="file-upload-tab" data-bs-toggle="tab" data-bs-target="#file-upload-form" type="button" role="tab" aria-controls="file-upload-form" aria-selected="false">
-        Upload File
+      <button class="nav-link" id="upload-form-tab" data-bs-toggle="tab" data-bs-target="#upload-form" data-href="#tab_upload-form" type="button" role="tab" aria-controls="upload-form" aria-selected="false">
+        {% trans "Upload File" %}
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="datafile-form-tab" data-bs-toggle="tab" data-bs-target="#datafile-form" data-href="#tab_datafile-form" type="button" role="tab" aria-controls="datafile-form" aria-selected="false">
+        {% trans "Data File" %}
       </button>
     </li>
   </ul>
@@ -31,45 +37,69 @@ Context:
   <div class="tab-content">
 
     {# Data Import Form #}
-    <div class="tab-pane show active" id="data-import-form" role="tabpanel" aria-labelledby="data-import-tab">
-      {% block content %}
-          <div class="row">
-              <div class="col col-md-12 col-lg-10">
-                  <form action="" method="post" enctype="multipart/form-data" class="form">
-                    {% csrf_token %}
-                    {% render_field form.data %}
-                    {% render_field form.format %}
-                    <div class="form-group">
-                      <div class="col col-md-12 text-end">
-                        <button type="submit" name="data_submit" class="btn btn-primary">Submit</button>
-                        {% if return_url %}
-                          <a href="{{ return_url }}" class="btn btn-outline-danger">Cancel</a>
-                        {% endif %}
-                      </div>
-                    </div>
-                  </form>
+    <div class="tab-pane show active" id="import-form" role="tabpanel" aria-labelledby="import-form-tab">
+      <div class="row">
+        <div class="col col-md-12 col-lg-10 offset-lg-1">
+          <form action="" method="post" enctype="multipart/form-data" class="form">
+            {% csrf_token %}
+            <input type="hidden" name="import_method" value="direct" />
+            {% render_field form.data %}
+            {% render_field form.format %}
+            {% render_field form.csv_delimiter %}
+            <div class="form-group">
+              <div class="col col-md-12 text-end">
+                <button type="submit" name="data_submit" class="btn btn-primary">{% trans "Submit" %}</button>
+                {% if return_url %}
+                  <a href="{{ return_url }}" class="btn btn-outline-danger">{% trans "Cancel" %}</a>
+                {% endif %}
               </div>
-          </div>
-      {% endblock content %}
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
 
     {# File Upload Form #}
-    <div class="tab-pane show" id="file-upload-form" role="tabpanel" aria-labelledby="file-upload-tab">
-              <div class="col col-md-12 col-lg-10">
-                  <form action="" method="post" enctype="multipart/form-data" class="form">
-                    {% csrf_token %}
-                    {% render_field form.data_file %}
-                    {% render_field form.format %}
-                    <div class="form-group">
-                      <div class="col col-md-12 text-end">
-                        <button type="submit" name="file_submit" class="btn btn-primary">Submit</button>
-                        {% if return_url %}
-                          <a href="{{ return_url }}" class="btn btn-outline-danger">Cancel</a>
-                        {% endif %}
-                      </div>
-                    </div>
-                  </form>
-              </div>
+    <div class="tab-pane show" id="upload-form" role="tabpanel" aria-labelledby="upload-form-tab">
+      <div class="col col-md-12 col-lg-10 offset-lg-1">
+        <form action="" method="post" enctype="multipart/form-data" class="form">
+          {% csrf_token %}
+          <input type="hidden" name="import_method" value="upload" />
+          {% render_field form.upload_file %}
+          {% render_field form.format %}
+          {% render_field form.csv_delimiter %}
+          <div class="form-group">
+            <div class="col col-md-12 text-end">
+              <button type="submit" name="file_submit" class="btn btn-primary">{% trans "Submit" %}</button>
+              {% if return_url %}
+                <a href="{{ return_url }}" class="btn btn-outline-danger">{% trans "Cancel" %}</a>
+              {% endif %}
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {# DataFile Form #}
+    <div class="tab-pane show" id="datafile-form" role="tabpanel" aria-labelledby="datafile-form-tab">
+      <div class="col col-md-12 col-lg-10 offset-lg-1">
+        <form action="" method="post" enctype="multipart/form-data" class="form">
+          {% csrf_token %}
+          <input type="hidden" name="import_method" value="datafile" />
+          {% render_field form.data_source %}
+          {% render_field form.data_file %}
+          {% render_field form.format %}
+          {% render_field form.csv_delimiter %}
+          <div class="form-group">
+            <div class="col col-md-12 text-end">
+              <button type="submit" name="file_submit" class="btn btn-primary">{% trans "Submit" %}</button>
+              {% if return_url %}
+                <a href="{{ return_url }}" class="btn btn-outline-danger">{% trans "Cancel" %}</a>
+              {% endif %}
+            </div>
+          </div>
+        </form>
+      </div>
     </div>
 
     {% if fields %}
@@ -77,15 +107,15 @@ Context:
         <div class="col col-md-12">
             <div class="card">
                 <h5 class="card-header">
-                    Field Options
+                    {% trans "Field Options" %}
                 </h5>
                 <div class="card-body">
                     <table class="table">
                         <tr>
-                            <th>Field</th>
-                            <th>Required</th>
-                            <th>Accessor</th>
-                            <th>Description</th>
+                            <th>{% trans "Field" %}</th>
+                            <th>{% trans "Required" %}</th>
+                            <th>{% trans "Accessor" %}</th>
+                            <th>{% trans "Description" %}</th>
                         </tr>
                         {% for name, field in fields.items %}
                             <tr>
@@ -115,14 +145,14 @@ Context:
                                             <div class="modal-dialog" role="document">
                                                 <div class="modal-content">
                                                     <div class="modal-header">
-                                                        <h5 class="modal-title"><code>{{ name }}</code> Choices</h5>
+                                                        <h5 class="modal-title"><code>{{ name }}</code> {% trans "Choices" %}</h5>
                                                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                                                     </div>
                                                     <div class="modal-body">
                                                         <table class="table table-striped">
                                                             <tr>
-                                                                <th>Import Value</th>
-                                                                <th>Label</th>
+                                                                <th>{% trans "Import Value" %}</th>
+                                                                <th>{% trans "Label" %}</th>
                                                             </tr>
                                                             {% for value, label in field.choices %}
                                                             {% if value %}
@@ -148,9 +178,9 @@ Context:
                                         {{ field.label }}<br />
                                     {% endif %}
                                     {% if field|widget_type == 'dateinput' %}
-                                        <small class="text-muted">Format: YYYY-MM-DD</small>
+                                        <small class="text-muted">{% trans "Format: YYYY-MM-DD" %}</small>
                                     {% elif field|widget_type == 'checkboxinput' %}
-                                        <small class="text-muted">Specify "true" or "false"</small>
+                                        <small class="text-muted">{% trans "Specify true or false" %}</small>
                                     {% endif %}
                                 </td>
                             </tr>
@@ -161,12 +191,16 @@ Context:
         </div>
     </div>
     <p class="small text-muted">
-        <i class="mdi mdi-check-bold text-success"></i> Required fields <strong>must</strong> be specified for all
-        objects.
+      <i class="mdi mdi-check-bold text-success"></i>
+      {% blocktrans trimmed %}
+        Required fields <strong>must</strong> be specified for all objects.
+      {% endblocktrans %}
     </p>
     <p class="small text-muted">
-        <i class="mdi mdi-information-outline"></i> Related objects may be referenced by any unique attribute.
-        For example, <code>vrf.rd</code> would identify a VRF by its route distinguisher.
+      <i class="mdi mdi-information-outline"></i>
+      {% blocktrans trimmed with example="vrf.rd" %}
+        Related objects may be referenced by any unique attribute. For example, <code>{{ example }}</code> would identify a VRF by its route distinguisher.
+      {% endblocktrans %}
     </p>
     {% endif %}
 

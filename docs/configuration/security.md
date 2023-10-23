@@ -4,7 +4,7 @@
 
 Default: True
 
-If disabled, the values of API tokens will not be displayed after each token's initial creation. A user **must** record the value of a token immediately upon its creation, or it will be lost. Note that this affects _all_ users, regardless of assigned permissions.
+If disabled, the values of API tokens will not be displayed after each token's initial creation. A user **must** record the value of a token prior to its creation, or it will be lost. Note that this affects _all_ users, regardless of assigned permissions.
 
 ---
 
@@ -67,6 +67,12 @@ The name of the cookie to use for the cross-site request forgery (CSRF) authenti
 
 ---
 
+## CSRF_COOKIE_SECURE
+
+Default: False
+
+If true, the cookie employed for cross-site request forgery (CSRF) protection will be marked as secure, meaning that it can only be sent across an HTTPS connection.
+
 ---
 
 ## CSRF_TRUSTED_ORIGINS
@@ -81,6 +87,38 @@ CSRF_TRUSTED_ORIGINS = (
     'https://netbox.local',
 )
 ```
+
+---
+
+## DEFAULT_PERMISSIONS
+
+!!! info "This parameter was introduced in NetBox v3.6."
+
+Default:
+
+```python
+{
+    'users.view_token': ({'user': '$user'},),
+    'users.add_token': ({'user': '$user'},),
+    'users.change_token': ({'user': '$user'},),
+    'users.delete_token': ({'user': '$user'},),
+}
+```
+
+This parameter defines object permissions that are applied automatically to _any_ authenticated user, regardless of what permissions have been defined in the database. By default, this parameter is defined to allow all users to manage their own API tokens, however it can be overriden for any purpose.
+
+For example, to allow all users to create a device role beginning with the word "temp," you could configure the following:
+
+```python
+DEFAULT_PERMISSIONS = {
+    'dcim.add_devicerole': (
+        {'name__startswith': 'temp'},
+    )
+}
+```
+
+!!! warning
+    Setting a custom value for this parameter will overwrite the default permission mapping shown above. If you want to retain the default mapping, be sure to reproduce it in your custom configuration.
 
 ---
 
@@ -145,11 +183,30 @@ The view name or URL to which a user is redirected after logging out.
 
 ---
 
+## SECURE_SSL_REDIRECT
+
+Default: False
+
+If true, all non-HTTPS requests will be automatically redirected to use HTTPS.
+
+!!! warning
+    Ensure that your frontend HTTP daemon has been configured to forward the HTTP scheme correctly before enabling this option. An incorrectly configured frontend may result in a looping redirect.
+
+---
+
 ## SESSION_COOKIE_NAME
 
 Default: `sessionid`
 
 The name used for the session cookie. See the [Django documentation](https://docs.djangoproject.com/en/stable/ref/settings/#session-cookie-name) for more detail.
+
+---
+
+## SESSION_COOKIE_SECURE
+
+Default: False
+
+If true, the cookie employed for session authentication will be marked as secure, meaning that it can only be sent across an HTTPS connection.
 
 ---
 

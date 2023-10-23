@@ -1,25 +1,26 @@
 {% load humanize %}
 {% load helpers %}
+{% load i18n %}
 
 <p>
-  {% if result.started %}
-    Started: <strong>{{ result.started|annotated_date }}</strong>
-  {% elif result.scheduled %}
-    Scheduled for: <strong>{{ result.scheduled|annotated_date }}</strong> ({{ result.scheduled|naturaltime }})
+  {% if job.started %}
+    {% trans "Started" %}: <strong>{{ job.started|annotated_date }}</strong>
+  {% elif job.scheduled %}
+    {% trans "Scheduled for" %}: <strong>{{ job.scheduled|annotated_date }}</strong> ({{ job.scheduled|naturaltime }})
   {% else %}
-    Created: <strong>{{ result.created|annotated_date }}</strong>
+    {% trans "Created" %}: <strong>{{ job.created|annotated_date }}</strong>
   {% endif %}
-  {% if result.completed %}
-    Duration: <strong>{{ result.duration }}</strong>
+  {% if job.completed %}
+    {% trans "Duration" %}: <strong>{{ job.duration }}</strong>
   {% endif %}
-  <span id="pending-result-label">{% include 'extras/inc/job_label.html' %}</span>
+  <span id="pending-result-label">{% badge job.get_status_display job.get_status_color %}</span>
 </p>
-{% if result.completed %}
+{% if job.completed %}
   <div class="card">
-    <h5 class="card-header">Report Methods</h5>
+    <h5 class="card-header">{% trans "Report Methods" %}</h5>
     <div class="card-body">
       <table class="table table-hover">
-        {% for method, data in result.data.items %}
+        {% for method, data in job.data.items %}
           <tr>
             <td class="font-monospace"><a href="#{{ method }}">{{ method }}</a></td>
             <td class="text-end report-stats">
@@ -34,19 +35,19 @@
     </div>
   </div>
   <div class="card">
-    <h5 class="card-header">Report Results</h5>
+    <h5 class="card-header">{% trans "Report Results" %}</h5>
     <div class="card-body">
       <table class="table table-hover report">
         <thead>
           <tr class="table-headings">
-            <th>Time</th>
-            <th>Level</th>
-            <th>Object</th>
-            <th>Message</th>
+            <th>{% trans "Time" %}</th>
+            <th>{% trans "Level" %}</th>
+            <th>{% trans "Object" %}</th>
+            <th>{% trans "Message" %}</th>
           </tr>
         </thead>
         <tbody>
-          {% for method, data in result.data.items %}
+          {% for method, data in job.data.items %}
             <tr>
               <th colspan="4" style="font-family: monospace">
                 <a name="{{ method }}"></a>{{ method }}
@@ -75,6 +76,6 @@
       </table>
     </div>
   </div>
-{% elif result.started %}
+{% elif job.started %}
   {% include 'extras/inc/result_pending.html' %}
 {% endif %}

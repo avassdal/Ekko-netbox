@@ -6,7 +6,7 @@ except ImportError:
     from backports.zoneinfo import ZoneInfo
 
 import yaml
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.test import override_settings
 from django.urls import reverse
@@ -17,9 +17,12 @@ from dcim.constants import *
 from dcim.models import *
 from ipam.models import ASN, RIR, VLAN, VRF
 from tenancy.models import Tenant
-from utilities.choices import ImportFormatChoices
+from utilities.choices import CSVDelimiterChoices, ImportFormatChoices
 from utilities.testing import ViewTestCases, create_tags, create_test_device, post_data
 from wireless.models import WirelessLAN
+
+
+User = get_user_model()
 
 
 class RegionTestCase(ViewTestCases.OrganizationalObjectViewTestCase):
@@ -389,6 +392,7 @@ class RackTestCase(ViewTestCases.PrimaryObjectViewTestCase):
             'outer_width': 500,
             'outer_depth': 500,
             'outer_unit': RackDimensionUnitChoices.UNIT_MILLIMETER,
+            'starting_unit': 1,
             'weight': 100,
             'max_weight': 2000,
             'weight_unit': WeightUnitChoices.UNIT_POUND,
@@ -503,6 +507,12 @@ class DeviceTypeTestCase(
         )
         Manufacturer.objects.bulk_create(manufacturers)
 
+        platforms = (
+            Platform(name='Platform 1', slug='platform-1', manufacturer=manufacturers[0]),
+            Platform(name='Platform 2', slug='platform-3', manufacturer=manufacturers[1]),
+        )
+        Platform.objects.bulk_create(platforms)
+
         DeviceType.objects.bulk_create([
             DeviceType(model='Device Type 1', slug='device-type-1', manufacturer=manufacturers[0]),
             DeviceType(model='Device Type 2', slug='device-type-2', manufacturer=manufacturers[0]),
@@ -513,6 +523,7 @@ class DeviceTypeTestCase(
 
         cls.form_data = {
             'manufacturer': manufacturers[1].pk,
+            'default_platform': platforms[0].pk,
             'model': 'Device Type X',
             'slug': 'device-type-x',
             'part_number': '123ABC',
@@ -525,6 +536,7 @@ class DeviceTypeTestCase(
 
         cls.bulk_edit_data = {
             'manufacturer': manufacturers[1].pk,
+            'default_platform': platforms[1].pk,
             'u_height': 3,
             'is_full_depth': False,
         }
@@ -675,8 +687,13 @@ class DeviceTypeTestCase(
 manufacturer: Generic
 model: TEST-1000
 slug: test-1000
+default_platform: Platform
 u_height: 2
+is_full_depth: false
+airflow: front-to-rear
 subdevice_role: parent
+weight: 10
+weight_unit: kg
 comments: Test comment
 console-ports:
   - name: Console Port 1
@@ -718,6 +735,7 @@ interfaces:
     mgmt_only: true
   - name: Interface 2
     type: 1000base-t
+    enabled: false
   - name: Interface 3
     type: 1000base-t
 rear-ports:
@@ -754,8 +772,11 @@ inventory-items:
     manufacturer: Generic
 """
 
-        # Create the manufacturer
-        Manufacturer(name='Generic', slug='generic').save()
+        # Create the manufacturer and platform
+        manufacturer = Manufacturer(name='Generic', slug='generic')
+        manufacturer.save()
+        platform = Platform(name='Platform', slug='test-platform', manufacturer=manufacturer)
+        platform.save()
 
         # Add all required permissions to the test user
         self.add_permissions(
@@ -781,6 +802,15 @@ inventory-items:
         self.assertHttpStatus(response, 200)
 
         device_type = DeviceType.objects.get(model='TEST-1000')
+        self.assertEqual(device_type.manufacturer.pk, manufacturer.pk)
+        self.assertEqual(device_type.default_platform.pk, platform.pk)
+        self.assertEqual(device_type.slug, 'test-1000')
+        self.assertEqual(device_type.u_height, 2)
+        self.assertFalse(device_type.is_full_depth)
+        self.assertEqual(device_type.airflow, DeviceAirflowChoices.AIRFLOW_FRONT_TO_REAR)
+        self.assertEqual(device_type.subdevice_role, SubdeviceRoleChoices.ROLE_PARENT)
+        self.assertEqual(device_type.weight, 10)
+        self.assertEqual(device_type.weight_unit, WeightUnitChoices.UNIT_KILOGRAM)
         self.assertEqual(device_type.comments, 'Test comment')
 
         # Verify all of the components were created
@@ -811,6 +841,10 @@ inventory-items:
         self.assertEqual(iface1.name, 'Interface 1')
         self.assertEqual(iface1.type, InterfaceTypeChoices.TYPE_1GE_FIXED)
         self.assertTrue(iface1.mgmt_only)
+        self.assertTrue(iface1.enabled)
+
+        iface2 = InterfaceTemplate.objects.filter(name="Interface 2").first()
+        self.assertFalse(iface2.enabled)
 
         self.assertEqual(device_type.rearporttemplates.count(), 3)
         rp1 = RearPortTemplate.objects.first()
@@ -1001,6 +1035,8 @@ class ModuleTypeTestCase(
         IMPORT_DATA = """
 manufacturer: Generic
 model: TEST-1000
+weight: 10
+weight_unit: lb
 comments: Test comment
 console-ports:
   - name: Console Port 1
@@ -1064,7 +1100,8 @@ front-ports:
 """
 
         # Create the manufacturer
-        Manufacturer(name='Generic', slug='generic').save()
+        manufacturer = Manufacturer(name='Generic', slug='generic')
+        manufacturer.save()
 
         # Add all required permissions to the test user
         self.add_permissions(
@@ -1087,6 +1124,9 @@ front-ports:
         self.assertHttpStatus(response, 200)
 
         module_type = ModuleType.objects.get(model='TEST-1000')
+        self.assertEqual(module_type.manufacturer.pk, manufacturer.pk)
+        self.assertEqual(module_type.weight, 10)
+        self.assertEqual(module_type.weight_unit, WeightUnitChoices.UNIT_POUND)
         self.assertEqual(module_type.comments, 'Test comment')
 
         # Verify all the components were created
@@ -1514,12 +1554,12 @@ class DeviceRoleTestCase(ViewTestCases.OrganizationalObjectViewTestCase):
     @classmethod
     def setUpTestData(cls):
 
-        device_roles = (
+        roles = (
             DeviceRole(name='Device Role 1', slug='device-role-1'),
             DeviceRole(name='Device Role 2', slug='device-role-2'),
             DeviceRole(name='Device Role 3', slug='device-role-3'),
         )
-        DeviceRole.objects.bulk_create(device_roles)
+        DeviceRole.objects.bulk_create(roles)
 
         tags = create_tags('Alpha', 'Bravo', 'Charlie')
 
@@ -1541,9 +1581,9 @@ class DeviceRoleTestCase(ViewTestCases.OrganizationalObjectViewTestCase):
 
         cls.csv_update_data = (
             "id,name,description",
-            f"{device_roles[0].pk},Device Role 7,New description7",
-            f"{device_roles[1].pk},Device Role 8,New description8",
-            f"{device_roles[2].pk},Device Role 9,New description9",
+            f"{roles[0].pk},Device Role 7,New description7",
+            f"{roles[1].pk},Device Role 8,New description8",
+            f"{roles[2].pk},Device Role 9,New description9",
         )
 
         cls.bulk_edit_data = {
@@ -1573,8 +1613,6 @@ class PlatformTestCase(ViewTestCases.OrganizationalObjectViewTestCase):
             'name': 'Platform X',
             'slug': 'platform-x',
             'manufacturer': manufacturer.pk,
-            'napalm_driver': 'junos',
-            'napalm_args': None,
             'description': 'A new platform',
             'tags': [t.pk for t in tags],
         }
@@ -1594,7 +1632,6 @@ class PlatformTestCase(ViewTestCases.OrganizationalObjectViewTestCase):
         )
 
         cls.bulk_edit_data = {
-            'napalm_driver': 'ios',
             'description': 'New description',
         }
 
@@ -1628,11 +1665,11 @@ class DeviceTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         )
         DeviceType.objects.bulk_create(devicetypes)
 
-        deviceroles = (
+        roles = (
             DeviceRole(name='Device Role 1', slug='device-role-1'),
             DeviceRole(name='Device Role 2', slug='device-role-2'),
         )
-        DeviceRole.objects.bulk_create(deviceroles)
+        DeviceRole.objects.bulk_create(roles)
 
         platforms = (
             Platform(name='Platform 1', slug='platform-1'),
@@ -1641,9 +1678,9 @@ class DeviceTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         Platform.objects.bulk_create(platforms)
 
         devices = (
-            Device(name='Device 1', site=sites[0], rack=racks[0], device_type=devicetypes[0], device_role=deviceroles[0], platform=platforms[0]),
-            Device(name='Device 2', site=sites[0], rack=racks[0], device_type=devicetypes[0], device_role=deviceroles[0], platform=platforms[0]),
-            Device(name='Device 3', site=sites[0], rack=racks[0], device_type=devicetypes[0], device_role=deviceroles[0], platform=platforms[0]),
+            Device(name='Device 1', site=sites[0], rack=racks[0], device_type=devicetypes[0], role=roles[0], platform=platforms[0]),
+            Device(name='Device 2', site=sites[0], rack=racks[0], device_type=devicetypes[0], role=roles[0], platform=platforms[0]),
+            Device(name='Device 3', site=sites[0], rack=racks[0], device_type=devicetypes[0], role=roles[0], platform=platforms[0]),
         )
         Device.objects.bulk_create(devices)
 
@@ -1653,7 +1690,7 @@ class DeviceTestCase(ViewTestCases.PrimaryObjectViewTestCase):
 
         cls.form_data = {
             'device_type': devicetypes[1].pk,
-            'device_role': deviceroles[1].pk,
+            'role': roles[1].pk,
             'tenant': None,
             'platform': platforms[1].pk,
             'name': 'Device X',
@@ -1663,6 +1700,8 @@ class DeviceTestCase(ViewTestCases.PrimaryObjectViewTestCase):
             'rack': racks[1].pk,
             'position': 1,
             'face': DeviceFaceChoices.FACE_FRONT,
+            'latitude': Decimal('35.780000'),
+            'longitude': Decimal('-78.642000'),
             'status': DeviceStatusChoices.STATUS_PLANNED,
             'primary_ip4': None,
             'primary_ip6': None,
@@ -1676,7 +1715,7 @@ class DeviceTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         }
 
         cls.csv_data = (
-            "device_role,manufacturer,device_type,status,name,site,location,rack,position,face,virtual_chassis,vc_position,vc_priority",
+            "role,manufacturer,device_type,status,name,site,location,rack,position,face,virtual_chassis,vc_position,vc_priority",
             "Device Role 1,Manufacturer 1,Device Type 1,active,Device 4,Site 1,Location 1,Rack 1,10,front,Virtual Chassis 1,1,10",
             "Device Role 1,Manufacturer 1,Device Type 1,active,Device 5,Site 1,Location 1,Rack 1,20,front,Virtual Chassis 1,2,20",
             "Device Role 1,Manufacturer 1,Device Type 1,active,Device 6,Site 1,Location 1,Rack 1,30,front,Virtual Chassis 1,3,30",
@@ -1691,7 +1730,7 @@ class DeviceTestCase(ViewTestCases.PrimaryObjectViewTestCase):
 
         cls.bulk_edit_data = {
             'device_type': devicetypes[1].pk,
-            'device_role': deviceroles[1].pk,
+            'role': roles[1].pk,
             'tenant': None,
             'platform': platforms[1].pk,
             'serial': '123456',
@@ -1975,11 +2014,12 @@ class ModuleTestCase(
             'data': {
                 'data': '\n'.join(csv_data),
                 'format': ImportFormatChoices.CSV,
+                'csv_delimiter': CSVDelimiterChoices.AUTO,
             }
         }
 
         initial_count = Module.objects.count()
-        self.assertHttpStatus(self.client.post(**request), 200)
+        self.assertHttpStatus(self.client.post(**request), 302)
         self.assertEqual(Module.objects.count(), initial_count + len(csv_data) - 1)
         self.assertEqual(Interface.objects.filter(device=device).count(), 0)
 
@@ -1991,11 +2031,12 @@ class ModuleTestCase(
             'data': {
                 'data': '\n'.join(csv_data),
                 'format': ImportFormatChoices.CSV,
+                'csv_delimiter': CSVDelimiterChoices.AUTO,
             }
         }
 
         initial_count = Module.objects.count()
-        self.assertHttpStatus(self.client.post(**request), 200)
+        self.assertHttpStatus(self.client.post(**request), 302)
         self.assertEqual(Module.objects.count(), initial_count + len(csv_data) - 1)
         self.assertEqual(Interface.objects.filter(device=device).count(), 5)
 
@@ -2067,11 +2108,12 @@ class ModuleTestCase(
             'data': {
                 'data': '\n'.join(csv_data),
                 'format': ImportFormatChoices.CSV,
+                'csv_delimiter': CSVDelimiterChoices.AUTO,
             }
         }
 
         initial_count = self._get_queryset().count()
-        self.assertHttpStatus(self.client.post(**request), 200)
+        self.assertHttpStatus(self.client.post(**request), 302)
         self.assertEqual(self._get_queryset().count(), initial_count + len(csv_data) - 1)
 
         # Re-retrieve interface to get new module id
@@ -2870,15 +2912,20 @@ class CableTestCase(
         site = Site.objects.create(name='Site 1', slug='site-1')
         manufacturer = Manufacturer.objects.create(name='Manufacturer 1', slug='manufacturer-1')
         devicetype = DeviceType.objects.create(model='Device Type 1', manufacturer=manufacturer)
-        devicerole = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+        role = DeviceRole.objects.create(name='Device Role 1', slug='device-role-1')
+        vc = VirtualChassis.objects.create(name='Virtual Chassis')
 
         devices = (
-            Device(name='Device 1', site=site, device_type=devicetype, device_role=devicerole),
-            Device(name='Device 2', site=site, device_type=devicetype, device_role=devicerole),
-            Device(name='Device 3', site=site, device_type=devicetype, device_role=devicerole),
-            Device(name='Device 4', site=site, device_type=devicetype, device_role=devicerole),
+            Device(name='Device 1', site=site, device_type=devicetype, role=role),
+            Device(name='Device 2', site=site, device_type=devicetype, role=role),
+            Device(name='Device 3', site=site, device_type=devicetype, role=role),
+            Device(name='Device 4', site=site, device_type=devicetype, role=role),
         )
         Device.objects.bulk_create(devices)
+
+        vc.members.set((devices[0], devices[1], devices[2]))
+        vc.master = devices[0]
+        vc.save()
 
         interfaces = (
             Interface(device=devices[0], name='Interface 1', type=InterfaceTypeChoices.TYPE_1GE_FIXED),
@@ -2893,6 +2940,10 @@ class CableTestCase(
             Interface(device=devices[3], name='Interface 1', type=InterfaceTypeChoices.TYPE_1GE_FIXED),
             Interface(device=devices[3], name='Interface 2', type=InterfaceTypeChoices.TYPE_1GE_FIXED),
             Interface(device=devices[3], name='Interface 3', type=InterfaceTypeChoices.TYPE_1GE_FIXED),
+            Interface(device=devices[1], name='Device 2 Interface', type=InterfaceTypeChoices.TYPE_1GE_FIXED),
+            Interface(device=devices[2], name='Device 3 Interface', type=InterfaceTypeChoices.TYPE_1GE_FIXED),
+            Interface(device=devices[3], name='Interface 4', type=InterfaceTypeChoices.TYPE_1GE_FIXED),
+            Interface(device=devices[3], name='Interface 5', type=InterfaceTypeChoices.TYPE_1GE_FIXED),
         )
         Interface.objects.bulk_create(interfaces)
 
@@ -2925,6 +2976,8 @@ class CableTestCase(
             "Device 3,dcim.interface,Interface 1,Device 4,dcim.interface,Interface 1",
             "Device 3,dcim.interface,Interface 2,Device 4,dcim.interface,Interface 2",
             "Device 3,dcim.interface,Interface 3,Device 4,dcim.interface,Interface 3",
+            "Device 1,dcim.interface,Device 2 Interface,Device 4,dcim.interface,Interface 4",
+            "Device 1,dcim.interface,Device 3 Interface,Device 4,dcim.interface,Interface 5",
         )
 
         cls.csv_update_data = (
@@ -2966,23 +3019,23 @@ class VirtualChassisTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         device_type = DeviceType.objects.create(
             manufacturer=manufacturer, model='Device Type 1', slug='device-type-1'
         )
-        device_role = DeviceRole.objects.create(
+        role = DeviceRole.objects.create(
             name='Device Role', slug='device-role-1'
         )
 
         devices = (
-            Device(device_type=device_type, device_role=device_role, name='Device 1', site=site),
-            Device(device_type=device_type, device_role=device_role, name='Device 2', site=site),
-            Device(device_type=device_type, device_role=device_role, name='Device 3', site=site),
-            Device(device_type=device_type, device_role=device_role, name='Device 4', site=site),
-            Device(device_type=device_type, device_role=device_role, name='Device 5', site=site),
-            Device(device_type=device_type, device_role=device_role, name='Device 6', site=site),
-            Device(device_type=device_type, device_role=device_role, name='Device 7', site=site),
-            Device(device_type=device_type, device_role=device_role, name='Device 8', site=site),
-            Device(device_type=device_type, device_role=device_role, name='Device 9', site=site),
-            Device(device_type=device_type, device_role=device_role, name='Device 10', site=site),
-            Device(device_type=device_type, device_role=device_role, name='Device 11', site=site),
-            Device(device_type=device_type, device_role=device_role, name='Device 12', site=site),
+            Device(device_type=device_type, role=role, name='Device 1', site=site),
+            Device(device_type=device_type, role=role, name='Device 2', site=site),
+            Device(device_type=device_type, role=role, name='Device 3', site=site),
+            Device(device_type=device_type, role=role, name='Device 4', site=site),
+            Device(device_type=device_type, role=role, name='Device 5', site=site),
+            Device(device_type=device_type, role=role, name='Device 6', site=site),
+            Device(device_type=device_type, role=role, name='Device 7', site=site),
+            Device(device_type=device_type, role=role, name='Device 8', site=site),
+            Device(device_type=device_type, role=role, name='Device 9', site=site),
+            Device(device_type=device_type, role=role, name='Device 10', site=site),
+            Device(device_type=device_type, role=role, name='Device 11', site=site),
+            Device(device_type=device_type, role=role, name='Device 12', site=site),
         )
         Device.objects.bulk_create(devices)
 
@@ -3161,11 +3214,11 @@ class PowerFeedTestCase(ViewTestCases.PrimaryObjectViewTestCase):
         device_type = DeviceType.objects.create(
             manufacturer=manufacturer, model='Device Type 1', slug='device-type-1'
         )
-        device_role = DeviceRole.objects.create(
+        role = DeviceRole.objects.create(
             name='Device Role', slug='device-role-1'
         )
         device = Device.objects.create(
-            site=Site.objects.first(), device_type=device_type, device_role=device_role
+            site=Site.objects.first(), device_type=device_type, role=role
         )
 
         powerfeed = PowerFeed.objects.first()

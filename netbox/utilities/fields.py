@@ -1,21 +1,25 @@
 from collections import defaultdict
 
 from django.contrib.contenttypes.fields import GenericForeignKey
-from django.core.validators import RegexValidator
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 from utilities.ordering import naturalize
-from .forms import ColorSelect
+from .forms.widgets import ColorSelect
+from .validators import ColorValidator
 
-ColorValidator = RegexValidator(
-    regex='^[0-9a-f]{6}$',
-    message='Enter a valid hexadecimal RGB color code.',
-    code='invalid'
+__all__ = (
+    'ColorField',
+    'CounterCacheField',
+    'NaturalOrderingField',
+    'NullableCharField',
+    'RestrictedGenericForeignKey',
 )
 
 
 # Deprecated: Retained only to ensure successful migration from early releases
 # Use models.CharField(null=True) instead
+# TODO: Remove in v4.0
 class NullableCharField(models.CharField):
     description = "Stores empty values as NULL rather than ''"
 
@@ -101,6 +105,10 @@ class RestrictedGenericForeignKey(GenericForeignKey):
             # We avoid looking for values if either ct_id or fkey value is None
             ct_id = getattr(instance, ct_attname)
             if ct_id is not None:
+                # Check if the content type actually exists
+                if not self.get_content_type(id=ct_id, using=instance._state.db).model_class():
+                    continue
+
                 fk_val = getattr(instance, self.fk_field)
                 if fk_val is not None:
                     fk_dict[ct_id].add(fk_val)
@@ -125,13 +133,14 @@ class RestrictedGenericForeignKey(GenericForeignKey):
             if ct_id is None:
                 return None
             else:
-                model = self.get_content_type(
+                if model := self.get_content_type(
                     id=ct_id, using=obj._state.db
-                ).model_class()
-                return (
-                    model._meta.pk.get_prep_value(getattr(obj, self.fk_field)),
-                    model,
-                )
+                ).model_class():
+                    return (
+                        model._meta.pk.get_prep_value(getattr(obj, self.fk_field)),
+                        model,
+                    )
+                return None
 
         return (
             ret_val,
@@ -141,3 +150,43 @@ class RestrictedGenericForeignKey(GenericForeignKey):
             self.name,
             False,
         )
+
+
+class CounterCacheField(models.BigIntegerField):
+    """
+    Counter field to keep track of related model counts.
+    """
+    def __init__(self, to_model, to_field, *args, **kwargs):
+        if not isinstance(to_model, str):
+            raise TypeError(
+                _("%s(%r) is invalid. to_model parameter to CounterCacheField must be "
+                  "a string in the format 'app.model'")
+                % (
+                    self.__class__.__name__,
+                    to_model,
+                )
+            )
+
+        if not isinstance(to_field, str):
+            raise TypeError(
+                _("%s(%r) is invalid. to_field parameter to CounterCacheField must be "
+                  "a string in the format 'field'")
+                % (
+                    self.__class__.__name__,
+                    to_field,
+                )
+            )
+
+        self.to_model_name = to_model
+        self.to_field_name = to_field
+
+        kwargs['default'] = kwargs.get('default', 0)
+        kwargs['editable'] = False
+
+        super().__init__(*args, **kwargs)
+
+    def deconstruct(self):
+        name, path, args, kwargs = super().deconstruct()
+        kwargs["to_model"] = self.to_model_name
+        kwargs["to_field"] = self.to_field_name
+        return name, path, args, kwargs

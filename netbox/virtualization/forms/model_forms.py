@@ -1,18 +1,19 @@
 from django import forms
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _
 
 from dcim.forms.common import InterfaceCommonForm
-from dcim.forms.model_forms import INTERFACE_MODE_HELP_TEXT
 from dcim.models import Device, DeviceRole, Platform, Rack, Region, Site, SiteGroup
+from extras.models import ConfigTemplate
 from ipam.models import IPAddress, VLAN, VLANGroup, VRF
 from netbox.forms import NetBoxModelForm
 from tenancy.forms import TenancyForm
-from utilities.forms import (
-    BootstrapMixin, CommentField, ConfirmationForm, DynamicModelChoiceField, DynamicModelMultipleChoiceField,
-    JSONField, SlugField, StaticSelect,
+from utilities.forms import BootstrapMixin, ConfirmationForm
+from utilities.forms.fields import (
+    CommentField, DynamicModelChoiceField, DynamicModelMultipleChoiceField, JSONField, SlugField,
 )
+from utilities.forms.widgets import HTMXSelect
 from virtualization.models import *
 
 __all__ = (
@@ -30,7 +31,7 @@ class ClusterTypeForm(NetBoxModelForm):
     slug = SlugField()
 
     fieldsets = (
-        ('Cluster Type', (
+        (_('Cluster Type'), (
             'name', 'slug', 'description', 'tags',
         )),
     )
@@ -46,7 +47,7 @@ class ClusterGroupForm(NetBoxModelForm):
     slug = SlugField()
 
     fieldsets = (
-        ('Cluster Group', (
+        (_('Cluster Group'), (
             'name', 'slug', 'description', 'tags',
         )),
     )
@@ -60,65 +61,49 @@ class ClusterGroupForm(NetBoxModelForm):
 
 class ClusterForm(TenancyForm, NetBoxModelForm):
     type = DynamicModelChoiceField(
+        label=_('Type'),
         queryset=ClusterType.objects.all()
     )
     group = DynamicModelChoiceField(
+        label=_('Group'),
         queryset=ClusterGroup.objects.all(),
         required=False
     )
-    region = DynamicModelChoiceField(
-        queryset=Region.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
-    site_group = DynamicModelChoiceField(
-        queryset=SiteGroup.objects.all(),
-        required=False,
-        initial_params={
-            'sites': '$site'
-        }
-    )
     site = DynamicModelChoiceField(
+        label=_('Site'),
         queryset=Site.objects.all(),
         required=False,
-        query_params={
-            'region_id': '$region',
-            'group_id': '$site_group',
-        }
+        selector=True
     )
     comments = CommentField()
 
     fieldsets = (
-        ('Cluster', ('name', 'type', 'group', 'status', 'description', 'tags')),
-        ('Site', ('region', 'site_group', 'site')),
-        ('Tenancy', ('tenant_group', 'tenant')),
+        (_('Cluster'), ('name', 'type', 'group', 'site', 'status', 'description', 'tags')),
+        (_('Tenancy'), ('tenant_group', 'tenant')),
     )
 
     class Meta:
         model = Cluster
         fields = (
-            'name', 'type', 'group', 'status', 'tenant', 'region', 'site_group', 'site', 'description', 'comments',
-            'tags',
+            'name', 'type', 'group', 'status', 'tenant', 'site', 'description', 'comments', 'tags',
         )
-        widgets = {
-            'status': StaticSelect(),
-        }
 
 
 class ClusterAddDevicesForm(BootstrapMixin, forms.Form):
     region = DynamicModelChoiceField(
+        label=_('Region'),
         queryset=Region.objects.all(),
         required=False,
         null_option='None'
     )
     site_group = DynamicModelChoiceField(
+        label=_('Site group'),
         queryset=SiteGroup.objects.all(),
         required=False,
         null_option='None'
     )
     site = DynamicModelChoiceField(
+        label=_('Site'),
         queryset=Site.objects.all(),
         required=False,
         query_params={
@@ -127,6 +112,7 @@ class ClusterAddDevicesForm(BootstrapMixin, forms.Form):
         }
     )
     rack = DynamicModelChoiceField(
+        label=_('Rack'),
         queryset=Rack.objects.all(),
         required=False,
         null_option='None',
@@ -135,6 +121,7 @@ class ClusterAddDevicesForm(BootstrapMixin, forms.Form):
         }
     )
     devices = DynamicModelMultipleChoiceField(
+        label=_('Devices'),
         queryset=Device.objects.all(),
         query_params={
             'site_id': '$site',
@@ -164,7 +151,7 @@ class ClusterAddDevicesForm(BootstrapMixin, forms.Form):
             for device in self.cleaned_data.get('devices', []):
                 if device.site != self.cluster.site:
                     raise ValidationError({
-                        'devices': "{} belongs to a different site ({}) than the cluster ({})".format(
+                        'devices': _("{} belongs to a different site ({}) than the cluster ({})").format(
                             device, device.site, self.cluster.site
                         )
                     })
@@ -179,26 +166,21 @@ class ClusterRemoveDevicesForm(ConfirmationForm):
 
 class VirtualMachineForm(TenancyForm, NetBoxModelForm):
     site = DynamicModelChoiceField(
+        label=_('Site'),
         queryset=Site.objects.all(),
         required=False
     )
-    cluster_group = DynamicModelChoiceField(
-        queryset=ClusterGroup.objects.all(),
-        required=False,
-        null_option='None',
-        initial_params={
-            'clusters': '$cluster'
-        }
-    )
     cluster = DynamicModelChoiceField(
+        label=_('Cluster'),
         queryset=Cluster.objects.all(),
         required=False,
+        selector=True,
         query_params={
             'site_id': '$site',
-            'group_id': '$cluster_group',
         }
     )
     device = DynamicModelChoiceField(
+        label=_('Device'),
         queryset=Device.objects.all(),
         required=False,
         query_params={
@@ -208,6 +190,7 @@ class VirtualMachineForm(TenancyForm, NetBoxModelForm):
         help_text=_("Optionally pin this VM to a specific host device within the cluster")
     )
     role = DynamicModelChoiceField(
+        label=_('Role'),
         queryset=DeviceRole.objects.all(),
         required=False,
         query_params={
@@ -215,6 +198,7 @@ class VirtualMachineForm(TenancyForm, NetBoxModelForm):
         }
     )
     platform = DynamicModelChoiceField(
+        label=_('Platform'),
         queryset=Platform.objects.all(),
         required=False
     )
@@ -222,33 +206,29 @@ class VirtualMachineForm(TenancyForm, NetBoxModelForm):
         required=False,
         label=''
     )
+    config_template = DynamicModelChoiceField(
+        queryset=ConfigTemplate.objects.all(),
+        required=False,
+        label=_('Config template')
+    )
     comments = CommentField()
 
     fieldsets = (
-        ('Virtual Machine', ('name', 'role', 'status', 'description', 'tags')),
-        ('Site/Cluster', ('site', 'cluster_group', 'cluster', 'device')),
-        ('Tenancy', ('tenant_group', 'tenant')),
-        ('Management', ('platform', 'primary_ip4', 'primary_ip6')),
-        ('Resources', ('vcpus', 'memory', 'disk')),
-        ('Config Context', ('local_context_data',)),
+        (_('Virtual Machine'), ('name', 'role', 'status', 'description', 'tags')),
+        (_('Site/Cluster'), ('site', 'cluster', 'device')),
+        (_('Tenancy'), ('tenant_group', 'tenant')),
+        (_('Management'), ('platform', 'primary_ip4', 'primary_ip6', 'config_template')),
+        (_('Resources'), ('vcpus', 'memory', 'disk')),
+        (_('Config Context'), ('local_context_data',)),
     )
 
     class Meta:
         model = VirtualMachine
         fields = [
-            'name', 'status', 'site', 'cluster_group', 'cluster', 'device', 'role', 'tenant_group', 'tenant',
-            'platform', 'primary_ip4', 'primary_ip6', 'vcpus', 'memory', 'disk', 'description', 'comments', 'tags',
-            'local_context_data',
+            'name', 'status', 'site', 'cluster', 'device', 'role', 'tenant_group', 'tenant', 'platform', 'primary_ip4',
+            'primary_ip6', 'vcpus', 'memory', 'disk', 'description', 'comments', 'tags', 'local_context_data',
+            'config_template',
         ]
-        help_texts = {
-            'local_context_data': _("Local config context data overwrites all sources contexts in the final rendered "
-                                    "config context"),
-        }
-        widgets = {
-            "status": StaticSelect(),
-            'primary_ip4': StaticSelect(),
-            'primary_ip6': StaticSelect(),
-        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -293,7 +273,9 @@ class VirtualMachineForm(TenancyForm, NetBoxModelForm):
 
 class VMInterfaceForm(InterfaceCommonForm, NetBoxModelForm):
     virtual_machine = DynamicModelChoiceField(
-        queryset=VirtualMachine.objects.all()
+        label=_('Virtual machine'),
+        queryset=VirtualMachine.objects.all(),
+        selector=True
     )
     parent = DynamicModelChoiceField(
         queryset=VMInterface.objects.all(),
@@ -341,11 +323,11 @@ class VMInterfaceForm(InterfaceCommonForm, NetBoxModelForm):
     )
 
     fieldsets = (
-        ('Interface', ('virtual_machine', 'name', 'description', 'tags')),
-        ('Addressing', ('vrf', 'mac_address')),
-        ('Operation', ('mtu', 'enabled')),
-        ('Related Interfaces', ('parent', 'bridge')),
-        ('802.1Q Switching', ('mode', 'vlan_group', 'untagged_vlan', 'tagged_vlans')),
+        (_('Interface'), ('virtual_machine', 'name', 'description', 'tags')),
+        (_('Addressing'), ('vrf', 'mac_address')),
+        (_('Operation'), ('mtu', 'enabled')),
+        (_('Related Interfaces'), ('parent', 'bridge')),
+        (_('802.1Q Switching'), ('mode', 'vlan_group', 'untagged_vlan', 'tagged_vlans')),
     )
 
     class Meta:
@@ -354,14 +336,11 @@ class VMInterfaceForm(InterfaceCommonForm, NetBoxModelForm):
             'virtual_machine', 'name', 'parent', 'bridge', 'enabled', 'mac_address', 'mtu', 'description', 'mode',
             'vlan_group', 'untagged_vlan', 'tagged_vlans', 'vrf', 'tags',
         ]
-        widgets = {
-            'mode': StaticSelect()
-        }
         labels = {
             'mode': '802.1Q Mode',
         }
-        help_texts = {
-            'mode': INTERFACE_MODE_HELP_TEXT,
+        widgets = {
+            'mode': HTMXSelect(),
         }
 
     def __init__(self, *args, **kwargs):

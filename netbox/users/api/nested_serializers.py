@@ -1,6 +1,8 @@
-from django.contrib.auth.models import Group, User
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.contrib.contenttypes.models import ContentType
-from drf_yasg.utils import swagger_serializer_method
+from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers
 
 from netbox.api.fields import ContentTypeField
@@ -27,9 +29,10 @@ class NestedUserSerializer(WritableNestedSerializer):
     url = serializers.HyperlinkedIdentityField(view_name='users-api:user-detail')
 
     class Meta:
-        model = User
+        model = get_user_model()
         fields = ['id', 'url', 'display', 'username']
 
+    @extend_schema_field(OpenApiTypes.STR)
     def get_display(self, obj):
         if full_name := obj.get_full_name():
             return f"{obj.username} ({full_name})"
@@ -57,10 +60,10 @@ class NestedObjectPermissionSerializer(WritableNestedSerializer):
         model = ObjectPermission
         fields = ['id', 'url', 'display', 'name', 'enabled', 'object_types', 'groups', 'users', 'actions']
 
-    @swagger_serializer_method(serializer_or_field=serializers.ListField)
+    @extend_schema_field(serializers.ListField)
     def get_groups(self, obj):
         return [g.name for g in obj.groups.all()]
 
-    @swagger_serializer_method(serializer_or_field=serializers.ListField)
+    @extend_schema_field(serializers.ListField)
     def get_users(self, obj):
         return [u.username for u in obj.users.all()]

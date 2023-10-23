@@ -68,19 +68,24 @@ Defines how filters are evaluated against custom field values.
 
 Controls how and whether the custom field is displayed within the NetBox user interface.
 
-| Option     | Description                          |
-|------------|--------------------------------------|
-| Read/write | Display and permit editing (default) |
-| Read-only  | Display field but disallow editing   |
-| Hidden     | Do not display field in the UI       |
+| Option            | Description                                      |
+|-------------------|--------------------------------------------------|
+| Read/write        | Display and permit editing (default)             |
+| Read-only         | Display field but disallow editing               |
+| Hidden            | Do not display field in the UI                   |
+| Hidden (if unset) | Display in the UI only when a value has been set |
 
 ### Default
 
 The default value to populate for the custom field when creating new objects (optional). This value must be expressed as JSON. If this is a choice or multi-choice field, this must be one of the available choices.
 
-### Choices
+### Choice Set
 
-For choice and multi-choice custom fields only. A comma-delimited list of the available choices.
+For selection and multi-select custom fields only, this is the [set of choices](./customfieldchoiceset.md) which are valid for the field.
+
+### Cloneable
+
+If enabled, values from this field will be automatically pre-populated when cloning existing objects.
 
 ### Minimum Value
 
