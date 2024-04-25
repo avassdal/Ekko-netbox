@@ -1306,7 +1306,6 @@ class PortTypeChoices(ChoiceSet):
     TYPE_URM_P2 = 'urm-p2'
     TYPE_URM_P4 = 'urm-p4'
     TYPE_URM_P8 = 'urm-p8'
-<<<<<<< HEAD
     TYPE_XLR3P = 'XLR'
     TYPE_XLR5P = 'XLR5P'
     TYPE_PH2P = 'phoenix2p'
@@ -1316,9 +1315,7 @@ class PortTypeChoices(ChoiceSet):
     TYPE_NL2 = 'speakon-2'
     TYPE_NL4 = 'speakon-4'
     TYPE_NL8 = 'speakon-8'
-=======
     TYPE_OTHER = 'other'
->>>>>>> 83a66a672de245da9118d1de97426dca8ee93ae0
 
     CHOICES = (
         (
