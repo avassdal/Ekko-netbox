@@ -3,6 +3,9 @@
 !!! tip "Plugins Development Tutorial"
     Just getting started with plugins? Check out our [**NetBox Plugin Tutorial**](https://github.com/netbox-community/netbox-plugin-tutorial) on GitHub! This in-depth guide will walk you through the process of creating an entire plugin from scratch. It even includes a companion [demo plugin repo](https://github.com/netbox-community/netbox-plugin-demo) to ensure you can jump in at any step along the way. This will get you up and running with plugins in no time!
 
+!!! tip "Plugin Certification Program"
+    NetBox Labs offers a [**Plugin Certification Program**](https://github.com/netbox-community/netbox/wiki/Plugin-Certification-Program) for plugin developers interested in establishing a co-maintainer relationship. The program aims to assure ongoing compatibility, maintainability, and commercial supportability of key plugins.
+
 NetBox can be extended to support additional data models and functionality through the use of plugins. A plugin is essentially a self-contained [Django app](https://docs.djangoproject.com/en/stable/) which gets installed alongside NetBox to provide custom functionality. Multiple plugins can be installed in a single NetBox instance, and each plugin can be enabled and configured independently.
 
 !!! info "Django Development"
@@ -69,7 +72,7 @@ The plugin source directory contains all the actual Python code and other resour
 The `PluginConfig` class is a NetBox-specific wrapper around Django's built-in [`AppConfig`](https://docs.djangoproject.com/en/stable/ref/applications/) class. It is used to declare NetBox plugin functionality within a Python package. Each plugin should provide its own subclass, defining its name, metadata, and default and required configuration parameters. An example is below:
 
 ```python
-from extras.plugins import PluginConfig
+from netbox.plugins import PluginConfig
 
 class FooBarConfig(PluginConfig):
     name = 'foo_bar'
@@ -109,6 +112,7 @@ NetBox looks for the `config` variable within a plugin's `__init__.py` to load i
 | `middleware`          | A list of middleware classes to append after NetBox's build-in middleware                                                |
 | `queues`              | A list of custom background task queues to create                                                                        |
 | `search_extensions`   | The dotted path to the list of search index classes (default: `search.indexes`)                                          |
+| `data_backends`       | The dotted path to the list of data source backend classes (default: `data_backends.backends`)                           |
 | `template_extensions` | The dotted path to the list of template extension classes (default: `template_content.template_extensions`)              |
 | `menu_items`          | The dotted path to the list of menu items provided by the plugin (default: `navigation.menu_items`)                      |
 | `graphql_schema`      | The dotted path to the plugin's GraphQL schema class, if any (default: `graphql.schema`)                                 |
@@ -120,7 +124,7 @@ All required settings must be configured by the user. If a configuration paramet
     Plugin configuration parameters can be accessed using the `get_plugin_config()` function. For example:
     
     ```python
-    from extras.plugins import get_plugin_config
+    from netbox.plugins import get_plugin_config
     get_plugin_config('my_plugin', 'verbose_name')
     ```
 

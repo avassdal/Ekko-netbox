@@ -61,7 +61,8 @@ django-timezone-field
 
 # A REST API framework for Django projects
 # https://www.django-rest-framework.org/community/release-notes/
-djangorestframework
+# Pinned to 3.14 for NetBox v3.7
+djangorestframework<3.15
 
 # Sane and flexible OpenAPI 3 schema generation for Django REST framework.
 # https://github.com/tfranzel/drf-spectacular/blob/master/CHANGELOG.rst
@@ -89,9 +90,8 @@ gunicorn
 Jinja2
 
 # Simple markup language for rendering HTML
-# https://python-markdown.github.io/change_log/
-# mkdocs currently requires Markdown v3.3
-Markdown<3.4
+# https://python-markdown.github.io/changelog/
+Markdown
 
 # File inclusion plugin for Python-Markdown
 # https://github.com/cmacmackin/markdown-include
@@ -102,11 +102,11 @@ markdown-include
 mkdocs-material
 
 # Introspection for embedded code
-# https://github.com/mkdocstrings/mkdocstrings/blob/master/CHANGELOG.md
+# https://github.com/mkdocstrings/mkdocstrings/blob/main/CHANGELOG.md
 mkdocstrings[python-legacy]
 
 # Library for manipulating IP prefixes and addresses
-# https://github.com/netaddr/netaddr/blob/master/CHANGELOG
+# https://github.com/netaddr/netaddr/blob/master/CHANGELOG.rst
 netaddr
 
 # Fork of PIL (Python Imaging Library) for image processing
@@ -124,10 +124,6 @@ PyYAML
 # Requests
 # https://github.com/psf/requests/blob/main/HISTORY.md
 requests
-
-# Sentry SDK
-# https://github.com/getsentry/sentry-python/blob/master/CHANGELOG.md
-sentry-sdk
 
 # Social authentication framework
 # https://github.com/python-social-auth/social-core/blob/master/CHANGELOG.md

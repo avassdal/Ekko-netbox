@@ -291,7 +291,11 @@ class DeviceTypeForm(NetBoxModelForm):
     default_platform = DynamicModelChoiceField(
         label=_('Default platform'),
         queryset=Platform.objects.all(),
-        required=False
+        required=False,
+        selector=True,
+        query_params={
+            'manufacturer_id': ['$manufacturer', 'null'],
+        }
     )
     slug = SlugField(
         label=_('Slug'),
@@ -302,7 +306,8 @@ class DeviceTypeForm(NetBoxModelForm):
     fieldsets = (
         (_('Device Type'), ('manufacturer', 'model', 'slug', 'default_platform', 'description', 'tags')),
         (_('Chassis'), (
-            'u_height', 'is_full_depth', 'part_number', 'subdevice_role', 'airflow', 'weight', 'weight_unit',
+            'u_height', 'exclude_from_utilization', 'is_full_depth', 'part_number', 'subdevice_role', 'airflow',
+            'weight', 'weight_unit',
         )),
         (_('Images'), ('front_image', 'rear_image')),
     )
@@ -310,9 +315,9 @@ class DeviceTypeForm(NetBoxModelForm):
     class Meta:
         model = DeviceType
         fields = [
-            'manufacturer', 'model', 'slug', 'default_platform', 'part_number', 'u_height', 'is_full_depth',
-            'subdevice_role', 'airflow', 'weight', 'weight_unit', 'front_image', 'rear_image', 'description',
-            'comments', 'tags',
+            'manufacturer', 'model', 'slug', 'default_platform', 'part_number', 'u_height', 'exclude_from_utilization',
+            'is_full_depth', 'subdevice_role', 'airflow', 'weight', 'weight_unit', 'front_image', 'rear_image',
+            'description', 'comments', 'tags',
         ]
         widgets = {
             'front_image': ClearableFileInput(attrs={
@@ -442,7 +447,11 @@ class DeviceForm(TenancyForm, NetBoxModelForm):
     platform = DynamicModelChoiceField(
         label=_('Platform'),
         queryset=Platform.objects.all(),
-        required=False
+        required=False,
+        selector=True,
+        query_params={
+            'available_for_device_type': '$device_type',
+        }
     )
     cluster = DynamicModelChoiceField(
         label=_('Cluster'),
@@ -967,21 +976,67 @@ class InventoryItemTemplateForm(ComponentTemplateForm):
         queryset=Manufacturer.objects.all(),
         required=False
     )
-    component_type = ContentTypeChoiceField(
-        queryset=ContentType.objects.all(),
-        limit_choices_to=MODULAR_COMPONENT_TEMPLATE_MODELS,
+    # Assigned component selectors
+    consoleporttemplate = DynamicModelChoiceField(
+        queryset=ConsolePortTemplate.objects.all(),
         required=False,
-        widget=forms.HiddenInput
+        query_params={
+            'device_type_id': '$device_type'
+        },
+        label=_('Console port template')
     )
-    component_id = forms.IntegerField(
+    consoleserverporttemplate = DynamicModelChoiceField(
+        queryset=ConsoleServerPortTemplate.objects.all(),
         required=False,
-        widget=forms.HiddenInput
+        query_params={
+            'device_type_id': '$device_type'
+        },
+        label=_('Console server port template')
+    )
+    frontporttemplate = DynamicModelChoiceField(
+        queryset=FrontPortTemplate.objects.all(),
+        required=False,
+        query_params={
+            'device_type_id': '$device_type'
+        },
+        label=_('Front port template')
+    )
+    interfacetemplate = DynamicModelChoiceField(
+        queryset=InterfaceTemplate.objects.all(),
+        required=False,
+        query_params={
+            'device_type_id': '$device_type'
+        },
+        label=_('Interface template')
+    )
+    poweroutlettemplate = DynamicModelChoiceField(
+        queryset=PowerOutletTemplate.objects.all(),
+        required=False,
+        query_params={
+            'device_type_id': '$device_type'
+        },
+        label=_('Power outlet template')
+    )
+    powerporttemplate = DynamicModelChoiceField(
+        queryset=PowerPortTemplate.objects.all(),
+        required=False,
+        query_params={
+            'device_type_id': '$device_type'
+        },
+        label=_('Power port template')
+    )
+    rearporttemplate = DynamicModelChoiceField(
+        queryset=RearPortTemplate.objects.all(),
+        required=False,
+        query_params={
+            'device_type_id': '$device_type'
+        },
+        label=_('Rear port template')
     )
 
     fieldsets = (
         (None, (
             'device_type', 'parent', 'name', 'label', 'role', 'manufacturer', 'part_id', 'description',
-            'component_type', 'component_id',
         )),
     )
 
@@ -989,8 +1044,51 @@ class InventoryItemTemplateForm(ComponentTemplateForm):
         model = InventoryItemTemplate
         fields = [
             'device_type', 'parent', 'name', 'label', 'role', 'manufacturer', 'part_id', 'description',
-            'component_type', 'component_id',
         ]
+
+    def __init__(self, *args, **kwargs):
+        instance = kwargs.get('instance')
+        initial = kwargs.get('initial', {}).copy()
+        component_type = initial.get('component_type')
+        component_id = initial.get('component_id')
+
+        # Used for picking the default active tab for component selection
+        self.no_component = True
+
+        if instance:
+            # When editing set the initial value for component selection
+            for component_model in ContentType.objects.filter(MODULAR_COMPONENT_TEMPLATE_MODELS):
+                if type(instance.component) is component_model.model_class():
+                    initial[component_model.model] = instance.component
+                    self.no_component = False
+                    break
+        elif component_type and component_id:
+            # When adding the InventoryItem from a component page
+            if content_type := ContentType.objects.filter(MODULAR_COMPONENT_TEMPLATE_MODELS).filter(pk=component_type).first():
+                if component := content_type.model_class().objects.filter(pk=component_id).first():
+                    initial[content_type.model] = component
+                    self.no_component = False
+
+        kwargs['initial'] = initial
+
+        super().__init__(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+
+        # Handle object assignment
+        selected_objects = [
+            field for field in (
+                'consoleporttemplate', 'consoleserverporttemplate', 'frontporttemplate', 'interfacetemplate',
+                'poweroutlettemplate', 'powerporttemplate', 'rearporttemplate'
+            ) if self.cleaned_data[field]
+        ]
+        if len(selected_objects) > 1:
+            raise forms.ValidationError(_("An InventoryItem can only be assigned to a single component."))
+        elif selected_objects:
+            self.instance.component = self.cleaned_data[selected_objects[0]]
+        else:
+            self.instance.component = None
 
 
 #

@@ -16,10 +16,7 @@ BASE_PATH = 'netbox/'
 
 Default: `en-us` (US English)
 
-Defines the default preferred language/locale for requests that do not specify one. This is used to alter e.g. the display of dates and numbers to fit the user's locale. See [this list](http://www.i18nguy.com/unicode/language-identifiers.html) of standard language codes. (This parameter maps to Django's [`LANGUAGE_CODE`](https://docs.djangoproject.com/en/stable/ref/settings/#language-code) internal setting.)
-
-!!! note
-    Altering this parameter will *not* change the language used in NetBox. We hope to provide translation support in a future NetBox release.
+Defines the default preferred language/locale for requests that do not specify one. (This parameter maps to Django's [`LANGUAGE_CODE`](https://docs.djangoproject.com/en/stable/ref/settings/#language-code) internal setting.)
 
 ---
 
@@ -69,15 +66,7 @@ Email is sent from NetBox only for critical events or if configured for [logging
 
 Default: False
 
-Determines if localization features are enabled or not. This should only be enabled for development or testing purposes as netbox is not yet fully localized. Turning this on will localize numeric and date formats (overriding what is set for DATE_FORMAT) based on the browser locale as well as translate certain strings from third party modules.
-
----
-
-## GIT_PATH
-
-Default: `git`
-
-The system path to the `git` executable, used by the synchronization backend for remote git repositories.
+Determines if localization features are enabled or not. This should only be enabled for development or testing purposes as netbox is not yet fully localized. Turning this on will localize numeric and date formats (overriding any configured [system defaults](./date-time.md#date-and-time-formatting)) based on the browser locale as well as translate certain strings from third party modules.
 
 ---
 
