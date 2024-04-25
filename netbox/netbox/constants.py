@@ -27,3 +27,16 @@ ADVISORY_LOCK_KEYS = {
     'inventoryitem': 105700,
     'inventoryitemtemplate': 105800,
 }
+
+# Default view action permission mapping
+DEFAULT_ACTION_PERMISSIONS = {
+    'add': {'add'},
+    'import': {'add'},
+    'export': {'view'},
+    'bulk_edit': {'change'},
+    'bulk_delete': {'delete'},
+}
+
+# General-purpose tokens
+CENSOR_TOKEN = '********'
+CENSOR_TOKEN_CHANGED = '***CHANGED***'

@@ -2,7 +2,6 @@ import itertools
 from collections import defaultdict
 
 from django.contrib.contenttypes.fields import GenericForeignKey
-from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Sum
@@ -10,12 +9,12 @@ from django.dispatch import Signal
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
+from core.models import ContentType
 from dcim.choices import *
 from dcim.constants import *
 from dcim.fields import PathField
 from dcim.utils import decompile_path_node, object_to_path_node
 from netbox.models import ChangeLoggedModel, PrimaryModel
-
 from utilities.fields import ColorField
 from utilities.querysets import RestrictedQuerySet
 from utilities.utils import to_meters
@@ -161,24 +160,36 @@ class Cable(PrimaryModel):
 
         # Validate length and length_unit
         if self.length is not None and not self.length_unit:
-            raise ValidationError("Must specify a unit when setting a cable length")
+            raise ValidationError(_("Must specify a unit when setting a cable length"))
 
         if self.pk is None and (not self.a_terminations or not self.b_terminations):
-            raise ValidationError("Must define A and B terminations when creating a new cable.")
+            raise ValidationError(_("Must define A and B terminations when creating a new cable."))
 
         if self._terminations_modified:
 
             # Check that all termination objects for either end are of the same type
             for terms in (self.a_terminations, self.b_terminations):
                 if len(terms) > 1 and not all(isinstance(t, type(terms[0])) for t in terms[1:]):
-                    raise ValidationError("Cannot connect different termination types to same end of cable.")
+                    raise ValidationError(_("Cannot connect different termination types to same end of cable."))
 
             # Check that termination types are compatible
             if self.a_terminations and self.b_terminations:
                 a_type = self.a_terminations[0]._meta.model_name
                 b_type = self.b_terminations[0]._meta.model_name
                 if b_type not in COMPATIBLE_TERMINATION_TYPES.get(a_type):
-                    raise ValidationError(f"Incompatible termination types: {a_type} and {b_type}")
+                    raise ValidationError(
+                        _("Incompatible termination types: {type_a} and {type_b}").format(type_a=a_type, type_b=b_type)
+                    )
+                if a_type == b_type:
+                    # can't directly use self.a_terminations here as possible they
+                    # don't have pk yet
+                    a_pks = set(obj.pk for obj in self.a_terminations if obj.pk)
+                    b_pks = set(obj.pk for obj in self.b_terminations if obj.pk)
+
+                    if (a_pks & b_pks):
+                        raise ValidationError(
+                            _("A and B terminations cannot connect to the same object.")
+                        )
 
             # Run clean() on any new CableTerminations
             for termination in self.a_terminations:
@@ -190,7 +201,7 @@ class Cable(PrimaryModel):
         _created = self.pk is None
 
         # Store the given length (if any) in meters for use in database ordering
-        if self.length and self.length_unit:
+        if self.length is not None and self.length_unit:
             self._abs_length = to_meters(self.length, self.length_unit)
         else:
             self._abs_length = None
@@ -247,7 +258,7 @@ class CableTermination(ChangeLoggedModel):
         verbose_name=_('end')
     )
     termination_type = models.ForeignKey(
-        to=ContentType,
+        to='contenttypes.ContentType',
         limit_choices_to=CABLE_TERMINATION_MODELS,
         on_delete=models.PROTECT,
         related_name='+'
@@ -288,6 +299,9 @@ class CableTermination(ChangeLoggedModel):
 
     class Meta:
         ordering = ('cable', 'cable_end', 'pk')
+        indexes = (
+            models.Index(fields=('termination_type', 'termination_id')),
+        )
         constraints = (
             models.UniqueConstraint(
                 fields=('termination_type', 'termination_id'),
@@ -310,17 +324,24 @@ class CableTermination(ChangeLoggedModel):
         ).first()
         if existing_termination is not None:
             raise ValidationError(
-                f"Duplicate termination found for {self.termination_type.app_label}.{self.termination_type.model} "
-                f"{self.termination_id}: cable {existing_termination.cable.pk}"
+                _("Duplicate termination found for {app_label}.{model} {termination_id}: cable {cable_pk}".format(
+                    app_label=self.termination_type.app_label,
+                    model=self.termination_type.model,
+                    termination_id=self.termination_id,
+                    cable_pk=existing_termination.cable.pk
+                ))
             )
-
         # Validate interface type (if applicable)
         if self.termination_type.model == 'interface' and self.termination.type in NONCONNECTABLE_IFACE_TYPES:
-            raise ValidationError(f"Cables cannot be terminated to {self.termination.get_type_display()} interfaces")
+            raise ValidationError(
+                _("Cables cannot be terminated to {type_display} interfaces").format(
+                    type_display=self.termination.get_type_display()
+                )
+            )
 
         # A CircuitTermination attached to a ProviderNetwork cannot have a Cable
         if self.termination_type.model == 'circuittermination' and self.termination.provider_network is not None:
-            raise ValidationError("Circuit terminations attached to a provider network may not be cabled.")
+            raise ValidationError(_("Circuit terminations attached to a provider network may not be cabled."))
 
     def save(self, *args, **kwargs):
 
@@ -430,6 +451,8 @@ class CablePath(models.Model):
         default=False
     )
     _nodes = PathField()
+
+    _netbox_private = True
 
     class Meta:
         verbose_name = _('cable path')

@@ -7,12 +7,13 @@ from dcim.constants import *
 from dcim.models import *
 from extras.forms import LocalConfigContextFilterForm
 from extras.models import ConfigTemplate
-from ipam.models import ASN, L2VPN, VRF
+from ipam.models import ASN, VRF
 from netbox.forms import NetBoxModelFilterSetForm
 from tenancy.forms import ContactModelFilterForm, TenancyFilterForm
 from utilities.forms import BOOLEAN_WITH_BLANK_CHOICES, FilterForm, add_blank_choice
 from utilities.forms.fields import ColorField, DynamicModelMultipleChoiceField, TagFilterField
 from utilities.forms.widgets import APISelectMultiple, NumberWithOptions
+from vpn.models import L2VPN
 from wireless.choices import *
 
 __all__ = (
@@ -164,6 +165,7 @@ class SiteFilterForm(TenancyFilterForm, ContactModelFilterForm, NetBoxModelFilte
         (_('Tenant'), ('tenant_group_id', 'tenant_id')),
         (_('Contacts'), ('contact', 'contact_role', 'contact_group')),
     )
+    selector_fields = ('filter_id', 'q', 'region_id', 'group_id')
     status = forms.MultipleChoiceField(
         label=_('Status'),
         choices=SiteStatusChoices,
@@ -247,6 +249,7 @@ class RackFilterForm(TenancyFilterForm, ContactModelFilterForm, NetBoxModelFilte
         (_('Contacts'), ('contact', 'contact_role', 'contact_group')),
         (_('Weight'), ('weight', 'max_weight', 'weight_unit')),
     )
+    selector_fields = ('filter_id', 'q', 'region_id', 'site_group_id', 'site_id', 'location_id')
     region_id = DynamicModelMultipleChoiceField(
         queryset=Region.objects.all(),
         required=False,
@@ -419,6 +422,7 @@ class DeviceTypeFilterForm(NetBoxModelFilterSetForm):
         )),
         (_('Weight'), ('weight', 'weight_unit')),
     )
+    selector_fields = ('filter_id', 'q', 'manufacturer_id')
     manufacturer_id = DynamicModelMultipleChoiceField(
         queryset=Manufacturer.objects.all(),
         required=False,
@@ -543,6 +547,7 @@ class ModuleTypeFilterForm(NetBoxModelFilterSetForm):
         )),
         (_('Weight'), ('weight', 'weight_unit')),
     )
+    selector_fields = ('filter_id', 'q', 'manufacturer_id')
     manufacturer_id = DynamicModelMultipleChoiceField(
         queryset=Manufacturer.objects.all(),
         required=False,
@@ -619,6 +624,7 @@ class DeviceRoleFilterForm(NetBoxModelFilterSetForm):
 
 class PlatformFilterForm(NetBoxModelFilterSetForm):
     model = Platform
+    selector_fields = ('filter_id', 'q', 'manufacturer_id')
     manufacturer_id = DynamicModelMultipleChoiceField(
         queryset=Manufacturer.objects.all(),
         required=False,
@@ -653,6 +659,7 @@ class DeviceFilterForm(
             'has_primary_ip', 'has_oob_ip', 'virtual_chassis_member', 'config_template_id', 'local_context_data',
         ))
     )
+    selector_fields = ('filter_id', 'q', 'region_id', 'site_group_id', 'site_id', 'location_id', 'rack_id')
     region_id = DynamicModelMultipleChoiceField(
         queryset=Region.objects.all(),
         required=False,
@@ -970,9 +977,9 @@ class CableFilterForm(TenancyFilterForm, NetBoxModelFilterSetForm):
         label=_('Color'),
         required=False
     )
-    length = forms.IntegerField(
+    length = forms.DecimalField(
         label=_('Length'),
-        required=False
+        required=False,
     )
     length_unit = forms.ChoiceField(
         label=_('Length unit'),
@@ -996,6 +1003,7 @@ class PowerPanelFilterForm(ContactModelFilterForm, NetBoxModelFilterSetForm):
         (_('Location'), ('region_id', 'site_group_id', 'site_id', 'location_id')),
         (_('Contacts'), ('contact', 'contact_role', 'contact_group')),
     )
+    selector_fields = ('filter_id', 'q', 'site_id', 'location_id')
     region_id = DynamicModelMultipleChoiceField(
         queryset=Region.objects.all(),
         required=False,
@@ -1227,6 +1235,7 @@ class InterfaceFilterForm(PathEndpointFilterForm, DeviceComponentFilterForm):
         (_('Device'), ('device_type_id', 'device_role_id', 'device_id', 'virtual_chassis_id', 'vdc_id')),
         (_('Connection'), ('cabled', 'connected', 'occupied')),
     )
+    selector_fields = ('filter_id', 'q', 'device_id')
     vdc_id = DynamicModelMultipleChoiceField(
         queryset=VirtualDeviceContext.objects.all(),
         required=False,
