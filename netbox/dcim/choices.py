@@ -957,7 +957,6 @@ class InterfaceTypeChoices(ChoiceSet):
     TYPE_QLAN = 'qsc-qlan'
     TYPE_AVB = 'avb'
 
-
     # Other
     TYPE_OTHER = 'other'
     TYPE_GPIO = 'gpio'
@@ -1438,7 +1437,6 @@ class CableTypeChoices(ChoiceSet):
     TYPE_4X1_5MM2 = '4X1,5mm2-speaker'
     TYPE_4X2MM2 = '4x2mm2-speaker'
     TYPE_BALAUDIO = 'balanced-audio'
-
 
     CHOICES = (
         (
