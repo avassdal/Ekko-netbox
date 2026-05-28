@@ -7,12 +7,15 @@ from django.utils.translation import gettext as _
 
 from circuits.models import Provider
 from dcim.filtersets import InterfaceFilterSet
+from dcim.forms import InterfaceFilterForm
 from dcim.models import Interface, Site
 from netbox.views import generic
+from tenancy.views import ObjectContactsView
+from utilities.query import count_related
 from utilities.tables import get_table_ordering
-from utilities.utils import count_related
-from utilities.views import ViewTab, register_model_view
+from utilities.views import GetRelatedModelsMixin, ViewTab, register_model_view
 from virtualization.filtersets import VMInterfaceFilterSet
+from virtualization.forms import VMInterfaceFilterForm
 from virtualization.models import VMInterface
 from . import filtersets, forms, tables
 from .choices import PrefixStatusChoices
@@ -33,15 +36,10 @@ class VRFListView(generic.ObjectListView):
 
 
 @register_model_view(VRF)
-class VRFView(generic.ObjectView):
+class VRFView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = VRF.objects.all()
 
     def get_extra_context(self, request, instance):
-        related_models = (
-            (Prefix.objects.restrict(request.user, 'view').filter(vrf=instance), 'vrf_id'),
-            (IPAddress.objects.restrict(request.user, 'view').filter(vrf=instance), 'vrf_id'),
-        )
-
         import_targets_table = tables.RouteTargetTable(
             instance.import_targets.all(),
             orderable=False
@@ -52,7 +50,7 @@ class VRFView(generic.ObjectView):
         )
 
         return {
-            'related_models': related_models,
+            'related_models': self.get_related_models(request, instance, omit=[Interface, VMInterface]),
             'import_targets_table': import_targets_table,
             'export_targets_table': export_targets_table,
         }
@@ -146,16 +144,12 @@ class RIRListView(generic.ObjectListView):
 
 
 @register_model_view(RIR)
-class RIRView(generic.ObjectView):
+class RIRView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = RIR.objects.all()
 
     def get_extra_context(self, request, instance):
-        related_models = (
-            (Aggregate.objects.restrict(request.user, 'view').filter(rir=instance), 'rir_id'),
-        )
-
         return {
-            'related_models': related_models,
+            'related_models': self.get_related_models(request, instance),
         }
 
 
@@ -214,7 +208,7 @@ class ASNRangeASNsView(generic.ObjectChildrenView):
     child_model = ASN
     table = tables.ASNTable
     filterset = filtersets.ASNFilterSet
-    template_name = 'generic/object_children.html'
+    filterset_form = forms.ASNFilterForm
     tab = ViewTab(
         label=_('ASNs'),
         badge=lambda x: x.get_child_asns().count(),
@@ -273,17 +267,19 @@ class ASNListView(generic.ObjectListView):
 
 
 @register_model_view(ASN)
-class ASNView(generic.ObjectView):
+class ASNView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = ASN.objects.all()
 
     def get_extra_context(self, request, instance):
-        related_models = (
-            (Site.objects.restrict(request.user, 'view').filter(asns__in=[instance]), 'asn_id'),
-            (Provider.objects.restrict(request.user, 'view').filter(asns__in=[instance]), 'asn_id'),
-        )
-
         return {
-            'related_models': related_models,
+            'related_models': self.get_related_models(
+                request,
+                instance,
+                extra=(
+                    (Site.objects.restrict(request.user, 'view').filter(asns__in=[instance]), 'asn_id'),
+                    (Provider.objects.restrict(request.user, 'view').filter(asns__in=[instance]), 'asn_id'),
+                ),
+            ),
         }
 
 
@@ -344,6 +340,7 @@ class AggregatePrefixesView(generic.ObjectChildrenView):
     child_model = Prefix
     table = tables.PrefixTable
     filterset = filtersets.PrefixFilterSet
+    filterset_form = forms.PrefixFilterForm
     template_name = 'ipam/aggregate/prefixes.html'
     tab = ViewTab(
         label=_('Prefixes'),
@@ -406,6 +403,11 @@ class AggregateBulkDeleteView(generic.BulkDeleteView):
     table = tables.AggregateTable
 
 
+@register_model_view(Aggregate, 'contacts')
+class AggregateContactsView(ObjectContactsView):
+    queryset = Aggregate.objects.all()
+
+
 #
 # Prefix/VLAN roles
 #
@@ -422,18 +424,12 @@ class RoleListView(generic.ObjectListView):
 
 
 @register_model_view(Role)
-class RoleView(generic.ObjectView):
+class RoleView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = Role.objects.all()
 
     def get_extra_context(self, request, instance):
-        related_models = (
-            (Prefix.objects.restrict(request.user, 'view').filter(role=instance), 'role_id'),
-            (IPRange.objects.restrict(request.user, 'view').filter(role=instance), 'role_id'),
-            (VLAN.objects.restrict(request.user, 'view').filter(role=instance), 'role_id'),
-        )
-
         return {
-            'related_models': related_models,
+            'related_models': self.get_related_models(request, instance),
         }
 
 
@@ -531,6 +527,7 @@ class PrefixPrefixesView(generic.ObjectChildrenView):
     child_model = Prefix
     table = tables.PrefixTable
     filterset = filtersets.PrefixFilterSet
+    filterset_form = forms.PrefixFilterForm
     template_name = 'ipam/prefix/prefixes.html'
     tab = ViewTab(
         label=_('Child Prefixes'),
@@ -566,6 +563,7 @@ class PrefixIPRangesView(generic.ObjectChildrenView):
     child_model = IPRange
     table = tables.IPRangeTable
     filterset = filtersets.IPRangeFilterSet
+    filterset_form = forms.IPRangeFilterForm
     template_name = 'ipam/prefix/ip_ranges.html'
     tab = ViewTab(
         label=_('Child Ranges'),
@@ -592,6 +590,7 @@ class PrefixIPAddressesView(generic.ObjectChildrenView):
     child_model = IPAddress
     table = tables.IPAddressTable
     filterset = filtersets.IPAddressFilterSet
+    filterset_form = forms.IPAddressFilterForm
     template_name = 'ipam/prefix/ip_addresses.html'
     tab = ViewTab(
         label=_('IP Addresses'),
@@ -644,6 +643,11 @@ class PrefixBulkDeleteView(generic.BulkDeleteView):
     table = tables.PrefixTable
 
 
+@register_model_view(Prefix, 'contacts')
+class PrefixContactsView(ObjectContactsView):
+    queryset = Prefix.objects.all()
+
+
 #
 # IP Ranges
 #
@@ -686,6 +690,7 @@ class IPRangeIPAddressesView(generic.ObjectChildrenView):
     child_model = IPAddress
     table = tables.IPAddressTable
     filterset = filtersets.IPAddressFilterSet
+    filterset_form = forms.IPRangeFilterForm
     template_name = 'ipam/iprange/ip_addresses.html'
     tab = ViewTab(
         label=_('IP Addresses'),
@@ -725,6 +730,11 @@ class IPRangeBulkDeleteView(generic.BulkDeleteView):
     queryset = IPRange.objects.all()
     filterset = filtersets.IPRangeFilterSet
     table = tables.IPRangeTable
+
+
+@register_model_view(IPRange, 'contacts')
+class IPRangeContactsView(ObjectContactsView):
+    queryset = IPRange.objects.all()
 
 
 #
@@ -883,7 +893,7 @@ class IPAddressRelatedIPsView(generic.ObjectChildrenView):
     child_model = IPAddress
     table = tables.IPAddressTable
     filterset = filtersets.IPAddressFilterSet
-    template_name = 'generic/object_children.html'
+    filterset_form = forms.IPAddressFilterForm
     tab = ViewTab(
         label=_('Related IPs'),
         badge=lambda x: x.get_related_ips().count(),
@@ -893,6 +903,11 @@ class IPAddressRelatedIPsView(generic.ObjectChildrenView):
 
     def get_children(self, request, parent):
         return parent.get_related_ips().restrict(request.user, 'view')
+
+
+@register_model_view(IPAddress, 'contacts')
+class IPAddressContactsView(ObjectContactsView):
+    queryset = IPAddress.objects.all()
 
 
 #
@@ -907,16 +922,12 @@ class VLANGroupListView(generic.ObjectListView):
 
 
 @register_model_view(VLANGroup)
-class VLANGroupView(generic.ObjectView):
+class VLANGroupView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = VLANGroup.objects.annotate_utilization().prefetch_related('tags')
 
     def get_extra_context(self, request, instance):
-        related_models = (
-            (VLAN.objects.restrict(request.user, 'view').filter(group=instance), 'group_id'),
-        )
-
         return {
-            'related_models': related_models,
+            'related_models': self.get_related_models(request, instance),
         }
 
 
@@ -955,7 +966,7 @@ class VLANGroupVLANsView(generic.ObjectChildrenView):
     child_model = VLAN
     table = tables.VLANTable
     filterset = filtersets.VLANFilterSet
-    template_name = 'generic/object_children.html'
+    filterset_form = forms.VLANFilterForm
     tab = ViewTab(
         label=_('VLANs'),
         badge=lambda x: x.get_child_vlans().count(),
@@ -1059,7 +1070,6 @@ class FHRPGroupBulkDeleteView(generic.BulkDeleteView):
 class FHRPGroupAssignmentEditView(generic.ObjectEditView):
     queryset = FHRPGroupAssignment.objects.all()
     form = forms.FHRPGroupAssignmentForm
-    template_name = 'ipam/fhrpgroupassignment_edit.html'
 
     def alter_object(self, instance, request, args, kwargs):
         if not instance.pk:
@@ -1112,7 +1122,7 @@ class VLANInterfacesView(generic.ObjectChildrenView):
     child_model = Interface
     table = tables.VLANDevicesTable
     filterset = InterfaceFilterSet
-    template_name = 'generic/object_children.html'
+    filterset_form = InterfaceFilterForm
     tab = ViewTab(
         label=_('Device Interfaces'),
         badge=lambda x: x.get_interfaces().count(),
@@ -1130,7 +1140,7 @@ class VLANVMInterfacesView(generic.ObjectChildrenView):
     child_model = VMInterface
     table = tables.VLANVirtualMachinesTable
     filterset = VMInterfaceFilterSet
-    template_name = 'generic/object_children.html'
+    filterset_form = VMInterfaceFilterForm
     tab = ViewTab(
         label=_('VM Interfaces'),
         badge=lambda x: x.get_vminterfaces().count(),
@@ -1236,14 +1246,12 @@ class ServiceView(generic.ObjectView):
 class ServiceCreateView(generic.ObjectEditView):
     queryset = Service.objects.all()
     form = forms.ServiceCreateForm
-    template_name = 'ipam/service_create.html'
 
 
 @register_model_view(Service, 'edit')
 class ServiceEditView(generic.ObjectEditView):
     queryset = Service.objects.all()
     form = forms.ServiceForm
-    template_name = 'ipam/service_edit.html'
 
 
 @register_model_view(Service, 'delete')
@@ -1267,3 +1275,8 @@ class ServiceBulkDeleteView(generic.BulkDeleteView):
     queryset = Service.objects.prefetch_related('device', 'virtual_machine')
     filterset = filtersets.ServiceFilterSet
     table = tables.ServiceTable
+
+
+@register_model_view(Service, 'contacts')
+class ServiceContactsView(ObjectContactsView):
+    queryset = Service.objects.all()

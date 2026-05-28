@@ -13,7 +13,8 @@ from django.http import Http404, HttpResponseRedirect
 from extras.context_managers import event_tracking
 from netbox.config import clear_config, get_config
 from netbox.views import handler_500
-from utilities.api import is_api_request, rest_api_server_error
+from utilities.api import is_api_request
+from utilities.error_handlers import handle_rest_api_exception
 
 __all__ = (
     'CoreMiddleware',
@@ -46,6 +47,11 @@ class CoreMiddleware:
         with event_tracking(request):
             response = self.get_response(request)
 
+        # Check if language cookie should be renewed
+        if request.user.is_authenticated and settings.SESSION_SAVE_EVERY_REQUEST:
+            if language := request.user.config.get('locale.language'):
+                response.set_cookie(settings.LANGUAGE_COOKIE_NAME, language, max_age=request.session.get_expiry_age())
+
         # Attach the unique request ID as an HTTP header.
         response['X-Request-ID'] = request.id
 
@@ -71,7 +77,7 @@ class CoreMiddleware:
 
         # Cleanly handle exceptions that occur from REST API requests
         if is_api_request(request):
-            return rest_api_server_error(request)
+            return handle_rest_api_exception(request)
 
         # Ignore Http404s (defer to Django's built-in 404 handling)
         if isinstance(exception, Http404):
@@ -211,7 +217,7 @@ class MaintenanceModeMiddleware:
                             'operations. Please try again later.'
 
             if is_api_request(request):
-                return rest_api_server_error(request, error=error_message)
+                return handle_rest_api_exception(request, error=error_message)
 
             messages.error(request, error_message)
             return HttpResponseRedirect(request.path_info)

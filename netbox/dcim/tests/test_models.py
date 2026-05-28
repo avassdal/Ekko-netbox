@@ -1,13 +1,14 @@
-from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from circuits.models import *
+from core.models import ObjectType
 from dcim.choices import *
 from dcim.models import *
 from extras.models import CustomField
 from tenancy.models import Tenant
-from utilities.utils import drange
+from utilities.data import drange
+from virtualization.models import Cluster, ClusterType
 
 
 class LocationTestCase(TestCase):
@@ -293,8 +294,8 @@ class DeviceTestCase(TestCase):
 
         # Create a CustomField with a default value & assign it to all component models
         cf1 = CustomField.objects.create(name='cf1', default='foo')
-        cf1.content_types.set(
-            ContentType.objects.filter(app_label='dcim', model__in=[
+        cf1.object_types.set(
+            ObjectType.objects.filter(app_label='dcim', model__in=[
                 'consoleport',
                 'consoleserverport',
                 'powerport',
@@ -533,29 +534,35 @@ class DeviceTestCase(TestCase):
         device2.full_clean()
         device2.save()
 
-    def test_old_device_role_field(self):
-        """
-        Ensure that the old device role field sets the value in the new role field.
-        """
+    def test_device_mismatched_site_cluster(self):
+        cluster_type = ClusterType.objects.create(name='Cluster Type 1', slug='cluster-type-1')
+        Cluster.objects.create(name='Cluster 1', type=cluster_type)
 
-        # Test getter method
-        device = Device(
-            site=Site.objects.first(),
-            device_type=DeviceType.objects.first(),
-            role=DeviceRole.objects.first(),
-            name='Test Device 1',
-            device_role=DeviceRole.objects.first()
+        sites = (
+            Site(name='Site 1', slug='site-1'),
+            Site(name='Site 2', slug='site-2'),
         )
-        device.full_clean()
-        device.save()
+        Site.objects.bulk_create(sites)
 
-        self.assertEqual(device.role, device.device_role)
+        clusters = (
+            Cluster(name='Cluster 1', type=cluster_type, site=sites[0]),
+            Cluster(name='Cluster 2', type=cluster_type, site=sites[1]),
+            Cluster(name='Cluster 3', type=cluster_type, site=None),
+        )
+        Cluster.objects.bulk_create(clusters)
 
-        # Test setter method
-        device.device_role = DeviceRole.objects.last()
-        device.full_clean()
-        device.save()
-        self.assertEqual(device.role, device.device_role)
+        device_type = DeviceType.objects.first()
+        device_role = DeviceRole.objects.first()
+
+        # Device with site only should pass
+        Device(name='device1', site=sites[0], device_type=device_type, role=device_role).full_clean()
+
+        # Device with site, cluster non-site should pass
+        Device(name='device1', site=sites[0], device_type=device_type, role=device_role, cluster=clusters[2]).full_clean()
+
+        # Device with mismatched site & cluster should fail
+        with self.assertRaises(ValidationError):
+            Device(name='device1', site=sites[0], device_type=device_type, role=device_role, cluster=clusters[1]).full_clean()
 
 
 class CableTestCase(TestCase):

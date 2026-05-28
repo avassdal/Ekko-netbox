@@ -86,7 +86,7 @@ class ContactTable(NetBoxTable):
 
 
 class ContactAssignmentTable(NetBoxTable):
-    content_type = columns.ContentTypeColumn(
+    object_type = columns.ContentTypeColumn(
         verbose_name=_('Object Type')
     )
     object = tables.Column(
@@ -113,11 +113,12 @@ class ContactAssignmentTable(NetBoxTable):
     )
     contact_phone = tables.Column(
         accessor=Accessor('contact__phone'),
-        verbose_name=_('Contact Phone')
+        verbose_name=_('Contact Phone'),
+        linkify=linkify_phone,
     )
-    contact_email = tables.Column(
+    contact_email = tables.EmailColumn(
         accessor=Accessor('contact__email'),
-        verbose_name=_('Contact Email')
+        verbose_name=_('Contact Email'),
     )
     contact_address = tables.Column(
         accessor=Accessor('contact__address'),
@@ -141,10 +142,10 @@ class ContactAssignmentTable(NetBoxTable):
     class Meta(NetBoxTable.Meta):
         model = ContactAssignment
         fields = (
-            'pk', 'content_type', 'object', 'contact', 'role', 'priority', 'contact_title', 'contact_phone',
+            'pk', 'object_type', 'object', 'contact', 'role', 'priority', 'contact_title', 'contact_phone',
             'contact_email', 'contact_address', 'contact_link', 'contact_description', 'contact_group', 'tags',
             'actions'
         )
         default_columns = (
-            'pk', 'content_type', 'object', 'contact', 'role', 'priority', 'contact_email', 'contact_phone'
+            'pk', 'object_type', 'object', 'contact', 'role', 'priority', 'contact_email', 'contact_phone'
         )

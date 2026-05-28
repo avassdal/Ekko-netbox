@@ -10,12 +10,11 @@ from django.db import transaction
 
 from core.choices import JobStatusChoices
 from core.models import Job
-from extras.api.serializers import ScriptOutputSerializer
 from extras.context_managers import event_tracking
 from extras.scripts import get_module_and_script
 from extras.signals import clear_events
 from utilities.exceptions import AbortTransaction
-from utilities.utils import NetBoxFakeRequest
+from utilities.request import NetBoxFakeRequest
 
 
 class Command(BaseCommand):
@@ -34,7 +33,8 @@ class Command(BaseCommand):
         parser.add_argument('script', help="Script to run")
 
     def handle(self, *args, **options):
-        def _run_script():
+
+        def _run_script(script):
             """
             Core script execution task. We capture this within a subfunction to allow for conditionally wrapping it with
             the event_tracking context manager (which is bypassed if commit == False).
@@ -48,7 +48,7 @@ class Command(BaseCommand):
                 except AbortTransaction:
                     script.log_info("Database changes have been reverted automatically.")
                     clear_events.send(request)
-                job.data = ScriptOutputSerializer(script).data
+                job.data = script.get_job_data()
                 job.terminate()
             except Exception as e:
                 stacktrace = traceback.format_exc()
@@ -58,8 +58,16 @@ class Command(BaseCommand):
                 script.log_info("Database changes have been reverted due to error.")
                 logger.error(f"Exception raised during script execution: {e}")
                 clear_events.send(request)
-                job.data = ScriptOutputSerializer(script).data
+                job.data = script.get_job_data()
                 job.terminate(status=JobStatusChoices.STATUS_ERRORED, error=repr(e))
+
+            # Print any test method results
+            for test_name, attrs in job.data['tests'].items():
+                self.stdout.write(
+                    "\t{}: {} success, {} info, {} warning, {} failure".format(
+                        test_name, attrs['success'], attrs['info'], attrs['warning'], attrs['failure']
+                    )
+                )
 
             logger.info(f"Script completed in {job.duration}")
 
@@ -69,6 +77,7 @@ class Command(BaseCommand):
         script = options['script']
         loglevel = options['loglevel']
         commit = options['commit']
+
         try:
             data = json.loads(options['data'])
         except TypeError:
@@ -92,7 +101,7 @@ class Command(BaseCommand):
         stdouthandler.setLevel(logging.DEBUG)
         stdouthandler.setFormatter(formatter)
 
-        logger = logging.getLogger(f"netbox.scripts.{script.full_name}")
+        logger = logging.getLogger(f"netbox.scripts.{script.python_class.full_name}")
         logger.addHandler(stdouthandler)
 
         try:
@@ -108,14 +117,14 @@ class Command(BaseCommand):
             raise CommandError(f"Invalid log level: {loglevel}")
 
         # Initialize the script form
-        script = script()
-        form = script.as_form(data, None)
+        script_instance = script.python_class()
+        form = script_instance.as_form(data, None)
 
         # Create the job
         job = Job.objects.create(
-            object=module,
-            name=script.class_name,
-            user=User.objects.filter(is_superuser=True).order_by('pk')[0],
+            object=script,
+            name=script_instance.class_name,
+            user=user,
             job_id=uuid.uuid4()
         )
 
@@ -139,7 +148,7 @@ class Command(BaseCommand):
             # Execute the script. If commit is True, wrap it with the event_tracking context manager to ensure we process
             # change logging, webhooks, etc.
             with event_tracking(request):
-                _run_script()
+                _run_script(script_instance)
         else:
             logger.error('Data is not valid:')
             for field, errors in form.errors.get_json_data().items():

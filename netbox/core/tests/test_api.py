@@ -16,7 +16,7 @@ class AppTest(APITestCase):
 
 class DataSourceTest(APIViewTestCases.APIViewTestCase):
     model = DataSource
-    brief_fields = ['display', 'id', 'name', 'url']
+    brief_fields = ['description', 'display', 'id', 'name', 'url']
     bulk_update_data = {
         'enabled': False,
         'description': 'foo bar baz',
@@ -57,6 +57,7 @@ class DataFileTest(
 ):
     model = DataFile
     brief_fields = ['display', 'id', 'path', 'url']
+    user_permissions = ('core.view_datasource', )
 
     @classmethod
     def setUpTestData(cls):

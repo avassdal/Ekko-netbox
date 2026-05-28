@@ -10,6 +10,7 @@ from django.utils.translation import gettext as _
 from jinja2.exceptions import TemplateError
 
 from dcim.filtersets import DeviceFilterSet
+from dcim.forms import DeviceFilterForm
 from dcim.models import Device
 from dcim.tables import DeviceTable
 from extras.views import ObjectConfigContextView
@@ -18,9 +19,9 @@ from ipam.tables import InterfaceVLANTable
 from netbox.constants import DEFAULT_ACTION_PERMISSIONS
 from netbox.views import generic
 from tenancy.views import ObjectContactsView
+from utilities.query import count_related
 from utilities.query_functions import CollateAsChar
-from utilities.utils import count_related
-from utilities.views import ViewTab, register_model_view
+from utilities.views import GetRelatedModelsMixin, ViewTab, register_model_view
 from . import filtersets, forms, tables
 from .models import *
 
@@ -39,16 +40,12 @@ class ClusterTypeListView(generic.ObjectListView):
 
 
 @register_model_view(ClusterType)
-class ClusterTypeView(generic.ObjectView):
+class ClusterTypeView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = ClusterType.objects.all()
 
     def get_extra_context(self, request, instance):
-        related_models = (
-            (Cluster.objects.restrict(request.user, 'view').filter(type=instance), 'type_id'),
-        )
-
         return {
-            'related_models': related_models,
+            'related_models': self.get_related_models(request, instance),
         }
 
 
@@ -99,16 +96,12 @@ class ClusterGroupListView(generic.ObjectListView):
 
 
 @register_model_view(ClusterGroup)
-class ClusterGroupView(generic.ObjectView):
+class ClusterGroupView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = ClusterGroup.objects.all()
 
     def get_extra_context(self, request, instance):
-        related_models = (
-            (Cluster.objects.restrict(request.user, 'view').filter(group=instance), 'group_id'),
-        )
-
         return {
-            'related_models': related_models,
+            'related_models': self.get_related_models(request, instance),
         }
 
 
@@ -181,7 +174,7 @@ class ClusterVirtualMachinesView(generic.ObjectChildrenView):
     child_model = VirtualMachine
     table = tables.VirtualMachineTable
     filterset = filtersets.VirtualMachineFilterSet
-    template_name = 'generic/object_children.html'
+    filterset_form = forms.VirtualMachineFilterForm
     tab = ViewTab(
         label=_('Virtual Machines'),
         badge=lambda obj: obj.virtual_machines.count(),
@@ -199,6 +192,7 @@ class ClusterDevicesView(generic.ObjectChildrenView):
     child_model = Device
     table = DeviceTable
     filterset = DeviceFilterSet
+    filterset_form = DeviceFilterForm
     template_name = 'virtualization/cluster/devices.html'
     actions = {
         'add': {'add'},
@@ -277,8 +271,9 @@ class ClusterAddDevicesView(generic.ObjectEditView):
                     device.cluster = cluster
                     device.save()
 
-            messages.success(request, "Added {} devices to cluster {}".format(
-                len(device_pks), cluster
+            messages.success(request, _("Added {count} devices to cluster {cluster}").format(
+                count=len(device_pks),
+                cluster=cluster
             ))
             return redirect(cluster.get_absolute_url())
 
@@ -311,8 +306,9 @@ class ClusterRemoveDevicesView(generic.ObjectEditView):
                         device.cluster = None
                         device.save()
 
-                messages.success(request, "Removed {} devices from cluster {}".format(
-                    len(device_pks), cluster
+                messages.success(request, _("Removed {count} devices from cluster {cluster}").format(
+                    count=len(device_pks),
+                    cluster=cluster
                 ))
                 return redirect(cluster.get_absolute_url())
 
@@ -359,6 +355,7 @@ class VirtualMachineInterfacesView(generic.ObjectChildrenView):
     child_model = VMInterface
     table = tables.VirtualMachineVMInterfaceTable
     filterset = filtersets.VMInterfaceFilterSet
+    filterset_form = forms.VMInterfaceFilterForm
     template_name = 'virtualization/virtualmachine/interfaces.html'
     actions = {
         **DEFAULT_ACTION_PERMISSIONS,
@@ -384,6 +381,7 @@ class VirtualMachineVirtualDisksView(generic.ObjectChildrenView):
     child_model = VirtualDisk
     table = tables.VirtualMachineVirtualDiskTable
     filterset = filtersets.VirtualDiskFilterSet
+    filterset_form = forms.VirtualDiskFilterForm
     template_name = 'virtualization/virtualmachine/virtual_disks.html'
     tab = ViewTab(
         label=_('Virtual Disks'),
@@ -448,7 +446,7 @@ class VirtualMachineRenderConfigView(generic.ObjectView):
             try:
                 rendered_config = config_template.render(context=context_data)
             except TemplateError as e:
-                messages.error(request, f"An error occurred while rendering the template: {e}")
+                messages.error(request, _("An error occurred while rendering the template: {error}").format(error=e))
                 rendered_config = traceback.format_exc()
 
         return {

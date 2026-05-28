@@ -1,8 +1,8 @@
-from django.contrib.auth.models import Group
-from django.contrib.contenttypes.models import ContentType
+from django.test import override_settings
 
+from core.models import ObjectType
 from users.models import *
-from utilities.testing import ViewTestCases, create_test_user
+from utilities.testing import ViewTestCases, create_test_user, extract_form_failures
 
 
 class UserTestCase(
@@ -15,7 +15,7 @@ class UserTestCase(
     ViewTestCases.BulkEditObjectsViewTestCase,
     ViewTestCases.BulkDeleteObjectsViewTestCase,
 ):
-    model = NetBoxUser
+    model = User
     maxDiff = None
     validation_excluded_fields = ['password']
 
@@ -27,11 +27,11 @@ class UserTestCase(
     def setUpTestData(cls):
 
         users = (
-            NetBoxUser(username='username1', first_name='first1', last_name='last1', email='user1@foo.com', password='pass1xxx'),
-            NetBoxUser(username='username2', first_name='first2', last_name='last2', email='user2@foo.com', password='pass2xxx'),
-            NetBoxUser(username='username3', first_name='first3', last_name='last3', email='user3@foo.com', password='pass3xxx'),
+            User(username='username1', first_name='first1', last_name='last1', email='user1@foo.com', password='pass1xxx'),
+            User(username='username2', first_name='first2', last_name='last2', email='user2@foo.com', password='pass2xxx'),
+            User(username='username3', first_name='first3', last_name='last3', email='user3@foo.com', password='pass3xxx'),
         )
-        NetBoxUser.objects.bulk_create(users)
+        User.objects.bulk_create(users)
 
         cls.form_data = {
             'username': 'usernamex',
@@ -60,6 +60,34 @@ class UserTestCase(
             'last_name': 'newlastname',
         }
 
+    @override_settings(AUTH_PASSWORD_VALIDATORS=[{
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 8}
+    }])
+    def test_password_validation_enforced(self):
+        """
+        Test that any configured password validation rules (AUTH_PASSWORD_VALIDATORS) are enforced.
+        """
+        self.add_permissions('users.add_user')
+        data = {
+            'username': 'new_user',
+            'password': 'foo',
+            'confirm_password': 'foo',
+        }
+
+        # Password too short
+        request = {
+            'path': self._get_url('add'),
+            'data': data,
+        }
+        response = self.client.post(**request)
+        self.assertHttpStatus(response, 200)
+
+        # Password long enough
+        data['password'] = 'foobar123'
+        data['confirm_password'] = 'foobar123'
+        self.assertHttpStatus(self.client.post(**request), 302)
+
 
 class GroupTestCase(
     ViewTestCases.GetObjectViewTestCase,
@@ -68,9 +96,10 @@ class GroupTestCase(
     ViewTestCases.DeleteObjectViewTestCase,
     ViewTestCases.ListObjectsViewTestCase,
     ViewTestCases.BulkImportObjectsViewTestCase,
+    ViewTestCases.BulkEditObjectsViewTestCase,
     ViewTestCases.BulkDeleteObjectsViewTestCase,
 ):
-    model = NetBoxGroup
+    model = Group
     maxDiff = None
 
     @classmethod
@@ -101,6 +130,10 @@ class GroupTestCase(
             f"{groups[2].pk},group9",
         )
 
+        cls.bulk_edit_data = {
+            'description': 'New description',
+        }
+
 
 class ObjectPermissionTestCase(
     ViewTestCases.GetObjectViewTestCase,
@@ -116,7 +149,7 @@ class ObjectPermissionTestCase(
 
     @classmethod
     def setUpTestData(cls):
-        ct = ContentType.objects.get_by_natural_key('dcim', 'site')
+        object_type = ObjectType.objects.get_by_natural_key('dcim', 'site')
 
         permissions = (
             ObjectPermission(name='Permission 1', actions=['view', 'add', 'delete']),
@@ -128,7 +161,7 @@ class ObjectPermissionTestCase(
         cls.form_data = {
             'name': 'Permission X',
             'description': 'A new permission',
-            'object_types': [ct.pk],
+            'object_types': [object_type.pk],
             'actions': 'view,edit,delete',
         }
 
