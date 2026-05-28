@@ -1,13 +1,18 @@
+import warnings
+from contextlib import ExitStack, contextmanager
 from urllib.parse import urlparse
 
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from netaddr import AddrFormatError, IPAddress
 
-from .constants import HTTP_REQUEST_META_SAFE_COPY
+from netbox.registry import registry
+
+from .constants import HTTP_REQUEST_META_SAFE_COPY, HTTP_REQUEST_META_SENSITIVE
 
 __all__ = (
     'NetBoxFakeRequest',
+    'apply_request_processors',
     'copy_safe_request',
     'get_client_ip',
     'safe_for_redirect',
@@ -31,26 +36,37 @@ class NetBoxFakeRequest:
 # Utility functions
 #
 
-def copy_safe_request(request):
+def copy_safe_request(request, include_files=True):
     """
     Copy selected attributes from a request object into a new fake request object. This is needed in places where
     thread safe pickling of the useful request data is needed.
+
+    Args:
+        request: The original request object
+        include_files: Whether to include request.FILES.
     """
-    meta = {
-        k: request.META[k]
-        for k in HTTP_REQUEST_META_SAFE_COPY
-        if k in request.META and isinstance(request.META[k], str)
-    }
-    return NetBoxFakeRequest({
+    meta = {}
+    for k, v in request.META.items():
+        if not isinstance(v, str):
+            continue
+        if k in HTTP_REQUEST_META_SAFE_COPY:
+            meta[k] = v
+        elif k.startswith('HTTP_') and k not in HTTP_REQUEST_META_SENSITIVE:
+            meta[k] = v
+    data = {
         'META': meta,
         'COOKIES': request.COOKIES,
         'POST': request.POST,
         'GET': request.GET,
-        'FILES': request.FILES,
         'user': request.user,
+        'method': request.method,
         'path': request.path,
         'id': getattr(request, 'id', None),  # UUID assigned by middleware
-    })
+    }
+    if include_files:
+        data['FILES'] = request.FILES
+
+    return NetBoxFakeRequest(data)
 
 
 def get_client_ip(request, additional_headers=()):
@@ -87,3 +103,17 @@ def safe_for_redirect(url):
     Returns True if the given URL is safe to use as an HTTP redirect; otherwise returns False.
     """
     return url_has_allowed_host_and_scheme(url, allowed_hosts=None)
+
+
+@contextmanager
+def apply_request_processors(request):
+    """
+    A context manager with applies all registered request processors (such as event_tracking).
+    """
+    with ExitStack() as stack:
+        for request_processor in registry['request_processors']:
+            try:
+                stack.enter_context(request_processor(request))
+            except Exception as e:
+                warnings.warn(f'Failed to initialize request processor {request_processor.__name__}: {e}')
+        yield

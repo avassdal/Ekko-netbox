@@ -9,7 +9,17 @@ from circuits.models import Provider
 from dcim.filtersets import InterfaceFilterSet
 from dcim.forms import InterfaceFilterForm
 from dcim.models import Device, Interface, Site
-from ipam.tables import VLANTranslationRuleTable
+from extras.ui.panels import CustomFieldsPanel, TagsPanel
+from netbox.object_actions import AddObject, BulkDelete, BulkEdit, BulkExport, BulkImport
+from netbox.ui import actions, layout
+from netbox.ui.panels import (
+    CommentsPanel,
+    ContextTablePanel,
+    ObjectsTablePanel,
+    PluginContentPanel,
+    RelatedObjectsPanel,
+    TemplatePanel,
+)
 from netbox.views import generic
 from utilities.query import count_related
 from utilities.tables import get_table_ordering
@@ -17,16 +27,18 @@ from utilities.views import GetRelatedModelsMixin, ViewTab, register_model_view
 from virtualization.filtersets import VMInterfaceFilterSet
 from virtualization.forms import VMInterfaceFilterForm
 from virtualization.models import VirtualMachine, VMInterface
+
 from . import filtersets, forms, tables
 from .choices import PrefixStatusChoices
 from .constants import *
 from .models import *
-from .utils import add_requested_prefixes, add_available_vlans, annotate_ip_space
-
+from .ui import panels
+from .utils import add_available_vlans, add_requested_prefixes, annotate_ip_space
 
 #
 # VRFs
 #
+
 
 @register_model_view(VRF, 'list', path='', detail=False)
 class VRFListView(generic.ObjectListView):
@@ -39,6 +51,34 @@ class VRFListView(generic.ObjectListView):
 @register_model_view(VRF)
 class VRFView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = VRF.objects.all()
+    layout = layout.Layout(
+        layout.Row(
+            layout.Column(
+                panels.VRFPanel(),
+                TagsPanel(),
+                PluginContentPanel('left_page'),
+            ),
+            layout.Column(
+                RelatedObjectsPanel(),
+                CustomFieldsPanel(),
+                CommentsPanel(),
+                PluginContentPanel('right_page'),
+            ),
+        ),
+        layout.Row(
+            layout.Column(
+                ContextTablePanel('import_targets_table', title=_('Import route targets')),
+            ),
+            layout.Column(
+                ContextTablePanel('export_targets_table', title=_('Export route targets')),
+            ),
+        ),
+        layout.Row(
+            layout.Column(
+                PluginContentPanel('full_width_page'),
+            ),
+        ),
+    )
 
     def get_extra_context(self, request, instance):
         import_targets_table = tables.RouteTargetTable(
@@ -104,6 +144,12 @@ class VRFBulkEditView(generic.BulkEditView):
     form = forms.VRFBulkEditForm
 
 
+@register_model_view(VRF, 'bulk_rename', path='rename', detail=False)
+class VRFBulkRenameView(generic.BulkRenameView):
+    queryset = VRF.objects.all()
+    filterset = filtersets.VRFFilterSet
+
+
 @register_model_view(VRF, 'bulk_delete', path='delete', detail=False)
 class VRFBulkDeleteView(generic.BulkDeleteView):
     queryset = VRF.objects.all()
@@ -126,6 +172,57 @@ class RouteTargetListView(generic.ObjectListView):
 @register_model_view(RouteTarget)
 class RouteTargetView(generic.ObjectView):
     queryset = RouteTarget.objects.all()
+    layout = layout.Layout(
+        layout.Row(
+            layout.Column(
+                panels.RouteTargetPanel(),
+                TagsPanel(),
+                PluginContentPanel('left_page'),
+            ),
+            layout.Column(
+                CustomFieldsPanel(),
+                CommentsPanel(),
+                PluginContentPanel('right_page'),
+            ),
+        ),
+        layout.Row(
+            layout.Column(
+                ObjectsTablePanel(
+                    'ipam.vrf',
+                    filters={'import_target_id': lambda ctx: ctx['object'].pk},
+                    title=_('Importing VRFs'),
+                ),
+            ),
+            layout.Column(
+                ObjectsTablePanel(
+                    'ipam.vrf',
+                    filters={'export_target_id': lambda ctx: ctx['object'].pk},
+                    title=_('Exporting VRFs'),
+                ),
+            ),
+        ),
+        layout.Row(
+            layout.Column(
+                ObjectsTablePanel(
+                    'vpn.l2vpn',
+                    filters={'import_target_id': lambda ctx: ctx['object'].pk},
+                    title=_('Importing L2VPNs'),
+                ),
+            ),
+            layout.Column(
+                ObjectsTablePanel(
+                    'vpn.l2vpn',
+                    filters={'export_target_id': lambda ctx: ctx['object'].pk},
+                    title=_('Exporting L2VPNs'),
+                ),
+            ),
+        ),
+        layout.Row(
+            layout.Column(
+                PluginContentPanel('full_width_page'),
+            ),
+        ),
+    )
 
 
 @register_model_view(RouteTarget, 'add', detail=False)
@@ -154,6 +251,12 @@ class RouteTargetBulkEditView(generic.BulkEditView):
     form = forms.RouteTargetBulkEditForm
 
 
+@register_model_view(RouteTarget, 'bulk_rename', path='rename', detail=False)
+class RouteTargetBulkRenameView(generic.BulkRenameView):
+    queryset = RouteTarget.objects.all()
+    filterset = filtersets.RouteTargetFilterSet
+
+
 @register_model_view(RouteTarget, 'bulk_delete', path='delete', detail=False)
 class RouteTargetBulkDeleteView(generic.BulkDeleteView):
     queryset = RouteTarget.objects.all()
@@ -178,6 +281,17 @@ class RIRListView(generic.ObjectListView):
 @register_model_view(RIR)
 class RIRView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = RIR.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.RIRPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CommentsPanel(),
+            CustomFieldsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -213,6 +327,12 @@ class RIRBulkEditView(generic.BulkEditView):
     form = forms.RIRBulkEditForm
 
 
+@register_model_view(RIR, 'bulk_rename', path='rename', detail=False)
+class RIRBulkRenameView(generic.BulkRenameView):
+    queryset = RIR.objects.all()
+    filterset = filtersets.RIRFilterSet
+
+
 @register_model_view(RIR, 'bulk_delete', path='delete', detail=False)
 class RIRBulkDeleteView(generic.BulkDeleteView):
     queryset = RIR.objects.annotate(
@@ -237,6 +357,16 @@ class ASNRangeListView(generic.ObjectListView):
 @register_model_view(ASNRange)
 class ASNRangeView(generic.ObjectView):
     queryset = ASNRange.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ASNRangePanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            CommentsPanel(),
+            CustomFieldsPanel(),
+        ],
+    )
 
 
 @register_model_view(ASNRange, 'asns')
@@ -286,6 +416,12 @@ class ASNRangeBulkEditView(generic.BulkEditView):
     form = forms.ASNRangeBulkEditForm
 
 
+@register_model_view(ASNRange, 'bulk_rename', path='rename', detail=False)
+class ASNRangeBulkRenameView(generic.BulkRenameView):
+    queryset = ASNRange.objects.all()
+    filterset = filtersets.ASNRangeFilterSet
+
+
 @register_model_view(ASNRange, 'bulk_delete', path='delete', detail=False)
 class ASNRangeBulkDeleteView(generic.BulkDeleteView):
     queryset = ASNRange.objects.annotate_asn_counts()
@@ -311,6 +447,17 @@ class ASNListView(generic.ObjectListView):
 @register_model_view(ASN)
 class ASNView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = ASN.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ASNPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CustomFieldsPanel(),
+            CommentsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -353,6 +500,12 @@ class ASNBulkEditView(generic.BulkEditView):
     form = forms.ASNBulkEditForm
 
 
+@register_model_view(ASN, 'bulk_rename', path='rename', detail=False)
+class ASNBulkRenameView(generic.BulkRenameView):
+    queryset = ASN.objects.all()
+    filterset = filtersets.ASNFilterSet
+
+
 @register_model_view(ASN, 'bulk_delete', path='delete', detail=False)
 class ASNBulkDeleteView(generic.BulkDeleteView):
     queryset = ASN.objects.annotate(
@@ -374,11 +527,22 @@ class AggregateListView(generic.ObjectListView):
     filterset = filtersets.AggregateFilterSet
     filterset_form = forms.AggregateFilterForm
     table = tables.AggregateTable
+    actions = (AddObject, BulkImport, BulkExport, BulkEdit, BulkDelete)
 
 
 @register_model_view(Aggregate)
 class AggregateView(generic.ObjectView):
     queryset = Aggregate.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.AggregatePanel(),
+        ],
+        right_panels=[
+            CustomFieldsPanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+    )
 
 
 @register_model_view(Aggregate, 'prefixes')
@@ -473,6 +637,17 @@ class RoleListView(generic.ObjectListView):
 @register_model_view(Role)
 class RoleView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = Role.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.RolePanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CommentsPanel(),
+            CustomFieldsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -506,6 +681,12 @@ class RoleBulkEditView(generic.BulkEditView):
     form = forms.RoleBulkEditForm
 
 
+@register_model_view(Role, 'bulk_rename', path='rename', detail=False)
+class RoleBulkRenameView(generic.BulkRenameView):
+    queryset = Role.objects.all()
+    filterset = filtersets.RoleFilterSet
+
+
 @register_model_view(Role, 'bulk_delete', path='delete', detail=False)
 class RoleBulkDeleteView(generic.BulkDeleteView):
     queryset = Role.objects.all()
@@ -524,20 +705,29 @@ class PrefixListView(generic.ObjectListView):
     filterset_form = forms.PrefixFilterForm
     table = tables.PrefixTable
     template_name = 'ipam/prefix_list.html'
+    actions = (AddObject, BulkImport, BulkExport, BulkEdit, BulkDelete)
 
 
 @register_model_view(Prefix)
 class PrefixView(generic.ObjectView):
     queryset = Prefix.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.PrefixPanel(),
+        ],
+        right_panels=[
+            TemplatePanel('ipam/panels/prefix_addressing.html'),
+            CustomFieldsPanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+        bottom_panels=[
+            ContextTablePanel('duplicate_prefix_table', title=_('Duplicate prefixes')),
+            ContextTablePanel('parent_prefix_table', title=_('Parent prefixes')),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
-        try:
-            aggregate = Aggregate.objects.restrict(request.user, 'view').get(
-                prefix__net_contains_or_equals=str(instance.prefix)
-            )
-        except Aggregate.DoesNotExist:
-            aggregate = None
-
         # Parent prefixes table
         parent_prefixes = Prefix.objects.restrict(request.user, 'view').filter(
             Q(vrf=instance.vrf) | Q(vrf__isnull=True, status=PrefixStatusChoices.STATUS_CONTAINER)
@@ -568,11 +758,12 @@ class PrefixView(generic.ObjectView):
         )
         duplicate_prefix_table.configure(request)
 
-        return {
-            'aggregate': aggregate,
+        context = {
             'parent_prefix_table': parent_prefix_table,
-            'duplicate_prefix_table': duplicate_prefix_table,
         }
+        if duplicate_prefixes.exists():
+            context['duplicate_prefix_table'] = duplicate_prefix_table
+        return context
 
 
 @register_model_view(Prefix, 'prefixes')
@@ -716,6 +907,19 @@ class IPRangeListView(generic.ObjectListView):
 @register_model_view(IPRange)
 class IPRangeView(generic.ObjectView):
     queryset = IPRange.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.IPRangePanel(),
+        ],
+        right_panels=[
+            TagsPanel(),
+            CustomFieldsPanel(),
+            CommentsPanel(),
+        ],
+        bottom_panels=[
+            ContextTablePanel('parent_prefixes_table', title=_('Parent prefixes')),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
 
@@ -784,6 +988,12 @@ class IPRangeBulkEditView(generic.BulkEditView):
     form = forms.IPRangeBulkEditForm
 
 
+@register_model_view(IPRange, 'bulk_rename', path='rename', detail=False)
+class IPRangeBulkRenameView(generic.BulkRenameView):
+    queryset = IPRange.objects.all()
+    filterset = filtersets.IPRangeFilterSet
+
+
 @register_model_view(IPRange, 'bulk_delete', path='delete', detail=False)
 class IPRangeBulkDeleteView(generic.BulkDeleteView):
     queryset = IPRange.objects.all()
@@ -801,11 +1011,29 @@ class IPAddressListView(generic.ObjectListView):
     filterset = filtersets.IPAddressFilterSet
     filterset_form = forms.IPAddressFilterForm
     table = tables.IPAddressTable
+    actions = (AddObject, BulkImport, BulkExport, BulkEdit, BulkDelete)
 
 
 @register_model_view(IPAddress)
 class IPAddressView(generic.ObjectView):
     queryset = IPAddress.objects.prefetch_related('vrf__tenant', 'tenant')
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.IPAddressPanel(),
+            TagsPanel(),
+            CustomFieldsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            ContextTablePanel('parent_prefixes_table', title=_('Parent prefixes')),
+            ContextTablePanel('duplicate_ips_table', title=_('Duplicate IPs')),
+            ObjectsTablePanel(
+                'ipam.service',
+                filters={'ip_address_id': lambda ctx: ctx['object'].pk},
+                title=_('Application services'),
+            ),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         # Parent prefixes table
@@ -838,10 +1066,12 @@ class IPAddressView(generic.ObjectView):
         duplicate_ips_table = tables.IPAddressTable(duplicate_ips[:10], orderable=False)
         duplicate_ips_table.configure(request)
 
-        return {
+        context = {
             'parent_prefixes_table': parent_prefixes_table,
-            'duplicate_ips_table': duplicate_ips_table,
         }
+        if duplicate_ips.exists():
+            context['duplicate_ips_table'] = duplicate_ips_table
+        return context
 
 
 @register_model_view(IPAddress, 'add', detail=False)
@@ -876,7 +1106,7 @@ class IPAddressEditView(generic.ObjectEditView):
     def get_extra_addanother_params(self, request):
         if 'interface' in request.GET:
             return {'interface': request.GET['interface']}
-        elif 'vminterface' in request.GET:
+        if 'vminterface' in request.GET:
             return {'vminterface': request.GET['vminterface']}
         return {}
 
@@ -991,6 +1221,17 @@ class VLANGroupListView(generic.ObjectListView):
 @register_model_view(VLANGroup)
 class VLANGroupView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = VLANGroup.objects.annotate_utilization()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.VLANGroupPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CommentsPanel(),
+            CustomFieldsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -1022,6 +1263,12 @@ class VLANGroupBulkEditView(generic.BulkEditView):
     filterset = filtersets.VLANGroupFilterSet
     table = tables.VLANGroupTable
     form = forms.VLANGroupBulkEditForm
+
+
+@register_model_view(VLANGroup, 'bulk_rename', path='rename', detail=False)
+class VLANGroupBulkRenameView(generic.BulkRenameView):
+    queryset = VLANGroup.objects.all()
+    filterset = filtersets.VLANGroupFilterSet
 
 
 @register_model_view(VLANGroup, 'bulk_delete', path='delete', detail=False)
@@ -1072,19 +1319,32 @@ class VLANTranslationPolicyListView(generic.ObjectListView):
 
 
 @register_model_view(VLANTranslationPolicy)
-class VLANTranslationPolicyView(GetRelatedModelsMixin, generic.ObjectView):
+class VLANTranslationPolicyView(generic.ObjectView):
     queryset = VLANTranslationPolicy.objects.all()
-
-    def get_extra_context(self, request, instance):
-        vlan_translation_table = VLANTranslationRuleTable(
-            data=instance.rules.all(),
-            orderable=False
-        )
-        vlan_translation_table.configure(request)
-
-        return {
-            'vlan_translation_table': vlan_translation_table,
-        }
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.VLANTranslationPolicyPanel(),
+        ],
+        right_panels=[
+            TagsPanel(),
+            CustomFieldsPanel(),
+            CommentsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                'ipam.vlantranslationrule',
+                filters={'policy_id': lambda ctx: ctx['object'].pk},
+                title=_('VLAN translation rules'),
+                actions=[
+                    actions.AddObject(
+                        'ipam.vlantranslationrule',
+                        url_params={'policy': lambda ctx: ctx['object'].pk},
+                        label=_('Add Rule'),
+                    ),
+                ],
+            ),
+        ],
+    )
 
 
 @register_model_view(VLANTranslationPolicy, 'add', detail=False)
@@ -1113,6 +1373,12 @@ class VLANTranslationPolicyBulkEditView(generic.BulkEditView):
     form = forms.VLANTranslationPolicyBulkEditForm
 
 
+@register_model_view(VLANTranslationPolicy, 'bulk_rename', path='rename', detail=False)
+class VLANTranslationPolicyBulkRenameView(generic.BulkRenameView):
+    queryset = VLANTranslationPolicy.objects.all()
+    filterset = filtersets.VLANTranslationPolicyFilterSet
+
+
 @register_model_view(VLANTranslationPolicy, 'bulk_delete', path='delete', detail=False)
 class VLANTranslationPolicyBulkDeleteView(generic.BulkDeleteView):
     queryset = VLANTranslationPolicy.objects.all()
@@ -1130,16 +1396,21 @@ class VLANTranslationRuleListView(generic.ObjectListView):
     filterset = filtersets.VLANTranslationRuleFilterSet
     filterset_form = forms.VLANTranslationRuleFilterForm
     table = tables.VLANTranslationRuleTable
+    actions = (AddObject, BulkImport, BulkExport, BulkEdit, BulkDelete)
 
 
 @register_model_view(VLANTranslationRule)
-class VLANTranslationRuleView(GetRelatedModelsMixin, generic.ObjectView):
+class VLANTranslationRuleView(generic.ObjectView):
     queryset = VLANTranslationRule.objects.all()
-
-    def get_extra_context(self, request, instance):
-        return {
-            'related_models': self.get_related_models(request, instance),
-        }
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.VLANTranslationRulePanel(),
+        ],
+        right_panels=[
+            TagsPanel(),
+            CustomFieldsPanel(),
+        ],
+    )
 
 
 @register_model_view(VLANTranslationRule, 'add', detail=False)
@@ -1191,7 +1462,36 @@ class FHRPGroupListView(generic.ObjectListView):
 
 @register_model_view(FHRPGroup)
 class FHRPGroupView(GetRelatedModelsMixin, generic.ObjectView):
-    queryset = FHRPGroup.objects.all()
+    queryset = FHRPGroup.objects.annotate(
+        member_count=count_related(FHRPGroupAssignment, 'group')
+    )
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.FHRPGroupPanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            panels.FHRPGroupAuthPanel(),
+            RelatedObjectsPanel(),
+            CustomFieldsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                'ipam.ipaddress',
+                filters={'fhrpgroup_id': lambda ctx: ctx['object'].pk},
+                title=_('Virtual IP addresses'),
+                actions=[
+                    actions.AddObject(
+                        'ipam.ipaddress',
+                        url_params={'fhrpgroup': lambda ctx: ctx['object'].pk},
+                        label=_('Add IP Address'),
+                    ),
+                ],
+            ),
+            ContextTablePanel('members_table', title=_('Members')),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         # Get assigned interfaces
@@ -1216,7 +1516,6 @@ class FHRPGroupView(GetRelatedModelsMixin, generic.ObjectView):
                 ),
             ),
             'members_table': members_table,
-            'member_count': FHRPGroupAssignment.objects.filter(group=instance).count(),
         }
 
 
@@ -1260,6 +1559,12 @@ class FHRPGroupBulkEditView(generic.BulkEditView):
     filterset = filtersets.FHRPGroupFilterSet
     table = tables.FHRPGroupTable
     form = forms.FHRPGroupBulkEditForm
+
+
+@register_model_view(FHRPGroup, 'bulk_rename', path='rename', detail=False)
+class FHRPGroupBulkRenameView(generic.BulkRenameView):
+    queryset = FHRPGroup.objects.all()
+    filterset = filtersets.FHRPGroupFilterSet
 
 
 @register_model_view(FHRPGroup, 'bulk_delete', path='delete', detail=False)
@@ -1313,17 +1618,38 @@ class VLANListView(generic.ObjectListView):
 @register_model_view(VLAN)
 class VLANView(generic.ObjectView):
     queryset = VLAN.objects.all()
-
-    def get_extra_context(self, request, instance):
-        prefixes = Prefix.objects.restrict(request.user, 'view').filter(vlan=instance).prefetch_related(
-            'vrf', 'scope', 'role', 'tenant'
-        )
-        prefix_table = tables.PrefixTable(list(prefixes), exclude=('vlan', 'utilization'), orderable=False)
-        prefix_table.configure(request)
-
-        return {
-            'prefix_table': prefix_table,
-        }
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.VLANPanel(),
+        ],
+        right_panels=[
+            CustomFieldsPanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                'ipam.prefix',
+                filters={'vlan_id': lambda ctx: ctx['object'].pk},
+                title=_('Prefixes'),
+                actions=[
+                    actions.AddObject(
+                        'ipam.prefix',
+                        url_params={
+                            'tenant': lambda ctx: ctx['object'].tenant_id,
+                            'scope_type': lambda ctx: (
+                                ContentType.objects.get_for_model(Site).pk if ctx['object'].site_id else None
+                            ),
+                            'scope': lambda ctx: ctx['object'].site_id,
+                            'vlan': lambda ctx: ctx['object'].pk,
+                        },
+                        label=_('Add a Prefix'),
+                    ),
+                ],
+            ),
+            panels.VLANCustomerVLANsPanel(),
+        ],
+    )
 
 
 @register_model_view(VLAN, 'interfaces')
@@ -1389,6 +1715,12 @@ class VLANBulkEditView(generic.BulkEditView):
     form = forms.VLANBulkEditForm
 
 
+@register_model_view(VLAN, 'bulk_rename', path='rename', detail=False)
+class VLANBulkRenameView(generic.BulkRenameView):
+    queryset = VLAN.objects.all()
+    filterset = filtersets.VLANFilterSet
+
+
 @register_model_view(VLAN, 'bulk_delete', path='delete', detail=False)
 class VLANBulkDeleteView(generic.BulkDeleteView):
     queryset = VLAN.objects.all()
@@ -1411,6 +1743,16 @@ class ServiceTemplateListView(generic.ObjectListView):
 @register_model_view(ServiceTemplate)
 class ServiceTemplateView(generic.ObjectView):
     queryset = ServiceTemplate.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ServiceTemplatePanel(),
+        ],
+        right_panels=[
+            CustomFieldsPanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+    )
 
 
 @register_model_view(ServiceTemplate, 'add', detail=False)
@@ -1439,6 +1781,12 @@ class ServiceTemplateBulkEditView(generic.BulkEditView):
     form = forms.ServiceTemplateBulkEditForm
 
 
+@register_model_view(ServiceTemplate, 'bulk_rename', path='rename', detail=False)
+class ServiceTemplateBulkRenameView(generic.BulkRenameView):
+    queryset = ServiceTemplate.objects.all()
+    filterset = filtersets.ServiceTemplateFilterSet
+
+
 @register_model_view(ServiceTemplate, 'bulk_delete', path='delete', detail=False)
 class ServiceTemplateBulkDeleteView(generic.BulkDeleteView):
     queryset = ServiceTemplate.objects.all()
@@ -1461,6 +1809,16 @@ class ServiceListView(generic.ObjectListView):
 @register_model_view(Service)
 class ServiceView(generic.ObjectView):
     queryset = Service.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ServicePanel(),
+        ],
+        right_panels=[
+            CustomFieldsPanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         context = {}
@@ -1504,6 +1862,12 @@ class ServiceBulkEditView(generic.BulkEditView):
     filterset = filtersets.ServiceFilterSet
     table = tables.ServiceTable
     form = forms.ServiceBulkEditForm
+
+
+@register_model_view(Service, 'bulk_rename', path='rename', detail=False)
+class ServiceBulkRenameView(generic.BulkRenameView):
+    queryset = Service.objects.all()
+    filterset = filtersets.ServiceFilterSet
 
 
 @register_model_view(Service, 'bulk_delete', path='delete', detail=False)

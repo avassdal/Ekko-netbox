@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import TypeVar, Tuple, Generic
+from typing import Generic, TypeVar
 
 import strawberry
 import strawberry_django
@@ -7,6 +7,7 @@ from django.core.exceptions import FieldDoesNotExist
 from django.db.models import Q, QuerySet
 from django.db.models.fields.related import ForeignKey, ManyToManyField, ManyToManyRel, ManyToOneRel
 from strawberry import ID
+from strawberry.directive import DirectiveValue
 from strawberry.types import Info
 from strawberry_django import (
     ComparisonFilterLookup,
@@ -14,16 +15,21 @@ from strawberry_django import (
     DatetimeFilterLookup,
     FilterLookup,
     RangeLookup,
+    StrFilterLookup,
     TimeFilterLookup,
     process_filters,
 )
 
+from netbox.graphql.scalars import BigInt
+
 __all__ = (
     'ArrayLookup',
+    'BigIntegerLookup',
     'FloatArrayLookup',
     'FloatLookup',
     'IntegerArrayLookup',
     'IntegerLookup',
+    'IntegerRangeArrayLookup',
     'JSONFilter',
     'StringArrayLookup',
     'TreeNodeFilter',
@@ -35,7 +41,7 @@ SKIP_MSG = 'Filter will be skipped on `null` value'
 
 @strawberry.input(one_of=True, description='Lookup for JSON field. Only one of the lookup fields can be set.')
 class JSONLookup:
-    string_lookup: FilterLookup[str] | None = strawberry_django.filter_field()
+    string_lookup: StrFilterLookup[str] | None = strawberry_django.filter_field()
     int_range_lookup: RangeLookup[int] | None = strawberry_django.filter_field()
     int_comparison_lookup: ComparisonFilterLookup[int] | None = strawberry_django.filter_field()
     float_range_lookup: RangeLookup[float] | None = strawberry_django.filter_field()
@@ -67,11 +73,40 @@ class IntegerLookup:
         return None
 
     @strawberry_django.filter_field
-    def filter(self, info: Info, queryset: QuerySet, prefix: str = '') -> Tuple[QuerySet, Q]:
+    def filter(self, info: Info, queryset: QuerySet, prefix: DirectiveValue[str] = '') -> tuple[QuerySet, Q]:
         filters = self.get_filter()
 
         if not filters:
             return queryset, Q()
+
+        if isinstance(filters, RangeLookup):
+            prefix = f'{prefix}range__'
+
+        return process_filters(filters=filters, queryset=queryset, info=info, prefix=prefix)
+
+
+@strawberry.input(one_of=True, description='Lookup for BigInteger fields. Only one of the lookup fields can be set.')
+class BigIntegerLookup:
+    filter_lookup: FilterLookup[BigInt] | None = strawberry_django.filter_field()
+    range_lookup: RangeLookup[BigInt] | None = strawberry_django.filter_field()
+    comparison_lookup: ComparisonFilterLookup[BigInt] | None = strawberry_django.filter_field()
+
+    def get_filter(self):
+        for field in self.__strawberry_definition__.fields:
+            value = getattr(self, field.name, None)
+            if value is not strawberry.UNSET:
+                return value
+        return None
+
+    @strawberry_django.filter_field
+    def filter(self, info: Info, queryset: QuerySet, prefix: DirectiveValue[str] = '') -> tuple[QuerySet, Q]:
+        filters = self.get_filter()
+
+        if not filters:
+            return queryset, Q()
+
+        if isinstance(filters, RangeLookup):
+            prefix = f'{prefix}range__'
 
         return process_filters(filters=filters, queryset=queryset, info=info, prefix=prefix)
 
@@ -90,11 +125,14 @@ class FloatLookup:
         return None
 
     @strawberry_django.filter_field
-    def filter(self, info: Info, queryset: QuerySet, prefix: str = '') -> Tuple[QuerySet, Q]:
+    def filter(self, info: Info, queryset: QuerySet, prefix: DirectiveValue[str] = '') -> tuple[QuerySet, Q]:
         filters = self.get_filter()
 
         if not filters:
             return queryset, Q()
+
+        if isinstance(filters, RangeLookup):
+            prefix = f'{prefix}range__'
 
         return process_filters(filters=filters, queryset=queryset, info=info, prefix=prefix)
 
@@ -109,7 +147,7 @@ class JSONFilter:
     lookup: JSONLookup
 
     @strawberry_django.filter_field
-    def filter(self, info: Info, queryset: QuerySet, prefix: str = '') -> Tuple[QuerySet, Q]:
+    def filter(self, info: Info, queryset: QuerySet, prefix: DirectiveValue[str] = '') -> tuple[QuerySet, Q]:
         filters = self.lookup.get_filter()
 
         if not filters:
@@ -136,7 +174,7 @@ class TreeNodeFilter:
     match_type: TreeNodeMatch
 
     @strawberry_django.filter_field
-    def filter(self, info: Info, queryset: QuerySet, prefix: str = '') -> Tuple[QuerySet, Q]:
+    def filter(self, info: Info, queryset: QuerySet, prefix: DirectiveValue[str] = '') -> tuple[QuerySet, Q]:
         model_field_name = prefix.removesuffix('__').removesuffix('_id')
         model_field = None
         try:
@@ -158,12 +196,11 @@ class TreeNodeFilter:
         # Handle different relationship types
         if isinstance(model_field, (ManyToManyField, ManyToManyRel)):
             return queryset, Q(**{f'{model_field_name}__in': related_model.objects.filter(q_filter)})
-        elif isinstance(model_field, ForeignKey):
+        if isinstance(model_field, ForeignKey):
             return queryset, Q(**{f'{model_field_name}__{k}': v for k, v in q_filter.children})
-        elif isinstance(model_field, ManyToOneRel):
+        if isinstance(model_field, ManyToOneRel):
             return queryset, Q(**{f'{model_field_name}__in': related_model.objects.filter(q_filter)})
-        else:
-            return queryset, Q(**{f'{model_field_name}__{k}': v for k, v in q_filter.children})
+        return queryset, Q(**{f'{model_field_name}__{k}': v for k, v in q_filter.children})
 
 
 def generate_tree_node_q_filter(model_class, filter_value: TreeNodeFilter) -> Q:
@@ -177,17 +214,17 @@ def generate_tree_node_q_filter(model_class, filter_value: TreeNodeFilter) -> Q:
 
     if filter_value.match_type == TreeNodeMatch.EXACT:
         return Q(id=filter_value.id)
-    elif filter_value.match_type == TreeNodeMatch.DESCENDANTS:
+    if filter_value.match_type == TreeNodeMatch.DESCENDANTS:
         return Q(tree_id=node.tree_id, lft__gt=node.lft, rght__lt=node.rght)
-    elif filter_value.match_type == TreeNodeMatch.SELF_AND_DESCENDANTS:
+    if filter_value.match_type == TreeNodeMatch.SELF_AND_DESCENDANTS:
         return Q(tree_id=node.tree_id, lft__gte=node.lft, rght__lte=node.rght)
-    elif filter_value.match_type == TreeNodeMatch.CHILDREN:
+    if filter_value.match_type == TreeNodeMatch.CHILDREN:
         return Q(tree_id=node.tree_id, level=node.level + 1, lft__gt=node.lft, rght__lt=node.rght)
-    elif filter_value.match_type == TreeNodeMatch.SIBLINGS:
+    if filter_value.match_type == TreeNodeMatch.SIBLINGS:
         return Q(tree_id=node.tree_id, level=node.level, parent=node.parent) & ~Q(id=node.id)
-    elif filter_value.match_type == TreeNodeMatch.ANCESTORS:
+    if filter_value.match_type == TreeNodeMatch.ANCESTORS:
         return Q(tree_id=node.tree_id, lft__lt=node.lft, rght__gt=node.rght)
-    elif filter_value.match_type == TreeNodeMatch.PARENT:
+    if filter_value.match_type == TreeNodeMatch.PARENT:
         return Q(id=node.parent_id) if node.parent_id else Q(pk__in=[])
     return Q()
 
@@ -216,4 +253,31 @@ class FloatArrayLookup(ArrayLookup[float]):
 
 @strawberry.input(one_of=True, description='Lookup for Array fields. Only one of the lookup fields can be set.')
 class StringArrayLookup(ArrayLookup[str]):
+    pass
+
+
+@strawberry.input(one_of=True, description='Lookups for an ArrayField(RangeField). Only one may be set.')
+class RangeArrayValueLookup(Generic[T]):
+    """
+    class for Array field of Range fields lookups
+    """
+
+    contains: T | None = strawberry.field(
+        default=strawberry.UNSET, description='Return rows where any stored range contains this value.'
+    )
+
+    @strawberry_django.filter_field
+    def filter(self, info: Info, queryset: QuerySet, prefix: str = '') -> tuple[QuerySet, Q]:
+        """
+        Map GraphQL: { <field>: { contains: <T> } } To Django ORM: <field>__range_contains=<T>
+        """
+        if self.contains is strawberry.UNSET or self.contains is None:
+            return queryset, Q()
+
+        # Build '<prefix>range_contains' so it works for nested paths too
+        return queryset, Q(**{f'{prefix}range_contains': self.contains})
+
+
+@strawberry.input(one_of=True, description='Lookups for an ArrayField(IntegerRangeField). Only one may be set.')
+class IntegerRangeArrayLookup(RangeArrayValueLookup[int]):
     pass

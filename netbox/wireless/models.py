@@ -7,6 +7,7 @@ from dcim.constants import WIRELESS_IFACE_TYPES
 from dcim.models.mixins import CachedScopeMixin
 from netbox.models import NestedGroupModel, PrimaryModel
 from netbox.models.mixins import DistanceMixin
+
 from .choices import *
 from .constants import *
 
@@ -63,6 +64,9 @@ class WirelessLANGroup(NestedGroupModel):
 
     class Meta:
         ordering = ('name', 'pk')
+        # Empty tuple triggers Django migration detection for MPTT indexes
+        # (see #21016, django-mptt/django-mptt#682)
+        indexes = ()
         constraints = (
             models.UniqueConstraint(
                 fields=('parent', 'name'),
@@ -113,6 +117,9 @@ class WirelessLAN(WirelessAuthenticationBase, CachedScopeMixin, PrimaryModel):
 
     class Meta:
         ordering = ('ssid', 'pk')
+        indexes = (
+            models.Index(fields=('scope_type', 'scope_id')),
+        )
         verbose_name = _('wireless LAN')
         verbose_name_plural = _('wireless LANs')
 

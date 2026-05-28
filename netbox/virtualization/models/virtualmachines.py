@@ -15,6 +15,7 @@ from extras.querysets import ConfigContextModelQuerySet
 from netbox.config import get_config
 from netbox.models import NetBoxModel, PrimaryModel
 from netbox.models.features import ContactsMixin, ImageAttachmentsMixin
+from netbox.models.mixins import OwnerMixin
 from utilities.fields import CounterCacheField, NaturalOrderingField
 from utilities.ordering import naturalize_interface
 from utilities.query_functions import CollateAsChar
@@ -22,9 +23,9 @@ from utilities.tracking import TrackingModelMixin
 from virtualization.choices import *
 
 __all__ = (
+    'VMInterface',
     'VirtualDisk',
     'VirtualMachine',
-    'VMInterface',
 )
 
 
@@ -78,6 +79,12 @@ class VirtualMachine(ContactsMixin, ImageAttachmentsMixin, RenderConfigMixin, Co
         default=VirtualMachineStatusChoices.STATUS_ACTIVE,
         verbose_name=_('status')
     )
+    start_on_boot = models.CharField(
+        max_length=32,
+        choices=VirtualMachineStartOnBootChoices,
+        default=VirtualMachineStartOnBootChoices.STATUS_OFF,
+        verbose_name=_('start on boot'),
+    )
     role = models.ForeignKey(
         to='dcim.DeviceRole',
         on_delete=models.PROTECT,
@@ -114,12 +121,12 @@ class VirtualMachine(ContactsMixin, ImageAttachmentsMixin, RenderConfigMixin, Co
     memory = models.PositiveIntegerField(
         blank=True,
         null=True,
-        verbose_name=_('memory (MB)')
+        verbose_name=_('memory')
     )
     disk = models.PositiveIntegerField(
         blank=True,
         null=True,
-        verbose_name=_('disk (MB)')
+        verbose_name=_('disk')
     )
     serial = models.CharField(
         verbose_name=_('serial number'),
@@ -246,16 +253,18 @@ class VirtualMachine(ContactsMixin, ImageAttachmentsMixin, RenderConfigMixin, Co
     def get_status_color(self):
         return VirtualMachineStatusChoices.colors.get(self.status)
 
+    def get_start_on_boot_color(self):
+        return VirtualMachineStartOnBootChoices.colors.get(self.start_on_boot)
+
     @property
     def primary_ip(self):
         if get_config().PREFER_IPV4 and self.primary_ip4:
             return self.primary_ip4
-        elif self.primary_ip6:
+        if self.primary_ip6:
             return self.primary_ip6
-        elif self.primary_ip4:
+        if self.primary_ip4:
             return self.primary_ip4
-        else:
-            return None
+        return None
 
 
 #
@@ -263,7 +272,7 @@ class VirtualMachine(ContactsMixin, ImageAttachmentsMixin, RenderConfigMixin, Co
 #
 
 
-class ComponentModel(NetBoxModel):
+class ComponentModel(OwnerMixin, NetBoxModel):
     """
     An abstract model inherited by any model which has a parent VirtualMachine.
     """
@@ -416,7 +425,7 @@ class VMInterface(ComponentModel, BaseInterface, TrackingModelMixin):
 
 class VirtualDisk(ComponentModel, TrackingModelMixin):
     size = models.PositiveIntegerField(
-        verbose_name=_('size (MB)'),
+        verbose_name=_('size'),
     )
 
     class Meta(ComponentModel.Meta):

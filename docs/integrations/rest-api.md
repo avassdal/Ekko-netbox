@@ -80,7 +80,7 @@ Likewise, the site, rack, and device objects are located under the "DCIM" applic
 
 The full hierarchy of available endpoints can be viewed by navigating to the API root in a web browser.
 
-Each model generally has two views associated with it: a list view and a detail view. The list view is used to retrieve a list of multiple objects and to create new objects. The detail view is used to retrieve, update, or delete an single existing object. All objects are referenced by their numeric primary key (`id`).
+Each model generally has two views associated with it: a list view and a detail view. The list view is used to retrieve a list of multiple objects and to create new objects. The detail view is used to retrieve, update, or delete a single existing object. All objects are referenced by their numeric primary key (`id`).
 
 * `/api/dcim/devices/` - List existing devices or create a new device
 * `/api/dcim/devices/123/` - Retrieve, update, or delete the device with ID 123
@@ -215,9 +215,51 @@ http://netbox/api/ipam/ip-addresses/ \
 
 If we wanted to assign this IP address to a virtual machine interface instead, we would have set `assigned_object_type` to `virtualization.vminterface` and updated the object ID appropriately.
 
-### Brief Format
+### Specifying Fields
 
-Most API endpoints support an optional "brief" format, which returns only a minimal representation of each object in the response. This is useful when you need only a list of available objects without any related data, such as when populating a drop-down list in a form. As an example, the default (complete) format of a prefix looks like this:
+A REST API response will include all available fields for the object type by default. If you wish to return only a subset of the available fields, you can append `?fields=` to the URL followed by a comma-separated list of field names. For example, the following request will return only the `id`, `name`, `status`, and `region` fields for each site in the response.
+
+```
+GET /api/dcim/sites/?fields=id,name,status,region
+```
+
+```json
+{
+    "id": 1,
+    "name": "DM-NYC",
+    "status": {
+        "value": "active",
+        "label": "Active"
+    },
+    "region": {
+        "id": 43,
+        "url": "http://netbox:8000/api/dcim/regions/43/",
+        "display": "New York",
+        "name": "New York",
+        "slug": "us-ny",
+        "description": "",
+        "site_count": 0,
+        "_depth": 2
+    }
+}
+```
+
+Similarly, you can opt to omit only specific fields by passing the `omit` parameter:
+
+```
+GET /api/dcim/sites/?omit=circuit_count,device_count,virtualmachine_count
+```
+
+!!! note "The `omit` parameter was introduced in NetBox v4.5.2."
+
+Strategic use of the `fields` and `omit` parameters can drastically improve REST API performance, as the exclusion of fields which reference related objects reduces the number and complexity of underlying database queries needed to generate the response.
+
+!!! note
+    The `fields` and `omit` parameters should be considered mutually exclusive. If both are passed, `fields` takes precedence.
+
+#### Brief Format
+
+Most API endpoints support an optional "brief" format, which returns only a minimal representation of each object in the response. This is useful when you need only a list of available objects without any related data, such as when populating a drop-down list in a form. It's also more convenient than listing out individual fields via the `fields` or `omit` parameters. As an example, the default (complete) format of a prefix looks like this:
 
 ```no-highlight
 GET /api/ipam/prefixes/13980/
@@ -270,10 +312,10 @@ GET /api/ipam/prefixes/13980/
 }
 ```
 
-The brief format is much more terse:
+The brief format includes only a few fields:
 
 ```no-highlight
-GET /api/ipam/prefixes/13980/?brief=1
+GET /api/ipam/prefixes/13980/?brief=true
 ```
 
 ```json
@@ -608,6 +650,26 @@ http://netbox/api/dcim/sites/ \
 !!! note
     The bulk deletion of objects is an all-or-none operation, meaning that if NetBox fails to delete any of the specified objects (e.g. due a dependency by a related object), the entire operation will be aborted and none of the objects will be deleted.
 
+## Changelog Messages
+
+Most objects in NetBox support [change logging](../features/change-logging.md), which generates a detailed record each time an object is created, modified, or deleted. Additionally, users can attach a message to the change record as well. This is accomplished via the REST API by including a `changelog_message` field in the object representation.
+
+For example, the following API request will create a new site and record a message in the resulting changelog entry:
+
+```no-highlight
+curl -s -X POST \
+-H "Authorization: Token $TOKEN" \
+-H "Content-Type: application/json" \
+http://netbox/api/dcim/sites/ \
+--data '{
+    "name": "Site A",
+    "slug": "site-a",
+    "changelog_message": "Adding a site for ticket #4137"
+}'
+```
+
+This approach works when creating, modifying, or deleting objects, either individually or in bulk. For more information about change logging, see [Change Logging](../features/change-logging.md).
+
 ## Uploading Files
 
 As JSON does not support the inclusion of binary data, files cannot be uploaded using JSON-formatted API requests. Instead, we can use form data encoding to attach a local file.
@@ -631,18 +693,22 @@ The NetBox REST API primarily employs token-based authentication. For convenienc
 
 ### Tokens
 
-A token is a unique identifier mapped to a NetBox user account. Each user may have one or more tokens which he or she can use for authentication when making REST API requests. To create a token, navigate to the API tokens page under your user profile.
+A token is a secret, unique identifier mapped to a NetBox user account. Each user may have one or more tokens which he or she can use for authentication when making REST API requests. To create a token, navigate to the API tokens page under your user profile. When creating a token, NetBox will automatically populate a randomly-generated token value.
+
+!!! note "Tokens cannot be retrieved once created"
+    Once a token has been created, its plaintext value cannot be retrieved. For this reason, you must take care to securely record the token locally immediately upon its creation. If a token plaintext is lost, it cannot be recovered: A new token must be created.
 
 By default, all users can create and manage their own REST API tokens under the user control panel in the UI or via the REST API. This ability can be disabled by overriding the [`DEFAULT_PERMISSIONS`](../configuration/security.md#default_permissions) configuration parameter.
 
-Each token contains a 160-bit key represented as 40 hexadecimal characters. When creating a token, you'll typically leave the key field blank so that a random key will be automatically generated. However, NetBox allows you to specify a key in case you need to restore a previously deleted token to operation.
-
 Additionally, a token can be set to expire at a specific time. This can be useful if an external client needs to be granted temporary access to NetBox.
 
-!!! info "Restricting Token Retrieval"
-    The ability to retrieve the key value of a previously-created API token can be restricted by disabling the [`ALLOW_TOKEN_RETRIEVAL`](../configuration/security.md#allow_token_retrieval) configuration parameter.
+#### v1 and v2 Tokens
 
-### Restricting Write Operations
+Beginning with NetBox v4.5, two versions of API token are supported, denoted as v1 and v2. Users are strongly encouraged to create only v2 tokens and to discontinue the use of v1 tokens. Support for v1 tokens will be removed in a future NetBox release.
+
+v2 API tokens offer much stronger security. The token plaintext given at creation time is hashed together with a configured [cryptographic pepper](../configuration/required-parameters.md#api_token_peppers) to generate a unique checksum. This checksum is irreversible; the token plaintext is never stored on the server and thus cannot be retrieved even with database-level access.
+
+#### Restricting Write Operations
 
 By default, a token can be used to perform all actions via the API that a user would be permitted to do via the web UI. Deselecting the "write enabled" option will restrict API requests made with the token to read operations (e.g. GET) only.
 
@@ -659,10 +725,22 @@ It is possible to provision authentication tokens for other users via the REST A
 
 ### Authenticating to the API
 
-An authentication token is attached to a request by setting the `Authorization` header to the string `Token` followed by a space and the user's token:
+An authentication token is included with a request in its `Authorization` header. The format of the header value depends on the version of token in use. v2 tokens use the following form, concatenating the token's prefix (`nbt_`) and key with its plaintext value, separated by a period:
 
 ```
-$ curl -H "Authorization: Token $TOKEN" \
+Authorization: Bearer nbt_<key>.<token>
+```
+
+Legacy v1 tokens use the prefix `Token` rather than `Bearer`, and include only the token plaintext. (v1 tokens do not have a key.)
+
+```
+Authorization: Token <token>
+```
+
+Below is an example REST API request utilizing a v2 token.
+
+```
+$ curl -H "Authorization: Bearer nbt_4F9DAouzURLb.zjebxBPzICiPbWz0Wtx0fTL7bCKXKGTYhNzkgC2S" \
 -H "Accept: application/json; indent=4" \
 https://netbox/api/dcim/sites/
 {

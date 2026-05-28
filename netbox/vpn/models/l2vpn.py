@@ -80,8 +80,7 @@ class L2VPN(ContactsMixin, PrimaryModel):
     def can_add_termination(self):
         if self.type in L2VPNTypeChoices.P2P and self.terminations.count() >= 2:
             return False
-        else:
-            return True
+        return True
 
 
 class L2VPNTermination(NetBoxModel):
@@ -127,8 +126,8 @@ class L2VPNTermination(NetBoxModel):
         if self.assigned_object:
             obj_id = self.assigned_object.pk
             obj_type = ObjectType.objects.get_for_model(self.assigned_object)
-            if L2VPNTermination.objects.filter(assigned_object_id=obj_id, assigned_object_type=obj_type).\
-                    exclude(pk=self.pk).count() > 0:
+            terminations = L2VPNTermination.objects.filter(assigned_object_id=obj_id, assigned_object_type=obj_type)
+            if terminations.exclude(pk=self.pk).exists():
                 raise ValidationError(
                     _('L2VPN Termination already assigned ({assigned_object})').format(
                         assigned_object=self.assigned_object
@@ -151,9 +150,9 @@ class L2VPNTermination(NetBoxModel):
         obj_type = ObjectType.objects.get_for_model(self.assigned_object)
         if obj_type.model == 'vminterface':
             return self.assigned_object.virtual_machine
-        elif obj_type.model == 'interface':
+        if obj_type.model == 'interface':
             return self.assigned_object.device
-        elif obj_type.model == 'vminterface':
+        if obj_type.model == 'vminterface':
             return self.assigned_object.virtual_machine
         return None
 

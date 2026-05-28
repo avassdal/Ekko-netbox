@@ -5,16 +5,19 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.utils.translation import gettext_lazy as _
 from jsonschema.exceptions import ValidationError as JSONValidationError
+from mptt.models import MPTTModel
 
 from dcim.choices import *
-from dcim.constants import MODULE_TOKEN
-from dcim.utils import update_interface_bridges
+from dcim.utils import create_port_mappings, update_interface_bridges
 from extras.models import ConfigContextModel, CustomField
 from netbox.models import PrimaryModel
 from netbox.models.features import ImageAttachmentsMixin
 from netbox.models.mixins import WeightMixin
+from utilities.fields import CounterCacheField
 from utilities.jsonschema import validate_schema
 from utilities.string import title
+from utilities.tracking import TrackingModelMixin
+
 from .device_components import *
 
 __all__ = (
@@ -36,7 +39,8 @@ class ModuleTypeProfile(PrimaryModel):
     schema = models.JSONField(
         blank=True,
         null=True,
-        verbose_name=_('schema')
+        validators=[validate_schema],
+        verbose_name=_('schema'),
     )
 
     clone_fields = ('schema',)
@@ -48,18 +52,6 @@ class ModuleTypeProfile(PrimaryModel):
 
     def __str__(self):
         return self.name
-
-    def clean(self):
-        super().clean()
-
-        # Validate the schema definition
-        if self.schema is not None:
-            try:
-                validate_schema(self.schema)
-            except ValidationError as e:
-                raise ValidationError({
-                    'schema': e.message,
-                })
 
 
 class ModuleType(ImageAttachmentsMixin, PrimaryModel, WeightMixin):
@@ -102,6 +94,10 @@ class ModuleType(ImageAttachmentsMixin, PrimaryModel, WeightMixin):
         blank=True,
         null=True,
         verbose_name=_('attributes')
+    )
+    module_count = CounterCacheField(
+        to_model='dcim.Module',
+        to_field='module_type'
     )
 
     clone_fields = ('profile', 'manufacturer', 'weight', 'weight_unit', 'airflow')
@@ -161,6 +157,8 @@ class ModuleType(ImageAttachmentsMixin, PrimaryModel, WeightMixin):
             'description': self.description,
             'weight': float(self.weight) if self.weight is not None else None,
             'weight_unit': self.weight_unit,
+            'airflow': self.airflow,
+            'attribute_data': self.attribute_data,
             'comments': self.comments,
         }
 
@@ -194,10 +192,18 @@ class ModuleType(ImageAttachmentsMixin, PrimaryModel, WeightMixin):
                 c.to_yaml() for c in self.rearporttemplates.all()
             ]
 
+        # Port mappings
+        port_mapping_data = [
+            c.to_yaml() for c in self.port_mappings.all()
+        ]
+
+        if port_mapping_data:
+            data['port-mappings'] = port_mapping_data
+
         return yaml.dump(dict(data), sort_keys=False)
 
 
-class Module(PrimaryModel, ConfigContextModel):
+class Module(TrackingModelMixin, PrimaryModel, ConfigContextModel):
     """
     A Module represents a field-installable component within a Device which may itself hold multiple device components
     (for example, a line card within a chassis switch). Modules are instantiated from ModuleTypes.
@@ -265,11 +271,13 @@ class Module(PrimaryModel, ConfigContextModel):
         module_bays = []
         modules = []
         while module:
-            if module.pk in modules or module.module_bay.pk in module_bays:
+            module_module_bay = getattr(module, "module_bay", None)
+            if module.pk in modules or (module_module_bay and module_module_bay.pk in module_bays):
                 raise ValidationError(_("A module bay cannot belong to a module installed within it."))
             modules.append(module.pk)
-            module_bays.append(module.module_bay.pk)
-            module = module.module_bay.module if module.module_bay else None
+            if module_module_bay:
+                module_bays.append(module_module_bay.pk)
+            module = module_module_bay.module if module_module_bay else None
 
     def save(self, *args, **kwargs):
         is_new = self.pk is None
@@ -327,7 +335,14 @@ class Module(PrimaryModel, ConfigContextModel):
                 for component in create_instances:
                     component.custom_field_data = cf_defaults
 
-            if component_model is not ModuleBay:
+            # Set denormalized references
+            for component in create_instances:
+                component._site = self.device.site
+                component._location = self.device.location
+                component._rack = self.device.rack
+
+            # we handle create and update separately - this is for create
+            if not issubclass(component_model, MPTTModel):
                 component_model.objects.bulk_create(create_instances)
                 # Emit the post_save signal for each newly created object
                 for component in create_instances:
@@ -340,12 +355,13 @@ class Module(PrimaryModel, ConfigContextModel):
                         update_fields=None
                     )
             else:
-                # ModuleBays must be saved individually for MPTT
+                # MPTT models must be saved individually to maintain tree structure
                 for instance in create_instances:
-                    instance.name = instance.name.replace(MODULE_TOKEN, str(self.module_bay.position))
                     instance.save()
 
             update_fields = ['module']
+
+            # we handle create and update separately - this is for update
             component_model.objects.bulk_update(update_instances, update_fields)
             # Emit the post_save signal for each updated object
             for component in update_instances:
@@ -357,6 +373,13 @@ class Module(PrimaryModel, ConfigContextModel):
                     using='default',
                     update_fields=update_fields
                 )
+
+            # Rebuild MPTT tree if needed (bulk_update bypasses model save)
+            if issubclass(component_model, MPTTModel) and update_instances:
+                component_model.objects.rebuild()
+
+        # Replicate any front/rear port mappings from the ModuleType
+        create_port_mappings(self.device, self.module_type, self)
 
         # Interface bridges have to be set after interface instantiation
         update_interface_bridges(self.device, self.module_type.interfacetemplates, self)

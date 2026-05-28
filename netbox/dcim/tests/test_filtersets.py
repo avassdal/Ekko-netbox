@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.test import TestCase
 
 from circuits.models import Circuit, CircuitTermination, CircuitType, Provider
@@ -5,12 +6,12 @@ from dcim.choices import *
 from dcim.filtersets import *
 from dcim.models import *
 from ipam.choices import VLANQinQRoleChoices
-from ipam.models import ASN, IPAddress, RIR, VLAN, VLANTranslationPolicy, VRF
+from ipam.models import ASN, RIR, VLAN, VRF, IPAddress, VLANTranslationPolicy
 from netbox.choices import ColorChoices, WeightUnitChoices
 from tenancy.models import Tenant, TenantGroup
 from users.models import User
 from utilities.testing import ChangeLoggedFilterSetTests, create_test_device, create_test_virtualmachine
-from virtualization.models import Cluster, ClusterType, ClusterGroup, VMInterface, VirtualMachine
+from virtualization.models import Cluster, ClusterGroup, ClusterType, VirtualMachine, VMInterface
 from wireless.choices import WirelessChannelChoices, WirelessRoleChoices
 from wireless.models import WirelessLink
 
@@ -41,6 +42,13 @@ class DeviceComponentFilterSetTests:
 
     def test_device_status(self):
         params = {'device_status': ['active', 'planned']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_tenant(self):
+        tenants = Tenant.objects.all()[:2]
+        params = {'tenant_id': [tenants[0].pk, tenants[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        params = {'tenant': [tenants[0].slug, tenants[1].slug]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
 
@@ -1141,9 +1149,30 @@ class RackReservationTestCase(TestCase, ChangeLoggedFilterSetTests):
         Tenant.objects.bulk_create(tenants)
 
         reservations = (
-            RackReservation(rack=racks[0], units=[1, 2, 3], user=users[0], tenant=tenants[0], description='foobar1'),
-            RackReservation(rack=racks[1], units=[4, 5, 6], user=users[1], tenant=tenants[1], description='foobar2'),
-            RackReservation(rack=racks[2], units=[7, 8, 9], user=users[2], tenant=tenants[2], description='foobar3'),
+            RackReservation(
+                rack=racks[0],
+                units=[1, 2, 3],
+                status=RackReservationStatusChoices.STATUS_ACTIVE,
+                user=users[0],
+                tenant=tenants[0],
+                description='foobar1',
+            ),
+            RackReservation(
+                rack=racks[1],
+                units=[4, 5, 6],
+                status=RackReservationStatusChoices.STATUS_PENDING,
+                user=users[1],
+                tenant=tenants[1],
+                description='foobar2',
+            ),
+            RackReservation(
+                rack=racks[2],
+                units=[7, 8, 9],
+                status=RackReservationStatusChoices.STATUS_STALE,
+                user=users[2],
+                tenant=tenants[2],
+                description='foobar3',
+            ),
         )
         RackReservation.objects.bulk_create(reservations)
 
@@ -1177,6 +1206,10 @@ class RackReservationTestCase(TestCase, ChangeLoggedFilterSetTests):
         params = {'location_id': [locations[0].pk, locations[1].pk]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
         params = {'location': [locations[0].slug, locations[1].slug]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_status(self):
+        params = {'status': [RackReservationStatusChoices.STATUS_ACTIVE, RackReservationStatusChoices.STATUS_PENDING]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
     def test_user(self):
@@ -1256,7 +1289,8 @@ class DeviceTypeTestCase(TestCase, ChangeLoggedFilterSetTests):
             Platform(name='Platform 2', slug='platform-2', manufacturer=manufacturers[1]),
             Platform(name='Platform 3', slug='platform-3', manufacturer=manufacturers[2]),
         )
-        Platform.objects.bulk_create(platforms)
+        for platform in platforms:
+            platform.save()
 
         device_types = (
             DeviceType(
@@ -1329,22 +1363,15 @@ class DeviceTypeTestCase(TestCase, ChangeLoggedFilterSetTests):
             RearPortTemplate(device_type=device_types[1], name='Rear Port 2', type=PortTypeChoices.TYPE_8P8C),
         )
         RearPortTemplate.objects.bulk_create(rear_ports)
-        FrontPortTemplate.objects.bulk_create(
-            (
-                FrontPortTemplate(
-                    device_type=device_types[0],
-                    name='Front Port 1',
-                    type=PortTypeChoices.TYPE_8P8C,
-                    rear_port=rear_ports[0],
-                ),
-                FrontPortTemplate(
-                    device_type=device_types[1],
-                    name='Front Port 2',
-                    type=PortTypeChoices.TYPE_8P8C,
-                    rear_port=rear_ports[1],
-                ),
-            )
+        front_ports = (
+            FrontPortTemplate(device_type=device_types[0], name='Front Port 1', type=PortTypeChoices.TYPE_8P8C),
+            FrontPortTemplate(device_type=device_types[1], name='Front Port 2', type=PortTypeChoices.TYPE_8P8C),
         )
+        FrontPortTemplate.objects.bulk_create(front_ports)
+        PortTemplateMapping.objects.bulk_create([
+            PortTemplateMapping(device_type=device_types[0], front_port=front_ports[0], rear_port=rear_ports[0]),
+            PortTemplateMapping(device_type=device_types[1], front_port=front_ports[1], rear_port=rear_ports[1]),
+        ])
         ModuleBayTemplate.objects.bulk_create((
             ModuleBayTemplate(device_type=device_types[0], name='Module Bay 1'),
             ModuleBayTemplate(device_type=device_types[1], name='Module Bay 2'),
@@ -1600,22 +1627,15 @@ class ModuleTypeTestCase(TestCase, ChangeLoggedFilterSetTests):
             RearPortTemplate(module_type=module_types[1], name='Rear Port 2', type=PortTypeChoices.TYPE_8P8C),
         )
         RearPortTemplate.objects.bulk_create(rear_ports)
-        FrontPortTemplate.objects.bulk_create(
-            (
-                FrontPortTemplate(
-                    module_type=module_types[0],
-                    name='Front Port 1',
-                    type=PortTypeChoices.TYPE_8P8C,
-                    rear_port=rear_ports[0],
-                ),
-                FrontPortTemplate(
-                    module_type=module_types[1],
-                    name='Front Port 2',
-                    type=PortTypeChoices.TYPE_8P8C,
-                    rear_port=rear_ports[1],
-                ),
-            )
+        front_ports = (
+            FrontPortTemplate(module_type=module_types[0], name='Front Port 1', type=PortTypeChoices.TYPE_8P8C),
+            FrontPortTemplate(module_type=module_types[1], name='Front Port 2', type=PortTypeChoices.TYPE_8P8C),
         )
+        FrontPortTemplate.objects.bulk_create(front_ports)
+        PortTemplateMapping.objects.bulk_create([
+            PortTemplateMapping(module_type=module_types[0], front_port=front_ports[0], rear_port=rear_ports[0]),
+            PortTemplateMapping(module_type=module_types[1], front_port=front_ports[1], rear_port=rear_ports[1]),
+        ])
 
     def test_q(self):
         params = {'q': 'foobar1'}
@@ -1893,18 +1913,21 @@ class PowerOutletTemplateTestCase(TestCase, DeviceComponentTemplateFilterSetTest
                 device_type=device_types[0],
                 name='Power Outlet 1',
                 feed_leg=PowerOutletFeedLegChoices.FEED_LEG_A,
+                color=ColorChoices.COLOR_RED,
                 description='foobar1'
             ),
             PowerOutletTemplate(
                 device_type=device_types[1],
                 name='Power Outlet 2',
                 feed_leg=PowerOutletFeedLegChoices.FEED_LEG_B,
+                color=ColorChoices.COLOR_GREEN,
                 description='foobar2'
             ),
             PowerOutletTemplate(
                 device_type=device_types[2],
                 name='Power Outlet 3',
                 feed_leg=PowerOutletFeedLegChoices.FEED_LEG_C,
+                color=ColorChoices.COLOR_BLUE,
                 description='foobar3'
             ),
         ))
@@ -1915,6 +1938,10 @@ class PowerOutletTemplateTestCase(TestCase, DeviceComponentTemplateFilterSetTest
 
     def test_feed_leg(self):
         params = {'feed_leg': [PowerOutletFeedLegChoices.FEED_LEG_A, PowerOutletFeedLegChoices.FEED_LEG_B]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_color(self):
+        params = {'color': [ColorChoices.COLOR_RED, ColorChoices.COLOR_GREEN]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
 
@@ -2024,32 +2051,38 @@ class FrontPortTemplateTestCase(TestCase, DeviceComponentTemplateFilterSetTests,
         )
         RearPortTemplate.objects.bulk_create(rear_ports)
 
-        FrontPortTemplate.objects.bulk_create((
+        front_ports = (
             FrontPortTemplate(
                 device_type=device_types[0],
                 name='Front Port 1',
-                rear_port=rear_ports[0],
                 type=PortTypeChoices.TYPE_8P8C,
+                positions=1,
                 color=ColorChoices.COLOR_RED,
                 description='foobar1'
             ),
             FrontPortTemplate(
                 device_type=device_types[1],
                 name='Front Port 2',
-                rear_port=rear_ports[1],
                 type=PortTypeChoices.TYPE_110_PUNCH,
+                positions=2,
                 color=ColorChoices.COLOR_GREEN,
                 description='foobar2'
             ),
             FrontPortTemplate(
                 device_type=device_types[2],
                 name='Front Port 3',
-                rear_port=rear_ports[2],
                 type=PortTypeChoices.TYPE_BNC,
+                positions=3,
                 color=ColorChoices.COLOR_BLUE,
                 description='foobar3'
             ),
-        ))
+        )
+        FrontPortTemplate.objects.bulk_create(front_ports)
+        PortTemplateMapping.objects.bulk_create([
+            PortTemplateMapping(device_type=device_types[0], front_port=front_ports[0], rear_port=rear_ports[0]),
+            PortTemplateMapping(device_type=device_types[1], front_port=front_ports[1], rear_port=rear_ports[1]),
+            PortTemplateMapping(device_type=device_types[2], front_port=front_ports[2], rear_port=rear_ports[2]),
+        ])
 
     def test_name(self):
         params = {'name': ['Front Port 1', 'Front Port 2']}
@@ -2061,6 +2094,10 @@ class FrontPortTemplateTestCase(TestCase, DeviceComponentTemplateFilterSetTests,
 
     def test_color(self):
         params = {'color': [ColorChoices.COLOR_RED, ColorChoices.COLOR_GREEN]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_positions(self):
+        params = {'positions': [1, 2]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
 
@@ -2435,7 +2472,37 @@ class PlatformTestCase(TestCase, ChangeLoggedFilterSetTests):
             Platform(name='Platform 3', slug='platform-3', manufacturer=manufacturers[2], description='foobar3'),
             Platform(name='Platform 4', slug='platform-4'),
         )
-        Platform.objects.bulk_create(platforms)
+        for platform in platforms:
+            platform.save()
+        child_platforms = (
+            Platform(parent=platforms[0], name='Platform 1A', slug='platform-1a', manufacturer=manufacturers[0]),
+            Platform(parent=platforms[1], name='Platform 2A', slug='platform-2a', manufacturer=manufacturers[1]),
+            Platform(parent=platforms[2], name='Platform 3A', slug='platform-3a', manufacturer=manufacturers[2]),
+        )
+        for platform in child_platforms:
+            platform.save()
+        grandchild_platforms = (
+            Platform(
+                parent=child_platforms[0],
+                name='Platform 1A1',
+                slug='platform-1a1',
+                manufacturer=manufacturers[0],
+            ),
+            Platform(
+                parent=child_platforms[1],
+                name='Platform 2A1',
+                slug='platform-2a1',
+                manufacturer=manufacturers[1],
+            ),
+            Platform(
+                parent=child_platforms[2],
+                name='Platform 3A1',
+                slug='platform-3a1',
+                manufacturer=manufacturers[2],
+            ),
+        )
+        for platform in grandchild_platforms:
+            platform.save()
 
     def test_q(self):
         params = {'q': 'foobar1'}
@@ -2453,12 +2520,26 @@ class PlatformTestCase(TestCase, ChangeLoggedFilterSetTests):
         params = {'description': ['foobar1', 'foobar2']}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
+    def test_parent(self):
+        platforms = Platform.objects.filter(parent__isnull=True)[:2]
+        params = {'parent_id': [platforms[0].pk, platforms[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        params = {'parent': [platforms[0].slug, platforms[1].slug]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_ancestor(self):
+        platforms = Platform.objects.filter(parent__isnull=True)[:2]
+        params = {'ancestor_id': [platforms[0].pk, platforms[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
+        params = {'ancestor': [platforms[0].slug, platforms[1].slug]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
+
     def test_manufacturer(self):
         manufacturers = Manufacturer.objects.all()[:2]
         params = {'manufacturer_id': [manufacturers[0].pk, manufacturers[1].pk]}
-        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 6)
         params = {'manufacturer': [manufacturers[0].slug, manufacturers[1].slug]}
-        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 6)
 
     def test_available_for_device_type(self):
         manufacturers = Manufacturer.objects.all()[:2]
@@ -2469,7 +2550,7 @@ class PlatformTestCase(TestCase, ChangeLoggedFilterSetTests):
             u_height=1
         )
         params = {'available_for_device_type': device_type.pk}
-        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
 
 
 class DeviceTestCase(TestCase, ChangeLoggedFilterSetTests):
@@ -2507,7 +2588,8 @@ class DeviceTestCase(TestCase, ChangeLoggedFilterSetTests):
             Platform(name='Platform 2', slug='platform-2'),
             Platform(name='Platform 3', slug='platform-3'),
         )
-        Platform.objects.bulk_create(platforms)
+        for platform in platforms:
+            platform.save()
 
         regions = (
             Region(name='Region 1', slug='region-1'),
@@ -2674,10 +2756,15 @@ class DeviceTestCase(TestCase, ChangeLoggedFilterSetTests):
             RearPort(device=devices[1], name='Rear Port 2', type=PortTypeChoices.TYPE_8P8C),
         )
         RearPort.objects.bulk_create(rear_ports)
-        FrontPort.objects.bulk_create((
-            FrontPort(device=devices[0], name='Front Port 1', type=PortTypeChoices.TYPE_8P8C, rear_port=rear_ports[0]),
-            FrontPort(device=devices[1], name='Front Port 2', type=PortTypeChoices.TYPE_8P8C, rear_port=rear_ports[1]),
-        ))
+        front_ports = (
+            FrontPort(device=devices[0], name='Front Port 1', type=PortTypeChoices.TYPE_8P8C),
+            FrontPort(device=devices[1], name='Front Port 2', type=PortTypeChoices.TYPE_8P8C),
+        )
+        FrontPort.objects.bulk_create(front_ports)
+        PortMapping.objects.bulk_create([
+            PortMapping(device=devices[0], front_port=front_ports[0], rear_port=rear_ports[0]),
+            PortMapping(device=devices[1], front_port=front_ports[1], rear_port=rear_ports[1]),
+        ])
         ModuleBay.objects.create(device=devices[0], name='Module Bay 1')
         ModuleBay.objects.create(device=devices[1], name='Module Bay 2')
         DeviceBay.objects.bulk_create((
@@ -2763,7 +2850,7 @@ class DeviceTestCase(TestCase, ChangeLoggedFilterSetTests):
         params = {'device_type': [device_types[0].slug, device_types[1].slug]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
-    def test_devicerole(self):
+    def test_role(self):
         roles = DeviceRole.objects.all()[:2]
         params = {'role_id': [roles[0].pk, roles[1].pk]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
@@ -2999,6 +3086,11 @@ class ModuleTestCase(TestCase, ChangeLoggedFilterSetTests):
             Manufacturer(name='Manufacturer 3', slug='manufacturer-3'),
         )
         Manufacturer.objects.bulk_create(manufacturers)
+        module_type_profiles = (
+            ModuleTypeProfile(name='Test CPU'),
+            ModuleTypeProfile(name='Test Hard disk'),
+        )
+        ModuleTypeProfile.objects.bulk_create(module_type_profiles)
 
         device_types = (
             DeviceType(manufacturer=manufacturers[0], model='Device Type 1', slug='device-type-1'),
@@ -3062,8 +3154,8 @@ class ModuleTestCase(TestCase, ChangeLoggedFilterSetTests):
         Device.objects.bulk_create(devices)
 
         module_types = (
-            ModuleType(manufacturer=manufacturers[0], model='Module Type 1'),
-            ModuleType(manufacturer=manufacturers[1], model='Module Type 2'),
+            ModuleType(manufacturer=manufacturers[0], model='Module Type 1', profile=module_type_profiles[0]),
+            ModuleType(manufacturer=manufacturers[1], model='Module Type 2', profile=module_type_profiles[1]),
             ModuleType(manufacturer=manufacturers[2], model='Module Type 3'),
         )
         ModuleType.objects.bulk_create(module_types)
@@ -3179,6 +3271,19 @@ class ModuleTestCase(TestCase, ChangeLoggedFilterSetTests):
         params = {'module_type': [module_types[0].model, module_types[1].model]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 6)
 
+    def test_profile(self):
+        profiles = ModuleTypeProfile.objects.filter(name__startswith='Test').order_by('name')
+        params = {'profile_id': [profiles[0].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+        params = {'profile': [profiles[0].name]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+        params = {'profile_id': [profiles[1].pk]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+        params = {'profile': [profiles[1].name]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+        params = {'profile_id': [settings.FILTERS_NULL_CHOICE_VALUE]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+
     def test_description(self):
         params = {'description': ['foobar1', 'foobar2']}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
@@ -3246,6 +3351,7 @@ class ModuleTestCase(TestCase, ChangeLoggedFilterSetTests):
 class ConsolePortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = ConsolePort.objects.all()
     filterset = ConsolePortFilterSet
+    ignore_fields = ('cable_positions',)
 
     @classmethod
     def setUpTestData(cls):
@@ -3306,9 +3412,17 @@ class ConsolePortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedF
         )
         Rack.objects.bulk_create(racks)
 
+        tenants = (
+            Tenant(name='Tenant 1', slug='tenant-1'),
+            Tenant(name='Tenant 2', slug='tenant-2'),
+            Tenant(name='Tenant 3', slug='tenant-3'),
+        )
+        Tenant.objects.bulk_create(tenants)
+
         devices = (
             Device(
                 name='Device 1',
+                tenant=tenants[0],
                 device_type=device_types[0],
                 role=roles[0],
                 site=sites[0],
@@ -3318,6 +3432,7 @@ class ConsolePortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedF
             ),
             Device(
                 name='Device 2',
+                tenant=tenants[1],
                 device_type=device_types[1],
                 role=roles[1],
                 site=sites[1],
@@ -3327,6 +3442,7 @@ class ConsolePortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedF
             ),
             Device(
                 name='Device 3',
+                tenant=tenants[2],
                 device_type=device_types[2],
                 role=roles[2],
                 site=sites[2],
@@ -3486,6 +3602,7 @@ class ConsolePortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedF
 class ConsoleServerPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = ConsoleServerPort.objects.all()
     filterset = ConsoleServerPortFilterSet
+    ignore_fields = ('cable_positions',)
 
     @classmethod
     def setUpTestData(cls):
@@ -3546,9 +3663,17 @@ class ConsoleServerPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeL
         )
         Rack.objects.bulk_create(racks)
 
+        tenants = (
+            Tenant(name='Tenant 1', slug='tenant-1'),
+            Tenant(name='Tenant 2', slug='tenant-2'),
+            Tenant(name='Tenant 3', slug='tenant-3'),
+        )
+        Tenant.objects.bulk_create(tenants)
+
         devices = (
             Device(
                 name='Device 1',
+                tenant=tenants[0],
                 device_type=device_types[0],
                 role=roles[0],
                 site=sites[0],
@@ -3558,6 +3683,7 @@ class ConsoleServerPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeL
             ),
             Device(
                 name='Device 2',
+                tenant=tenants[1],
                 device_type=device_types[1],
                 role=roles[1],
                 site=sites[1],
@@ -3567,6 +3693,7 @@ class ConsoleServerPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeL
             ),
             Device(
                 name='Device 3',
+                tenant=tenants[2],
                 device_type=device_types[2],
                 role=roles[2],
                 site=sites[2],
@@ -3726,6 +3853,7 @@ class ConsoleServerPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeL
 class PowerPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = PowerPort.objects.all()
     filterset = PowerPortFilterSet
+    ignore_fields = ('cable_positions',)
 
     @classmethod
     def setUpTestData(cls):
@@ -3786,9 +3914,17 @@ class PowerPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
         )
         Rack.objects.bulk_create(racks)
 
+        tenants = (
+            Tenant(name='Tenant 1', slug='tenant-1'),
+            Tenant(name='Tenant 2', slug='tenant-2'),
+            Tenant(name='Tenant 3', slug='tenant-3'),
+        )
+        Tenant.objects.bulk_create(tenants)
+
         devices = (
             Device(
                 name='Device 1',
+                tenant=tenants[0],
                 device_type=device_types[0],
                 role=roles[0],
                 site=sites[0],
@@ -3798,6 +3934,7 @@ class PowerPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
             ),
             Device(
                 name='Device 2',
+                tenant=tenants[1],
                 device_type=device_types[1],
                 role=roles[1],
                 site=sites[1],
@@ -3807,6 +3944,7 @@ class PowerPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
             ),
             Device(
                 name='Device 3',
+                tenant=tenants[2],
                 device_type=device_types[2],
                 role=roles[2],
                 site=sites[2],
@@ -3980,6 +4118,7 @@ class PowerPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
 class PowerOutletTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = PowerOutlet.objects.all()
     filterset = PowerOutletFilterSet
+    ignore_fields = ('cable_positions',)
 
     @classmethod
     def setUpTestData(cls):
@@ -4040,9 +4179,17 @@ class PowerOutletTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedF
         )
         Rack.objects.bulk_create(racks)
 
+        tenants = (
+            Tenant(name='Tenant 1', slug='tenant-1'),
+            Tenant(name='Tenant 2', slug='tenant-2'),
+            Tenant(name='Tenant 3', slug='tenant-3'),
+        )
+        Tenant.objects.bulk_create(tenants)
+
         devices = (
             Device(
                 name='Device 1',
+                tenant=tenants[0],
                 device_type=device_types[0],
                 role=roles[0],
                 site=sites[0],
@@ -4052,6 +4199,7 @@ class PowerOutletTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedF
             ),
             Device(
                 name='Device 2',
+                tenant=tenants[1],
                 device_type=device_types[1],
                 role=roles[1],
                 site=sites[1],
@@ -4061,6 +4209,7 @@ class PowerOutletTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedF
             ),
             Device(
                 name='Device 3',
+                tenant=tenants[2],
                 device_type=device_types[2],
                 role=roles[2],
                 site=sites[2],
@@ -4254,7 +4403,7 @@ class PowerOutletTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedF
 class InterfaceTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = Interface.objects.all()
     filterset = InterfaceFilterSet
-    ignore_fields = ('tagged_vlans', 'untagged_vlan', 'qinq_svlan', 'vdcs')
+    ignore_fields = ('tagged_vlans', 'untagged_vlan', 'qinq_svlan', 'vdcs', 'cable_positions')
 
     @classmethod
     def setUpTestData(cls):
@@ -4319,9 +4468,17 @@ class InterfaceTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
         virtual_chassis = VirtualChassis(name='Virtual Chassis')
         virtual_chassis.save()
 
+        tenants = (
+            Tenant(name='Tenant 1', slug='tenant-1'),
+            Tenant(name='Tenant 2', slug='tenant-2'),
+            Tenant(name='Tenant 3', slug='tenant-3'),
+        )
+        Tenant.objects.bulk_create(tenants)
+
         devices = (
             Device(
                 name='Device 1A',
+                tenant=tenants[0],
                 device_type=device_types[0],
                 role=roles[0],
                 site=sites[0],
@@ -4334,6 +4491,7 @@ class InterfaceTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
             ),
             Device(
                 name='Device 1B',
+                tenant=tenants[1],
                 device_type=device_types[2],
                 role=roles[2],
                 site=sites[2],
@@ -4346,6 +4504,7 @@ class InterfaceTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
             ),
             Device(
                 name='Device 2',
+                tenant=tenants[2],
                 device_type=device_types[1],
                 role=roles[1],
                 site=sites[1],
@@ -4355,6 +4514,7 @@ class InterfaceTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
             ),
             Device(
                 name='Device 3',
+                tenant=tenants[2],
                 device_type=device_types[2],
                 role=roles[2],
                 site=sites[2],
@@ -4372,6 +4532,11 @@ class InterfaceTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
             ),
         )
         Device.objects.bulk_create(devices)
+
+        # Expose base devices for regression tests which need custom cabling
+        # topologies.
+        cls.connection_filter_device = devices[0]
+        cls.connection_filter_peer_device = devices[1]
 
         virtual_chassis.master = devices[0]
         virtual_chassis.save()
@@ -4514,7 +4679,7 @@ class InterfaceTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
                 enabled=True,
                 mgmt_only=True,
                 tx_power=40,
-                speed=100000,
+                speed=16_000_000_000,
                 duplex='full',
                 poe_mode=InterfacePoEModeChoices.MODE_PD,
                 poe_type=InterfacePoETypeChoices.TYPE_2_8023AT,
@@ -4616,7 +4781,7 @@ class InterfaceTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
     def test_speed(self):
-        params = {'speed': [1000000, 100000]}
+        params = {'speed': [16_000_000_000, 1_000_000, 100_000]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
 
     def test_duplex(self):
@@ -4806,6 +4971,117 @@ class InterfaceTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
         params = {'connected': False}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
 
+    def test_connected_excludes_incomplete_pass_through_path(self):
+        """
+        Validate that connected=true requires a complete cable path, not merely
+        an active cable path.
+
+        The incomplete path below models:
+
+            interface -- front port -- rear port
+
+        with no onward cable from the rear port.
+        """
+        device = self.connection_filter_device
+        peer_device = self.connection_filter_peer_device
+
+        connected_interface = Interface.objects.create(
+            device=device,
+            name='Connected Filter Interface',
+            type=InterfaceTypeChoices.TYPE_1GE_FIXED,
+        )
+        connected_peer_interface = Interface.objects.create(
+            device=peer_device,
+            name='Connected Filter Peer Interface',
+            type=InterfaceTypeChoices.TYPE_1GE_FIXED,
+        )
+        incomplete_path_interface = Interface.objects.create(
+            device=device,
+            name='Connected Filter Incomplete Path Interface',
+            type=InterfaceTypeChoices.TYPE_1GE_FIXED,
+        )
+
+        patch_panel = Device.objects.create(
+            name='Connected Filter Patch Panel',
+            site=device.site,
+            device_type=device.device_type,
+            role=device.role,
+        )
+        rear_port = RearPort.objects.create(
+            device=patch_panel,
+            name='Patch Rear Port',
+            type=PortTypeChoices.TYPE_8P8C,
+            positions=1,
+        )
+        front_port = FrontPort.objects.create(
+            device=patch_panel,
+            name='Patch Front Port',
+            type=PortTypeChoices.TYPE_8P8C,
+        )
+        PortMapping.objects.create(
+            device=patch_panel,
+            front_port=front_port,
+            front_port_position=1,
+            rear_port=rear_port,
+            rear_port_position=1,
+        )
+
+        Cable(
+            a_terminations=[connected_interface],
+            b_terminations=[connected_peer_interface],
+        ).save()
+        Cable(
+            a_terminations=[incomplete_path_interface],
+            b_terminations=[front_port],
+        ).save()
+
+        connected_interface.refresh_from_db()
+        connected_peer_interface.refresh_from_db()
+        incomplete_path_interface.refresh_from_db()
+
+        self.assertTrue(connected_interface._path.is_active)
+        self.assertTrue(connected_interface._path.is_complete)
+        self.assertTrue(connected_peer_interface._path.is_active)
+        self.assertTrue(connected_peer_interface._path.is_complete)
+
+        self.assertTrue(incomplete_path_interface._path.is_active)
+        self.assertFalse(incomplete_path_interface._path.is_complete)
+
+        queryset = self.queryset.filter(
+            pk__in=(
+                connected_interface.pk,
+                connected_peer_interface.pk,
+                incomplete_path_interface.pk,
+            )
+        )
+
+        params = {'cabled': 'true'}
+        self.assertSetEqual(
+            set(self.filterset(params, queryset).qs.values_list('pk', flat=True)),
+            {
+                connected_interface.pk,
+                connected_peer_interface.pk,
+                incomplete_path_interface.pk,
+            },
+        )
+
+        params = {'connected': 'true'}
+        self.assertSetEqual(
+            set(self.filterset(params, queryset).qs.values_list('pk', flat=True)),
+            {
+                connected_interface.pk,
+                connected_peer_interface.pk,
+            },
+        )
+
+        params = {'connected': 'false'}
+        self.assertSetEqual(
+            set(self.filterset(params, queryset).qs.values_list('pk', flat=True)),
+            {
+                incomplete_path_interface.pk,
+            },
+        )
+
     def test_kind(self):
         params = {'kind': 'physical'}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 7)
@@ -4880,6 +5156,7 @@ class InterfaceTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
 class FrontPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = FrontPort.objects.all()
     filterset = FrontPortFilterSet
+    ignore_fields = ('cable_positions',)
 
     @classmethod
     def setUpTestData(cls):
@@ -4940,9 +5217,17 @@ class FrontPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
         )
         Rack.objects.bulk_create(racks)
 
+        tenants = (
+            Tenant(name='Tenant 1', slug='tenant-1'),
+            Tenant(name='Tenant 2', slug='tenant-2'),
+            Tenant(name='Tenant 3', slug='tenant-3'),
+        )
+        Tenant.objects.bulk_create(tenants)
+
         devices = (
             Device(
                 name='Device 1',
+                tenant=tenants[0],
                 device_type=device_types[0],
                 role=roles[0],
                 site=sites[0],
@@ -4952,6 +5237,7 @@ class FrontPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
             ),
             Device(
                 name='Device 2',
+                tenant=tenants[1],
                 device_type=device_types[1],
                 role=roles[1],
                 site=sites[1],
@@ -4961,6 +5247,7 @@ class FrontPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
             ),
             Device(
                 name='Device 3',
+                tenant=tenants[2],
                 device_type=device_types[2],
                 role=roles[2],
                 site=sites[2],
@@ -5012,8 +5299,6 @@ class FrontPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
                 label='A',
                 type=PortTypeChoices.TYPE_8P8C,
                 color=ColorChoices.COLOR_RED,
-                rear_port=rear_ports[0],
-                rear_port_position=1,
                 description='First',
                 _site=devices[0].site,
                 _location=devices[0].location,
@@ -5026,8 +5311,6 @@ class FrontPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
                 label='B',
                 type=PortTypeChoices.TYPE_110_PUNCH,
                 color=ColorChoices.COLOR_GREEN,
-                rear_port=rear_ports[1],
-                rear_port_position=2,
                 description='Second',
                 _site=devices[1].site,
                 _location=devices[1].location,
@@ -5040,8 +5323,6 @@ class FrontPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
                 label='C',
                 type=PortTypeChoices.TYPE_BNC,
                 color=ColorChoices.COLOR_BLUE,
-                rear_port=rear_ports[2],
-                rear_port_position=3,
                 description='Third',
                 _site=devices[2].site,
                 _location=devices[2].location,
@@ -5052,8 +5333,7 @@ class FrontPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
                 name='Front Port 4',
                 label='D',
                 type=PortTypeChoices.TYPE_FC,
-                rear_port=rear_ports[3],
-                rear_port_position=1,
+                positions=2,
                 _site=devices[3].site,
                 _location=devices[3].location,
                 _rack=devices[3].rack,
@@ -5063,8 +5343,7 @@ class FrontPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
                 name='Front Port 5',
                 label='E',
                 type=PortTypeChoices.TYPE_FC,
-                rear_port=rear_ports[4],
-                rear_port_position=1,
+                positions=3,
                 _site=devices[3].site,
                 _location=devices[3].location,
                 _rack=devices[3].rack,
@@ -5074,14 +5353,21 @@ class FrontPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
                 name='Front Port 6',
                 label='F',
                 type=PortTypeChoices.TYPE_FC,
-                rear_port=rear_ports[5],
-                rear_port_position=1,
+                positions=4,
                 _site=devices[3].site,
                 _location=devices[3].location,
                 _rack=devices[3].rack,
             ),
         )
         FrontPort.objects.bulk_create(front_ports)
+        PortMapping.objects.bulk_create([
+            PortMapping(device=devices[0], front_port=front_ports[0], rear_port=rear_ports[0]),
+            PortMapping(device=devices[1], front_port=front_ports[1], rear_port=rear_ports[1], rear_port_position=2),
+            PortMapping(device=devices[2], front_port=front_ports[2], rear_port=rear_ports[2], rear_port_position=3),
+            PortMapping(device=devices[3], front_port=front_ports[3], rear_port=rear_ports[3]),
+            PortMapping(device=devices[3], front_port=front_ports[4], rear_port=rear_ports[4]),
+            PortMapping(device=devices[3], front_port=front_ports[5], rear_port=rear_ports[5]),
+        ])
 
         # Cables
         Cable(a_terminations=[front_ports[0]], b_terminations=[front_ports[3]]).save()
@@ -5102,6 +5388,10 @@ class FrontPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
 
     def test_color(self):
         params = {'color': [ColorChoices.COLOR_RED, ColorChoices.COLOR_GREEN]}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_positions(self):
+        params = {'positions': [2, 3]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
     def test_description(self):
@@ -5171,6 +5461,7 @@ class FrontPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
 class RearPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilterSetTests):
     queryset = RearPort.objects.all()
     filterset = RearPortFilterSet
+    ignore_fields = ('cable_positions',)
 
     @classmethod
     def setUpTestData(cls):
@@ -5231,9 +5522,17 @@ class RearPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilt
         )
         Rack.objects.bulk_create(racks)
 
+        tenants = (
+            Tenant(name='Tenant 1', slug='tenant-1'),
+            Tenant(name='Tenant 2', slug='tenant-2'),
+            Tenant(name='Tenant 3', slug='tenant-3'),
+        )
+        Tenant.objects.bulk_create(tenants)
+
         devices = (
             Device(
                 name='Device 1',
+                tenant=tenants[0],
                 device_type=device_types[0],
                 role=roles[0],
                 site=sites[0],
@@ -5243,6 +5542,7 @@ class RearPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilt
             ),
             Device(
                 name='Device 2',
+                tenant=tenants[1],
                 device_type=device_types[1],
                 role=roles[1],
                 site=sites[1],
@@ -5252,6 +5552,7 @@ class RearPortTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFilt
             ),
             Device(
                 name='Device 3',
+                tenant=tenants[2],
                 device_type=device_types[2],
                 role=roles[2],
                 site=sites[2],
@@ -5508,9 +5809,17 @@ class ModuleBayTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
         )
         Rack.objects.bulk_create(racks)
 
+        tenants = (
+            Tenant(name='Tenant 1', slug='tenant-1'),
+            Tenant(name='Tenant 2', slug='tenant-2'),
+            Tenant(name='Tenant 3', slug='tenant-3'),
+        )
+        Tenant.objects.bulk_create(tenants)
+
         devices = (
             Device(
                 name='Device 1',
+                tenant=tenants[0],
                 device_type=device_types[0],
                 role=roles[0],
                 site=sites[0],
@@ -5520,6 +5829,7 @@ class ModuleBayTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
             ),
             Device(
                 name='Device 2',
+                tenant=tenants[1],
                 device_type=device_types[1],
                 role=roles[1],
                 site=sites[1],
@@ -5529,6 +5839,7 @@ class ModuleBayTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
             ),
             Device(
                 name='Device 3',
+                tenant=tenants[2],
                 device_type=device_types[2],
                 role=roles[2],
                 site=sites[2],
@@ -5681,9 +5992,17 @@ class DeviceBayTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
         )
         Rack.objects.bulk_create(racks)
 
+        tenants = (
+            Tenant(name='Tenant 1', slug='tenant-1'),
+            Tenant(name='Tenant 2', slug='tenant-2'),
+            Tenant(name='Tenant 3', slug='tenant-3'),
+        )
+        Tenant.objects.bulk_create(tenants)
+
         devices = (
             Device(
                 name='Device 1',
+                tenant=tenants[0],
                 device_type=device_types[0],
                 role=roles[0],
                 site=sites[0],
@@ -5693,6 +6012,7 @@ class DeviceBayTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
             ),
             Device(
                 name='Device 2',
+                tenant=tenants[1],
                 device_type=device_types[1],
                 role=roles[1],
                 site=sites[1],
@@ -5702,6 +6022,7 @@ class DeviceBayTestCase(TestCase, DeviceComponentFilterSetTests, ChangeLoggedFil
             ),
             Device(
                 name='Device 3',
+                tenant=tenants[2],
                 device_type=device_types[2],
                 role=roles[2],
                 site=sites[2],
@@ -6065,7 +6386,7 @@ class InventoryItemTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
     def test_component_type(self):
-        params = {'component_type': 'dcim.interface'}
+        params = {'component_type': ['dcim.interface']}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
 
     def test_status(self):
@@ -6342,13 +6663,9 @@ class CableTestCase(TestCase, ChangeLoggedFilterSetTests):
         console_server_port = ConsoleServerPort.objects.create(device=devices[0], name='Console Server Port 1')
         power_port = PowerPort.objects.create(device=devices[0], name='Power Port 1')
         power_outlet = PowerOutlet.objects.create(device=devices[0], name='Power Outlet 1')
-        rear_port = RearPort.objects.create(device=devices[0], name='Rear Port 1', positions=1)
-        front_port = FrontPort.objects.create(
-            device=devices[0],
-            name='Front Port 1',
-            rear_port=rear_port,
-            rear_port_position=1
-        )
+        rear_port = RearPort.objects.create(device=devices[0], name='Rear Port 1')
+        front_port = FrontPort.objects.create(device=devices[0], name='Front Port 1')
+        PortMapping.objects.create(device=devices[0], front_port=front_port, rear_port=rear_port)
 
         power_panel = PowerPanel.objects.create(name='Power Panel 1', site=sites[0])
         power_feed = PowerFeed.objects.create(name='Power Feed 1', power_panel=power_panel)
@@ -6541,10 +6858,8 @@ class CableTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
 
     def test_termination_types(self):
-        params = {'termination_a_type': 'dcim.consoleport'}
-        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
-        # params = {'termination_b_type': 'dcim.consoleserverport'}
-        # self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
+        params = {'termination_a_type': ['dcim.consoleport', 'dcim.consoleserverport']}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
     def test_termination_ids(self):
         interface_ids = CableTermination.objects.filter(
@@ -6552,7 +6867,7 @@ class CableTestCase(TestCase, ChangeLoggedFilterSetTests):
             cable_end='A'
         ).values_list('termination_id', flat=True)
         params = {
-            'termination_a_type': 'dcim.interface',
+            'termination_a_type': ['dcim.interface'],
             'termination_a_id': list(interface_ids),
         }
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
@@ -6683,6 +6998,7 @@ class PowerPanelTestCase(TestCase, ChangeLoggedFilterSetTests):
 class PowerFeedTestCase(TestCase, ChangeLoggedFilterSetTests):
     queryset = PowerFeed.objects.all()
     filterset = PowerFeedFilterSet
+    ignore_fields = ('cable_positions',)
 
     @classmethod
     def setUpTestData(cls):
@@ -7093,8 +7409,19 @@ class MACAddressTestCase(TestCase, ChangeLoggedFilterSetTests):
             MACAddress(mac_address='00-00-00-05-01-01', assigned_object=vm_interfaces[1]),
             MACAddress(mac_address='00-00-00-06-01-01', assigned_object=vm_interfaces[2]),
             MACAddress(mac_address='00-00-00-06-01-02', assigned_object=vm_interfaces[2]),
+            # unassigned
+            MACAddress(mac_address='00-00-00-07-01-01'),
         )
         MACAddress.objects.bulk_create(mac_addresses)
+
+        # Set MAC addresses as primary
+        for idx, interface in enumerate(interfaces):
+            interface.primary_mac_address = mac_addresses[idx]
+            interface.save()
+        for idx, vm_interface in enumerate(vm_interfaces):
+            # Offset by 4 for device MACs
+            vm_interface.primary_mac_address = mac_addresses[idx + 4]
+            vm_interface.save()
 
     def test_mac_address(self):
         params = {'mac_address': ['00-00-00-01-01-01', '00-00-00-02-01-01']}
@@ -7127,3 +7454,15 @@ class MACAddressTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
         params = {'vminterface': [vm_interfaces[0].name, vm_interfaces[1].name]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
+
+    def test_assigned(self):
+        params = {'assigned': True}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 8)
+        params = {'assigned': False}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
+
+    def test_primary(self):
+        params = {'primary': True}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 6)
+        params = {'primary': False}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)

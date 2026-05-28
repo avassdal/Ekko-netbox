@@ -1,13 +1,19 @@
+from unittest.mock import PropertyMock, patch
+
 from django.contrib.contenttypes.models import ContentType
+from django.test import tag
 from django.urls import reverse
 
+from core.choices import ManagedFileRootPathChoices
 from core.events import *
 from core.models import ObjectType
 from dcim.models import DeviceType, Manufacturer, Site
 from extras.choices import *
 from extras.models import *
+from extras.scripts import BooleanVar, IntegerVar
+from extras.scripts import Script as PythonClass
 from users.models import Group, User
-from utilities.testing import ViewTestCases, TestCase
+from utilities.testing import TestCase, ViewTestCases
 
 
 class CustomFieldTestCase(ViewTestCases.PrimaryObjectViewTestCase):
@@ -481,6 +487,78 @@ class TagTestCase(ViewTestCases.OrganizationalObjectViewTestCase):
         }
 
 
+class ConfigContextProfileTestCase(ViewTestCases.PrimaryObjectViewTestCase):
+    model = ConfigContextProfile
+
+    @classmethod
+    def setUpTestData(cls):
+        profiles = (
+            ConfigContextProfile(
+                name='Config Context Profile 1',
+                schema={
+                    "properties": {
+                        "foo": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "foo"
+                    ]
+                }
+            ),
+            ConfigContextProfile(
+                name='Config Context Profile 2',
+                schema={
+                    "properties": {
+                        "bar": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "bar"
+                    ]
+                }
+            ),
+            ConfigContextProfile(
+                name='Config Context Profile 3',
+                schema={
+                    "properties": {
+                        "baz": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "baz"
+                    ]
+                }
+            ),
+        )
+        ConfigContextProfile.objects.bulk_create(profiles)
+
+        cls.form_data = {
+            'name': 'Config Context Profile X',
+            'description': 'A new config context profile',
+        }
+
+        cls.bulk_edit_data = {
+            'description': 'New description',
+        }
+
+        cls.csv_data = (
+            'name,description',
+            'Config context profile 1,Foo',
+            'Config context profile 2,Bar',
+            'Config context profile 3,Baz',
+        )
+
+        cls.csv_update_data = (
+            "id,description",
+            f"{profiles[0].pk},New description",
+            f"{profiles[1].pk},New description",
+            f"{profiles[2].pk},New description",
+        )
+
+
 # TODO: Change base class to PrimaryObjectViewTestCase
 # Blocked by absence of standard create/edit, bulk create views
 class ConfigContextTestCase(
@@ -825,3 +903,119 @@ class ScriptListViewTest(TestCase):
         response = self.client.get(url, {'embedded': 'true'})
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'extras/inc/script_list_content.html')
+
+
+class ScriptValidationErrorTest(TestCase):
+    user_permissions = ['extras.view_script', 'extras.run_script']
+
+    class TestScriptMixin:
+        bar = IntegerVar(min_value=0, max_value=30)
+
+    class TestScriptClass(TestScriptMixin, PythonClass):
+        class Meta:
+            name = 'Test script'
+            commit_default = False
+            fieldsets = (("Logging", ("debug_mode",)),)
+
+        debug_mode = BooleanVar(default=False)
+
+        def run(self, data, commit):
+            return "Complete"
+
+    @classmethod
+    def setUpTestData(cls):
+        # Avoid trying to import a non-existent on-disk module during setup.
+        # This test creates the Script row explicitly and monkey-patches
+        # Script.python_class below.
+        with patch.object(ScriptModule, 'sync_classes'):
+            module = ScriptModule.objects.create(
+                file_root=ManagedFileRootPathChoices.SCRIPTS,
+                file_path='test_script.py',
+            )
+        cls.script = Script.objects.create(module=module, name='Test script', is_executable=True)
+
+    def setUp(self):
+        super().setUp()
+        Script.python_class = property(lambda self: ScriptValidationErrorTest.TestScriptClass)
+
+    @tag('regression')
+    def test_script_validation_error_displays_message(self):
+        url = reverse('extras:script', kwargs={'pk': self.script.pk})
+
+        with patch('extras.views.get_workers_for_queue', return_value=['worker']):
+            response = self.client.post(url, {'debug_mode': 'true', '_commit': 'true'})
+
+        self.assertEqual(response.status_code, 200)
+        messages = list(response.context['messages'])
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(str(messages[0]), "bar: This field is required.")
+
+    @tag('regression')
+    def test_script_validation_error_no_toast_for_fieldset_fields(self):
+        class FieldsetScript(PythonClass):
+            class Meta:
+                name = 'Fieldset test'
+                commit_default = False
+                fieldsets = (("Fields", ("required_field",)),)
+
+            required_field = IntegerVar(min_value=10)
+
+            def run(self, data, commit):
+                return "Complete"
+
+        url = reverse('extras:script', kwargs={'pk': self.script.pk})
+
+        with patch.object(Script, 'python_class', new_callable=PropertyMock) as mock_python_class:
+            mock_python_class.return_value = FieldsetScript
+            with patch('extras.views.get_workers_for_queue', return_value=['worker']):
+                response = self.client.post(url, {'required_field': '5', '_commit': 'true'})
+
+        self.assertEqual(response.status_code, 200)
+        messages = list(response.context['messages'])
+        self.assertEqual(len(messages), 0)
+
+
+class ScriptDefaultValuesTest(TestCase):
+    user_permissions = ['extras.view_script', 'extras.run_script']
+
+    class TestScriptClass(PythonClass):
+        class Meta:
+            name = 'Test script'
+            commit_default = False
+
+        bool_default_true = BooleanVar(default=True)
+        bool_default_false = BooleanVar(default=False)
+        int_with_default = IntegerVar(default=0)
+        int_without_default = IntegerVar(required=False)
+
+        def run(self, data, commit):
+            return "Complete"
+
+    @classmethod
+    def setUpTestData(cls):
+        # Avoid trying to import a non-existent on-disk module during setup.
+        # This test creates the Script row explicitly and monkey-patches
+        # Script.python_class below.
+        with patch.object(ScriptModule, 'sync_classes'):
+            module = ScriptModule.objects.create(
+                file_root=ManagedFileRootPathChoices.SCRIPTS,
+                file_path='test_script.py',
+            )
+        cls.script = Script.objects.create(module=module, name='Test script', is_executable=True)
+
+    def setUp(self):
+        super().setUp()
+        Script.python_class = property(lambda self: ScriptDefaultValuesTest.TestScriptClass)
+
+    def test_default_values_are_used(self):
+        url = reverse('extras:script', kwargs={'pk': self.script.pk})
+
+        with patch('extras.views.get_workers_for_queue', return_value=['worker']):
+            with patch('extras.jobs.ScriptJob.enqueue') as mock_enqueue:
+                mock_enqueue.return_value.pk = 1
+                self.client.post(url, {})
+                call_kwargs = mock_enqueue.call_args.kwargs
+                self.assertEqual(call_kwargs['data']['bool_default_true'], True)
+                self.assertEqual(call_kwargs['data']['bool_default_false'], False)
+                self.assertEqual(call_kwargs['data']['int_with_default'], 0)
+                self.assertIsNone(call_kwargs['data']['int_without_default'])

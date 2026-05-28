@@ -18,7 +18,8 @@ They can also be used as a mechanism for validating the integrity of data within
 Custom scripts are Python code which exists outside the NetBox code base, so they can be updated and changed without interfering with the core NetBox installation. And because they're completely custom, there is no inherent limitation on what a script can accomplish.
 
 !!! danger "Only install trusted scripts"
-    Custom scripts have unrestricted access to change anything in the databse and are inherently unsafe and should only be installed and run from trusted sources.  You should also review and set permissions for who can run scripts if the script can modify any data.
+    Custom scripts have unrestricted access to change anything in the database and are inherently unsafe and should only be installed and run from trusted sources.  You should also review and set permissions for who can run scripts if the script can modify any data.
+
 
 ## Writing Custom Scripts
 
@@ -95,7 +96,7 @@ An example fieldset definition is provided below:
 
 ```python
 class MyScript(Script):
-    class Meta:
+    class Meta(Script.Meta):
         fieldsets = (
             ('First group', ('field1', 'field2', 'field3')),
             ('Second group', ('field4', 'field5')),
@@ -130,17 +131,6 @@ self.log_info(f"Running as user {username} (IP: {ip_address})...")
 ```
 
 For a complete list of available request parameters, please see the [Django documentation](https://docs.djangoproject.com/en/stable/ref/request-response/).
-
-## Reading Data from Files
-
-The Script class provides two convenience methods for reading data from files:
-
-* `load_yaml`
-* `load_json`
-
-These two methods will load data in YAML or JSON format, respectively, from files within the local path (i.e. `SCRIPTS_ROOT`).
-
-**Note:** These convenience methods are deprecated and will be removed in NetBox v4.4.  These only work if running scripts within the local path, they will not work if using a storage other than ScriptFileSystemStorage.
 
 ## Logging
 
@@ -225,6 +215,7 @@ if obj.pk and hasattr(obj, 'snapshot'):
     obj.snapshot()
 
 obj.property = "New Value"
+obj._changelog_message = 'Example Message Text' # Optional
 obj.full_clean()
 obj.save()
 ```
@@ -274,6 +265,15 @@ Stores a numeric integer. Options include:
 
 * `min_value` - Minimum value
 * `max_value` - Maximum value
+
+### DecimalVar
+
+Stores a numeric decimal. Options include:
+
+* `min_value` - Minimum value
+* `max_value` - Maximum value
+* `max_digits` - Maximum number of digits, including decimal places
+* `decimal_places` - Number of decimal places
 
 ### BooleanVar
 
@@ -384,6 +384,18 @@ A calendar date. Returns a `datetime.date` object.
 
 A complete date & time. Returns a `datetime.datetime` object.
 
+## Uploading Scripts via the API
+
+Script modules can be uploaded to NetBox via the REST API by sending a `multipart/form-data` POST request to `/api/extras/scripts/upload/`. The caller must have the `extras.add_scriptmodule` and `core.add_managedfile` permissions.
+
+```no-highlight
+curl -X POST \
+-H "Authorization: Token $TOKEN" \
+-H "Accept: application/json; indent=4" \
+-F "file=@/path/to/myscript.py" \
+http://netbox/api/extras/scripts/upload/
+```
+
 ## Running Custom Scripts
 
 !!! note
@@ -394,6 +406,61 @@ A complete date & time. Returns a `datetime.datetime` object.
 ### Via the Web UI
 
 Custom scripts can be run via the web UI by navigating to the script, completing any required form data, and clicking the "run script" button. It is possible to schedule a script to be executed at specified time in the future. A scheduled script can be canceled by deleting the associated job result object.
+
+#### Prefilling variables via URL parameters
+
+Script form fields can be prefilled by appending query parameters to the script URL. Each parameter name must match the variable name defined on the script class. Prefilled values are treated as initial values and can be edited before execution. Multiple values can be supplied by repeating the same parameter. Query values must be percent‑encoded where required (for example, spaces as `%20`).
+
+Examples:
+
+For string and integer variables, when a script defines:
+
+```python
+from extras.scripts import Script, StringVar, IntegerVar
+
+class MyScript(Script):
+    name = StringVar()
+    count = IntegerVar()
+```
+
+the following URL prefills the `name` and `count` fields:
+
+```
+https://<netbox>/extras/scripts/<script_id>/?name=Branch42&count=3
+```
+
+For object variables (`ObjectVar`), supply the object’s primary key (PK):
+
+```
+https://<netbox>/extras/scripts/<script_id>/?device=1
+```
+
+If an object ID cannot be resolved or the object is not visible to the requesting user, the field remains unpopulated.
+
+Supported variable types:
+
+| Variable class           | Expected input                  | Example query string                        |
+|--------------------------|---------------------------------|---------------------------------------------|
+| `StringVar`              | string (percent‑encoded)        | `?name=Branch42`                            |
+| `TextVar`                | string (percent‑encoded)        | `?notes=Initial%20value`                    |
+| `IntegerVar`             | integer                         | `?count=3`                                  |
+| `DecimalVar`             | decimal number                  | `?ratio=0.75`                               |
+| `BooleanVar`             | value → `True`; empty → `False` | `?enabled=true` (True), `?enabled=` (False) |
+| `ChoiceVar`              | choice value (not label)        | `?role=edge`                                |
+| `MultiChoiceVar`         | choice values (repeat)          | `?roles=edge&roles=core`                    |
+| `ObjectVar(Device)`      | PK (integer)                    | `?device=1`                                 |
+| `MultiObjectVar(Device)` | PKs (repeat)                    | `?devices=1&devices=2`                      |
+| `IPAddressVar`           | IP address                      | `?ip=198.51.100.10`                         |
+| `IPAddressWithMaskVar`   | IP address with mask            | `?addr=192.0.2.1/24`                        |
+| `IPNetworkVar`           | IP network prefix               | `?network=2001:db8::/64`                    |
+| `DateVar`                | date `YYYY-MM-DD`               | `?date=2025-01-05`                          |
+| `DateTimeVar`            | ISO datetime                    | `?when=2025-01-05T14:30:00`                 |
+| `FileVar`                | — (not supported)               | —                                           |
+
+!!! note
+    - The parameter names above are examples; use the actual variable attribute names defined by the script.
+    - For `BooleanVar`, only an empty value (`?enabled=`) unchecks the box; any other value including `false` or `0` checks it.
+    - File uploads (`FileVar`) cannot be prefilled via URL parameters.
 
 ### Via the API
 
@@ -446,7 +513,7 @@ from extras.scripts import *
 
 class NewBranchScript(Script):
 
-    class Meta:
+    class Meta(Script.Meta):
         name = "New Branch"
         description = "Provision a new branch site"
         field_order = ['site_name', 'switch_count', 'switch_model']

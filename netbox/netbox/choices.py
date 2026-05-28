@@ -5,8 +5,8 @@ from utilities.constants import CSV_DELIMITERS
 
 __all__ = (
     'ButtonColorChoices',
-    'ColorChoices',
     'CSVDelimiterChoices',
+    'ColorChoices',
     'DistanceUnitChoices',
     'ImportFormatChoices',
     'ImportMethodChoices',
@@ -151,12 +151,14 @@ class CSVDelimiterChoices(ChoiceSet):
     AUTO = 'auto'
     COMMA = CSV_DELIMITERS['comma']
     SEMICOLON = CSV_DELIMITERS['semicolon']
+    PIPE = CSV_DELIMITERS['pipe']
     TAB = CSV_DELIMITERS['tab']
 
     CHOICES = [
         (AUTO, _('Auto-detect')),
         (COMMA, _('Comma')),
         (SEMICOLON, _('Semicolon')),
+        (PIPE, _('Pipe')),
         (TAB, _('Tab')),
     ]
 

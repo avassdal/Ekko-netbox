@@ -1,6 +1,7 @@
 from django.urls import include, path
 
 from utilities.urls import get_model_urls
+
 from . import views
 
 app_name = 'circuits'
@@ -18,11 +19,6 @@ urlpatterns = [
     path('circuit-types/<int:pk>/', include(get_model_urls('circuits', 'circuittype'))),
 
     path('circuits/', include(get_model_urls('circuits', 'circuit', detail=False))),
-    path(
-        'circuits/<int:pk>/terminations/swap/',
-        views.CircuitSwapTerminations.as_view(),
-        name='circuit_terminations_swap'
-    ),
     path('circuits/<int:pk>/', include(get_model_urls('circuits', 'circuit'))),
 
     path('circuit-terminations/', include(get_model_urls('circuits', 'circuittermination', detail=False))),
@@ -35,11 +31,7 @@ urlpatterns = [
     path('circuit-group-assignments/<int:pk>/', include(get_model_urls('circuits', 'circuitgroupassignment'))),
 
     # Virtual circuits
-    path('virtual-circuits/', views.VirtualCircuitListView.as_view(), name='virtualcircuit_list'),
-    path('virtual-circuits/add/', views.VirtualCircuitEditView.as_view(), name='virtualcircuit_add'),
-    path('virtual-circuits/import/', views.VirtualCircuitBulkImportView.as_view(), name='virtualcircuit_bulk_import'),
-    path('virtual-circuits/edit/', views.VirtualCircuitBulkEditView.as_view(), name='virtualcircuit_bulk_edit'),
-    path('virtual-circuits/delete/', views.VirtualCircuitBulkDeleteView.as_view(), name='virtualcircuit_bulk_delete'),
+    path('virtual-circuits/', include(get_model_urls('circuits', 'virtualcircuit', detail=False))),
     path('virtual-circuits/<int:pk>/', include(get_model_urls('circuits', 'virtualcircuit'))),
 
     path('virtual-circuit-types/', include(get_model_urls('circuits', 'virtualcircuittype', detail=False))),

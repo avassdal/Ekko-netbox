@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
@@ -8,6 +8,7 @@ from dcim.models import Site
 from ipam.models import IPAddress
 from users.models import User
 from utilities.testing import BaseFilterSetTests, ChangeLoggedFilterSetTests
+
 from ..choices import *
 from ..filtersets import *
 from ..models import *
@@ -99,21 +100,21 @@ class DataFileTestCase(TestCase, ChangeLoggedFilterSetTests):
             DataFile(
                 source=data_sources[0],
                 path='dir1/file1.txt',
-                last_updated=datetime(2023, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+                last_updated=datetime(2023, 1, 1, 0, 0, 0, tzinfo=UTC),
                 size=1000,
                 hash='442da078f0111cbdf42f21903724f6597c692535f55bdfbbea758a1ae99ad9e1'
             ),
             DataFile(
                 source=data_sources[1],
                 path='dir1/file2.txt',
-                last_updated=datetime(2023, 1, 2, 0, 0, 0, tzinfo=timezone.utc),
+                last_updated=datetime(2023, 1, 2, 0, 0, 0, tzinfo=UTC),
                 size=2000,
                 hash='a78168c7c97115bafd96450ed03ea43acec495094c5caa28f0d02e20e3a76cc2'
             ),
             DataFile(
                 source=data_sources[2],
                 path='dir1/file3.txt',
-                last_updated=datetime(2023, 1, 3, 0, 0, 0, tzinfo=timezone.utc),
+                last_updated=datetime(2023, 1, 3, 0, 0, 0, tzinfo=UTC),
                 size=3000,
                 hash='12b8827a14c4d5a2f30b6c6e2b7983063988612391c6cbe8ee7493b59054827a'
             ),
@@ -150,7 +151,7 @@ class DataFileTestCase(TestCase, ChangeLoggedFilterSetTests):
 class ObjectChangeTestCase(TestCase, BaseFilterSetTests):
     queryset = ObjectChange.objects.all()
     filterset = ObjectChangeFilterSet
-    ignore_fields = ('prechange_data', 'postchange_data')
+    ignore_fields = ('message', 'prechange_data', 'postchange_data')
 
     @classmethod
     def setUpTestData(cls):
@@ -237,7 +238,52 @@ class ObjectChangeTestCase(TestCase, BaseFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
 
     def test_changed_object_type(self):
-        params = {'changed_object_type': 'dcim.site'}
+        params = {'changed_object_type': ['dcim.site']}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
-        params = {'changed_object_type_id': [ContentType.objects.get(app_label='dcim', model='site').pk]}
+        params = {'changed_object_type_id': [ContentType.objects.get_by_natural_key('dcim', 'site').pk]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+
+
+class ObjectTypeTestCase(TestCase, BaseFilterSetTests):
+    queryset = ObjectType.objects.all()
+    filterset = ObjectTypeFilterSet
+    ignore_fields = (
+        'custom_fields',
+        'custom_links',
+        'event_rules',
+        'export_templates',
+        'object_permissions',
+        'saved_filters',
+    )
+
+    def test_q(self):
+        params = {'q': 'vrf'}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
+
+    def test_app_label(self):
+        self.assertEqual(
+            self.filterset({'app_label': ['dcim']}, self.queryset).qs.count(),
+            ObjectType.objects.filter(app_label='dcim').count(),
+        )
+
+    def test_model(self):
+        self.assertEqual(
+            self.filterset({'model': ['site']}, self.queryset).qs.count(),
+            ObjectType.objects.filter(model='site').count(),
+        )
+
+    def test_public(self):
+        self.assertEqual(
+            self.filterset({'public': True}, self.queryset).qs.count(),
+            ObjectType.objects.filter(public=True).count(),
+        )
+        self.assertEqual(
+            self.filterset({'public': False}, self.queryset).qs.count(),
+            ObjectType.objects.filter(public=False).count(),
+        )
+
+    def test_feature(self):
+        self.assertEqual(
+            self.filterset({'features': 'tags'}, self.queryset).qs.count(),
+            ObjectType.objects.filter(features__contains=['tags']).count(),
+        )

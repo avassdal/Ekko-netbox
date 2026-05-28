@@ -1,9 +1,9 @@
 import decimal
-import yaml
-
 from functools import cached_property
 
+import yaml
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -15,25 +15,24 @@ from django.urls import reverse
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 
-from core.models import ObjectType
 from dcim.choices import *
 from dcim.constants import *
 from dcim.fields import MACAddressField
-from dcim.utils import update_interface_bridges
+from dcim.utils import create_port_mappings, update_interface_bridges
 from extras.models import ConfigContextModel, CustomField
 from extras.querysets import ConfigContextModelQuerySet
 from netbox.choices import ColorChoices
 from netbox.config import ConfigItem
 from netbox.models import NestedGroupModel, OrganizationalModel, PrimaryModel
-from netbox.models.mixins import WeightMixin
 from netbox.models.features import ContactsMixin, ImageAttachmentsMixin
+from netbox.models.mixins import WeightMixin
 from utilities.fields import ColorField, CounterCacheField
 from utilities.prefetch import get_prefetchable_fields
 from utilities.tracking import TrackingModelMixin
+
 from .device_components import *
 from .mixins import RenderConfigMixin
 from .modules import Module
-
 
 __all__ = (
     'Device',
@@ -185,6 +184,10 @@ class DeviceType(ImageAttachmentsMixin, PrimaryModel, WeightMixin):
         to_model='dcim.InventoryItemTemplate',
         to_field='device_type'
     )
+    device_count = CounterCacheField(
+        to_model='dcim.Device',
+        to_field='device_type'
+    )
 
     clone_fields = (
         'manufacturer', 'default_platform', 'u_height', 'is_full_depth', 'subdevice_role', 'airflow', 'weight',
@@ -272,6 +275,15 @@ class DeviceType(ImageAttachmentsMixin, PrimaryModel, WeightMixin):
             data['rear-ports'] = [
                 c.to_yaml() for c in self.rearporttemplates.all()
             ]
+
+        # Port mappings
+        port_mapping_data = [
+            c.to_yaml() for c in self.port_mappings.all()
+        ]
+
+        if port_mapping_data:
+            data['port-mappings'] = port_mapping_data
+
         if self.modulebaytemplates.exists():
             data['module-bays'] = [
                 c.to_yaml() for c in self.modulebaytemplates.all()
@@ -399,6 +411,9 @@ class DeviceRole(NestedGroupModel):
 
     class Meta:
         ordering = ('name',)
+        # Empty tuple triggers Django migration detection for MPTT indexes
+        # (see #21016, django-mptt/django-mptt#682)
+        indexes = ()
         constraints = (
             models.UniqueConstraint(
                 fields=('parent', 'name'),
@@ -425,7 +440,7 @@ class DeviceRole(NestedGroupModel):
         verbose_name_plural = _('device roles')
 
 
-class Platform(OrganizationalModel):
+class Platform(NestedGroupModel):
     """
     Platform refers to the software or firmware running on a Device. For example, "Cisco IOS-XR" or "Juniper Junos". A
     Platform may optionally be associated with a particular Manufacturer.
@@ -446,10 +461,37 @@ class Platform(OrganizationalModel):
         null=True
     )
 
+    clone_fields = ('parent', 'description')
+
     class Meta:
         ordering = ('name',)
+        # Empty tuple triggers Django migration detection for MPTT indexes
+        # (see #21016, django-mptt/django-mptt#682)
+        indexes = ()
         verbose_name = _('platform')
         verbose_name_plural = _('platforms')
+        constraints = (
+            models.UniqueConstraint(
+                fields=('manufacturer', 'name'),
+                name='%(app_label)s_%(class)s_manufacturer_name',
+            ),
+            models.UniqueConstraint(
+                fields=('name',),
+                name='%(app_label)s_%(class)s_name',
+                condition=Q(manufacturer__isnull=True),
+                violation_error_message=_("Platform name must be unique.")
+            ),
+            models.UniqueConstraint(
+                fields=('manufacturer', 'slug'),
+                name='%(app_label)s_%(class)s_manufacturer_slug',
+            ),
+            models.UniqueConstraint(
+                fields=('slug',),
+                name='%(app_label)s_%(class)s_slug',
+                condition=Q(manufacturer__isnull=True),
+                violation_error_message=_("Platform slug must be unique.")
+            ),
+        )
 
 
 class Device(
@@ -622,6 +664,10 @@ class Device(
         decimal_places=6,
         blank=True,
         null=True,
+        validators=[
+            MinValueValidator(decimal.Decimal('-90.0')),
+            MaxValueValidator(decimal.Decimal('90.0'))
+        ],
         help_text=_("GPS coordinate in decimal format (xx.yyyyyy)")
     )
     longitude = models.DecimalField(
@@ -630,6 +676,10 @@ class Device(
         decimal_places=6,
         blank=True,
         null=True,
+        validators=[
+            MinValueValidator(decimal.Decimal('-180.0')),
+            MaxValueValidator(decimal.Decimal('180.0'))
+        ],
         help_text=_("GPS coordinate in decimal format (xx.yyyyyy)")
     )
     services = GenericRelation(
@@ -721,11 +771,11 @@ class Device(
     def __str__(self):
         if self.label and self.asset_tag:
             return f'{self.label} ({self.asset_tag})'
-        elif self.label:
+        if self.label:
             return self.label
-        elif self.device_type and self.asset_tag:
+        if self.device_type and self.asset_tag:
             return f'{self.device_type.manufacturer} {self.device_type.model} ({self.asset_tag})'
-        elif self.device_type:
+        if self.device_type:
             return f'{self.device_type.manufacturer} {self.device_type.model} ({self.pk})'
         return super().__str__()
 
@@ -925,6 +975,11 @@ class Device(
             if cf_defaults := CustomField.objects.get_defaults_for_model(model):
                 for component in components:
                     component.custom_field_data = cf_defaults
+            # Set denormalized references
+            for component in components:
+                component._site = self.site
+                component._location = self.location
+                component._rack = self.rack
             components = model.objects.bulk_create(components)
             # Prefetch related objects to minimize queries needed during post_save
             prefetch_fields = get_prefetchable_fields(model)
@@ -973,6 +1028,8 @@ class Device(
             self._instantiate_components(self.device_type.interfacetemplates.all())
             self._instantiate_components(self.device_type.rearporttemplates.all())
             self._instantiate_components(self.device_type.frontporttemplates.all())
+            # Replicate any front/rear port mappings from the DeviceType
+            create_port_mappings(self, self.device_type)
             # Disable bulk_create to accommodate MPTT
             self._instantiate_components(self.device_type.modulebaytemplates.all(), bulk_create=False)
             self._instantiate_components(self.device_type.devicebaytemplates.all())
@@ -998,6 +1055,7 @@ class Device(
             return self.name
         if self.virtual_chassis:
             return f'{self.virtual_chassis.name}:{self.vc_position}'
+        return None
 
     @property
     def identifier(self):
@@ -1010,12 +1068,11 @@ class Device(
     def primary_ip(self):
         if ConfigItem('PREFER_IPV4')() and self.primary_ip4:
             return self.primary_ip4
-        elif self.primary_ip6:
+        if self.primary_ip6:
             return self.primary_ip6
-        elif self.primary_ip4:
+        if self.primary_ip4:
             return self.primary_ip4
-        else:
-            return None
+        return None
 
     @property
     def interfaces_count(self):
@@ -1130,7 +1187,6 @@ class VirtualChassis(PrimaryModel):
             })
 
     def delete(self, *args, **kwargs):
-
         # Check for LAG interfaces split across member chassis
         interfaces = Interface.objects.filter(
             device__in=self.members.all(),
@@ -1143,6 +1199,13 @@ class VirtualChassis(PrimaryModel):
                 "Unable to delete virtual chassis {self}. There are member interfaces which form a cross-chassis LAG "
                 "interfaces."
             ).format(self=self, interfaces=InterfaceSpeedChoices))
+
+        # Clear vc_position and vc_priority on member devices BEFORE calling super().delete()
+        # This must be done here because on_delete=SET_NULL executes before pre_delete signal
+        for device in self.members.all():
+            device.vc_position = None
+            device.vc_priority = None
+            device.save()
 
         return super().delete(*args, **kwargs)
 
@@ -1224,12 +1287,11 @@ class VirtualDeviceContext(PrimaryModel):
     def primary_ip(self):
         if ConfigItem('PREFER_IPV4')() and self.primary_ip4:
             return self.primary_ip4
-        elif self.primary_ip6:
+        if self.primary_ip6:
             return self.primary_ip6
-        elif self.primary_ip4:
+        if self.primary_ip4:
             return self.primary_ip4
-        else:
-            return None
+        return None
 
     def clean(self):
         super().clean()
@@ -1276,7 +1338,10 @@ class MACAddress(PrimaryModel):
     )
 
     class Meta:
-        ordering = ('mac_address', 'pk',)
+        ordering = ('mac_address', 'pk')
+        indexes = (
+            models.Index(fields=('assigned_object_type', 'assigned_object_id')),
+        )
         verbose_name = _('MAC address')
         verbose_name_plural = _('MAC addresses')
 
@@ -1301,7 +1366,7 @@ class MACAddress(PrimaryModel):
         super().clean()
         if self._original_assigned_object_id and self._original_assigned_object_type_id:
             assigned_object = self.assigned_object
-            ct = ObjectType.objects.get_for_id(self._original_assigned_object_type_id)
+            ct = ContentType.objects.get_for_id(self._original_assigned_object_type_id)
             original_assigned_object = ct.get_object_for_this_type(pk=self._original_assigned_object_id)
 
             if (
@@ -1312,7 +1377,7 @@ class MACAddress(PrimaryModel):
                     raise ValidationError(
                         _("Cannot unassign MAC Address while it is designated as the primary MAC for an object")
                     )
-                elif original_assigned_object != assigned_object:
+                if original_assigned_object != assigned_object:
                     raise ValidationError(
                         _("Cannot reassign MAC Address while it is designated as the primary MAC for an object")
                     )

@@ -5,6 +5,16 @@
   font-variant-ligatures: none;
 }
 
+// TODO: Remove when Tabler releases fix for https://github.com/tabler/tabler/issues/2271
+// and NetBox upgrades to that version. Fix merged to Tabler dev branch in PR #2548.
+:root,
+:host {
+  @include media-breakpoint-up(lg) {
+    margin-left: 0;
+    scrollbar-gutter: stable;
+  }
+}
+
 // Restore default foreground & background colors for <pre> blocks
 pre {
   background-color: transparent;
@@ -14,6 +24,11 @@ pre {
 // Slightly increase alert contrast between bg and text
 .alert {
   background: var(--#{$prefix}bg-surface);
+}
+
+// Permit copying of badge text
+.badge {
+  user-select: text;
 }
 
 // Button adjustments
@@ -78,7 +93,7 @@ pre {
 }
 
 // Dark mode overrides
-body[data-bs-theme=dark] {
+html[data-bs-theme=dark] {
   // Override background color alpha value
   ::selection {
     background-color: rgba(var(--tblr-primary-rgb),.48);
@@ -156,4 +171,26 @@ pre code {
   transform: none;
   vertical-align: .05em;
   height: auto;
+}
+
+// Center the accordion chevron inside Tabler's toggle box.
+.accordion-button-toggle {
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+
+  > i {
+    display: block;
+    line-height: 1;
+  }
+}
+
+// Theme-based visibility utilities
+:root:not(.dummy)[data-bs-theme='light'] .hide-theme-light,
+:root:not(.dummy)[data-bs-theme='dark'] .hide-theme-dark {
+  display: none !important;
+}
+:root:not(.dummy)[data-bs-theme='dark'] .hide-theme-light,
+:root:not(.dummy)[data-bs-theme='light'] .hide-theme-dark {
+  display: inline-flex !important;
 }

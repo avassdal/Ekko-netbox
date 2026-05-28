@@ -1,16 +1,30 @@
 from django.db.models import Count
+from django.utils.translation import gettext_lazy as _
 
 from core.models import ObjectChange
 from core.tables import ObjectChangeTable
+from netbox.object_actions import AddObject, BulkDelete, BulkEdit, BulkExport, BulkImport, BulkRename
+from netbox.ui import actions, layout
+from netbox.ui.panels import (
+    ContextTablePanel,
+    JSONPanel,
+    ObjectsTablePanel,
+    OrganizationalObjectPanel,
+    RelatedObjectsPanel,
+    TemplatePanel,
+)
 from netbox.views import generic
-from utilities.views import register_model_view
-from . import filtersets, forms, tables
-from .models import Group, User, ObjectPermission, Token
+from users.ui import panels
+from utilities.query import count_related
+from utilities.views import GetRelatedModelsMixin, register_model_view
 
+from . import filtersets, forms, tables
+from .models import Group, ObjectPermission, Owner, OwnerGroup, Token, User
 
 #
 # Tokens
 #
+
 
 @register_model_view(Token, 'list', path='', detail=False)
 class TokenListView(generic.ObjectListView):
@@ -18,11 +32,20 @@ class TokenListView(generic.ObjectListView):
     filterset = filtersets.TokenFilterSet
     filterset_form = forms.TokenFilterForm
     table = tables.TokenTable
+    actions = (AddObject, BulkImport, BulkExport, BulkEdit, BulkDelete)
 
 
 @register_model_view(Token)
 class TokenView(generic.ObjectView):
     queryset = Token.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.TokenPanel(),
+        ],
+        right_panels=[
+            panels.TokenExamplePanel(),
+        ],
+    )
 
 
 @register_model_view(Token, 'add', detail=False)
@@ -72,7 +95,39 @@ class UserListView(generic.ObjectListView):
 @register_model_view(User)
 class UserView(generic.ObjectView):
     queryset = User.objects.all()
-    template_name = 'users/user.html'
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.UserPanel(),
+        ],
+        right_panels=[
+            ObjectsTablePanel(
+                'users.Group', title=_('Assigned Groups'), filters={'user_id': lambda ctx: ctx['object'].pk}
+            ),
+            ObjectsTablePanel(
+                'users.ObjectPermission',
+                title=_('Assigned Permissions'),
+                filters={'user_id': lambda ctx: ctx['object'].pk},
+            ),
+            ObjectsTablePanel(
+                'users.Owner', title=_('Owner Membership'), filters={'user_id': lambda ctx: ctx['object'].pk}
+            ),
+        ],
+        bottom_panels=[
+            ContextTablePanel(
+                'changelog_table',
+                title=_('Recent Activity'),
+                actions=[
+                    actions.LinkAction(
+                        view_name='core:objectchange_list',
+                        url_params={'user_id': lambda ctx: ctx['object'].pk},
+                        label=_('View All'),
+                        button_icon='arrow-right-thick',
+                        permissions=['core.view_objectchange'],
+                    ),
+                ],
+            ),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         changelog = ObjectChange.objects.valid_models().restrict(request.user, 'view').filter(user=instance)[:20]
@@ -111,6 +166,13 @@ class UserBulkEditView(generic.BulkEditView):
     form = forms.UserBulkEditForm
 
 
+@register_model_view(User, 'bulk_rename', path='rename', detail=False)
+class UserBulkRenameView(generic.BulkRenameView):
+    queryset = User.objects.all()
+    field_name = 'username'
+    filterset = filtersets.UserFilterSet
+
+
 @register_model_view(User, 'bulk_delete', path='delete', detail=False)
 class UserBulkDeleteView(generic.BulkDeleteView):
     queryset = User.objects.all()
@@ -133,7 +195,22 @@ class GroupListView(generic.ObjectListView):
 @register_model_view(Group)
 class GroupView(generic.ObjectView):
     queryset = Group.objects.all()
-    template_name = 'users/group.html'
+    layout = layout.SimpleLayout(
+        left_panels=[
+            OrganizationalObjectPanel(),
+        ],
+        right_panels=[
+            ObjectsTablePanel('users.User', filters={'group_id': lambda ctx: ctx['object'].pk}),
+            ObjectsTablePanel(
+                'users.ObjectPermission',
+                title=_('Assigned Permissions'),
+                filters={'group_id': lambda ctx: ctx['object'].pk},
+            ),
+            ObjectsTablePanel(
+                'users.Owner', title=_('Owner Membership'), filters={'user_group_id': lambda ctx: ctx['object'].pk}
+            ),
+        ],
+    )
 
 
 @register_model_view(Group, 'add', detail=False)
@@ -162,6 +239,12 @@ class GroupBulkEditView(generic.BulkEditView):
     form = forms.GroupBulkEditForm
 
 
+@register_model_view(Group, 'bulk_rename', path='rename', detail=False)
+class GroupBulkRenameView(generic.BulkRenameView):
+    queryset = Group.objects.all()
+    filterset = filtersets.GroupFilterSet
+
+
 @register_model_view(Group, 'bulk_delete', path='delete', detail=False)
 class GroupBulkDeleteView(generic.BulkDeleteView):
     queryset = Group.objects.annotate(users_count=Count('user')).order_by('name')
@@ -179,12 +262,28 @@ class ObjectPermissionListView(generic.ObjectListView):
     filterset = filtersets.ObjectPermissionFilterSet
     filterset_form = forms.ObjectPermissionFilterForm
     table = tables.ObjectPermissionTable
+    actions = (AddObject, BulkExport, BulkEdit, BulkRename, BulkDelete)
 
 
 @register_model_view(ObjectPermission)
 class ObjectPermissionView(generic.ObjectView):
     queryset = ObjectPermission.objects.all()
-    template_name = 'users/objectpermission.html'
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ObjectPermissionPanel(),
+            panels.ObjectPermissionActionsPanel(),
+            JSONPanel('constraints', title=_('Constraints')),
+        ],
+        right_panels=[
+            TemplatePanel('users/panels/object_types.html'),
+            ObjectsTablePanel(
+                'users.User', title=_('Assigned Users'), filters={'permission_id': lambda ctx: ctx['object'].pk}
+            ),
+            ObjectsTablePanel(
+                'users.Group', title=_('Assigned Groups'), filters={'permission_id': lambda ctx: ctx['object'].pk}
+            ),
+        ],
+    )
 
 
 @register_model_view(ObjectPermission, 'add', detail=False)
@@ -197,6 +296,7 @@ class ObjectPermissionEditView(generic.ObjectEditView):
 @register_model_view(ObjectPermission, 'delete')
 class ObjectPermissionDeleteView(generic.ObjectDeleteView):
     queryset = ObjectPermission.objects.all()
+    filterset = filtersets.ObjectPermissionFilterSet
 
 
 @register_model_view(ObjectPermission, 'bulk_edit', path='edit', detail=False)
@@ -207,8 +307,162 @@ class ObjectPermissionBulkEditView(generic.BulkEditView):
     form = forms.ObjectPermissionBulkEditForm
 
 
+@register_model_view(ObjectPermission, 'bulk_rename', path='rename', detail=False)
+class ObjectPermissionBulkRenameView(generic.BulkRenameView):
+    queryset = ObjectPermission.objects.all()
+
+
 @register_model_view(ObjectPermission, 'bulk_delete', path='delete', detail=False)
 class ObjectPermissionBulkDeleteView(generic.BulkDeleteView):
     queryset = ObjectPermission.objects.all()
     filterset = filtersets.ObjectPermissionFilterSet
     table = tables.ObjectPermissionTable
+
+
+#
+# Owner groups
+#
+
+@register_model_view(OwnerGroup, 'list', path='', detail=False)
+class OwnerGroupListView(generic.ObjectListView):
+    queryset = OwnerGroup.objects.annotate(
+        owner_count=count_related(Owner, 'group')
+    )
+    filterset = filtersets.OwnerGroupFilterSet
+    filterset_form = forms.OwnerGroupFilterForm
+    table = tables.OwnerGroupTable
+
+
+@register_model_view(OwnerGroup)
+class OwnerGroupView(generic.ObjectView):
+    queryset = OwnerGroup.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            OrganizationalObjectPanel(),
+        ],
+        right_panels=[
+            ObjectsTablePanel(
+                'users.Owner',
+                filters={'group_id': lambda ctx: ctx['object'].pk},
+                title=_('Members'),
+                actions=[
+                    actions.AddObject(
+                        'users.Owner',
+                        url_params={'group': lambda ctx: ctx['object'].pk},
+                    ),
+                ],
+            ),
+        ],
+    )
+
+
+@register_model_view(OwnerGroup, 'add', detail=False)
+@register_model_view(OwnerGroup, 'edit')
+class OwnerGroupEditView(generic.ObjectEditView):
+    queryset = OwnerGroup.objects.all()
+    form = forms.OwnerGroupForm
+
+
+@register_model_view(OwnerGroup, 'delete')
+class OwnerGroupDeleteView(generic.ObjectDeleteView):
+    queryset = OwnerGroup.objects.all()
+
+
+@register_model_view(OwnerGroup, 'bulk_import', path='import', detail=False)
+class OwnerGroupBulkImportView(generic.BulkImportView):
+    queryset = OwnerGroup.objects.all()
+    model_form = forms.OwnerGroupImportForm
+
+
+@register_model_view(OwnerGroup, 'bulk_edit', path='edit', detail=False)
+class OwnerGroupBulkEditView(generic.BulkEditView):
+    queryset = OwnerGroup.objects.all()
+    filterset = filtersets.OwnerGroupFilterSet
+    table = tables.OwnerGroupTable
+    form = forms.OwnerGroupBulkEditForm
+
+
+@register_model_view(OwnerGroup, 'bulk_rename', path='rename', detail=False)
+class OwnerGroupBulkRenameView(generic.BulkRenameView):
+    queryset = OwnerGroup.objects.all()
+
+
+@register_model_view(OwnerGroup, 'bulk_delete', path='delete', detail=False)
+class OwnerGroupBulkDeleteView(generic.BulkDeleteView):
+    queryset = OwnerGroup.objects.all()
+    filterset = filtersets.OwnerGroupFilterSet
+    table = tables.OwnerGroupTable
+
+
+#
+# Owners
+#
+
+@register_model_view(Owner, 'list', path='', detail=False)
+class OwnerListView(generic.ObjectListView):
+    queryset = Owner.objects.all()
+    filterset = filtersets.OwnerFilterSet
+    filterset_form = forms.OwnerFilterForm
+    table = tables.OwnerTable
+
+
+@register_model_view(Owner)
+class OwnerView(GetRelatedModelsMixin, generic.ObjectView):
+    queryset = Owner.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.OwnerPanel(),
+            ObjectsTablePanel('users.Group', filters={'owner_id': lambda ctx: ctx['object'].pk}),
+            ObjectsTablePanel('users.User', filters={'owner_id': lambda ctx: ctx['object'].pk}),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+        ],
+    )
+
+    def get_extra_context(self, request, instance):
+        return {
+            'related_models': self.get_related_models(
+                request,
+                instance,
+                omit=(Group, User),
+            ),
+        }
+
+
+@register_model_view(Owner, 'add', detail=False)
+@register_model_view(Owner, 'edit')
+class OwnerEditView(generic.ObjectEditView):
+    queryset = Owner.objects.all()
+    form = forms.OwnerForm
+
+
+@register_model_view(Owner, 'delete')
+class OwnerDeleteView(generic.ObjectDeleteView):
+    queryset = Owner.objects.all()
+
+
+@register_model_view(Owner, 'bulk_import', path='import', detail=False)
+class OwnerBulkImportView(generic.BulkImportView):
+    queryset = Owner.objects.all()
+    model_form = forms.OwnerImportForm
+
+
+@register_model_view(Owner, 'bulk_edit', path='edit', detail=False)
+class OwnerBulkEditView(generic.BulkEditView):
+    queryset = Owner.objects.all()
+    filterset = filtersets.OwnerFilterSet
+    table = tables.OwnerTable
+    form = forms.OwnerBulkEditForm
+
+
+@register_model_view(Owner, 'bulk_rename', path='rename', detail=False)
+class OwnerBulkRenameView(generic.BulkRenameView):
+    queryset = Owner.objects.all()
+
+
+@register_model_view(Owner, 'bulk_delete', path='delete', detail=False)
+class OwnerBulkDeleteView(generic.BulkDeleteView):
+    queryset = Owner.objects.all()
+    filterset = filtersets.OwnerFilterSet
+    table = tables.OwnerTable

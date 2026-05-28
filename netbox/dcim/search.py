@@ -1,4 +1,5 @@
 from netbox.search import SearchIndex, register_search
+
 from . import models
 
 
@@ -138,6 +139,18 @@ class InventoryItemIndex(SearchIndex):
 
 
 @register_search
+class InventoryItemRoleIndex(SearchIndex):
+    model = models.InventoryItemRole
+    fields = (
+        ('name', 100),
+        ('slug', 110),
+        ('description', 500),
+        ('comments', 5000),
+    )
+    display_attrs = ('description',)
+
+
+@register_search
 class LocationIndex(SearchIndex):
     model = models.Location
     fields = (
@@ -157,6 +170,7 @@ class ManufacturerIndex(SearchIndex):
         ('name', 100),
         ('slug', 110),
         ('description', 500),
+        ('comments', 5000),
     )
     display_attrs = ('description',)
 
@@ -308,6 +322,7 @@ class RackRoleIndex(SearchIndex):
         ('name', 100),
         ('slug', 110),
         ('description', 500),
+        ('comments', 5000),
     )
     display_attrs = ('description',)
 

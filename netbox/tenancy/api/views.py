@@ -1,8 +1,9 @@
 from rest_framework.routers import APIRootView
 
-from netbox.api.viewsets import NetBoxModelViewSet, MPTTLockedMixin
+from netbox.api.viewsets import MPTTLockedMixin, NetBoxModelViewSet
 from tenancy import filtersets
 from tenancy.models import *
+
 from . import serializers
 
 
@@ -41,13 +42,7 @@ class TenantViewSet(NetBoxModelViewSet):
 #
 
 class ContactGroupViewSet(MPTTLockedMixin, NetBoxModelViewSet):
-    queryset = ContactGroup.objects.add_related_count(
-        ContactGroup.objects.all(),
-        Contact,
-        'groups',
-        'contact_count',
-        cumulative=True
-    )
+    queryset = ContactGroup.objects.annotate_contacts()
     serializer_class = serializers.ContactGroupSerializer
     filterset_class = filtersets.ContactGroupFilterSet
 

@@ -2,14 +2,21 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from netaddr import IPNetwork, IPSet
-from utilities.data import string_to_ranges
 
 from dcim.models import Site, SiteGroup
 from ipam.choices import *
 from ipam.models import *
+from utilities.data import string_to_ranges
 
 
 class TestAggregate(TestCase):
+
+    def test_family_string(self):
+        # Test property when prefix is a string
+        agg = Aggregate(prefix='10.0.0.0/8')
+        self.assertEqual(agg.family, 4)
+        agg_v6 = Aggregate(prefix='2001:db8::/32')
+        self.assertEqual(agg_v6.family, 6)
 
     def test_get_utilization(self):
         rir = RIR.objects.create(name='RIR 1', slug='rir-1')
@@ -39,6 +46,13 @@ class TestAggregate(TestCase):
 
 
 class TestIPRange(TestCase):
+
+    def test_family_string(self):
+        # Test property when start_address is a string
+        ip_range = IPRange(start_address='10.0.0.1/24', end_address='10.0.0.254/24')
+        self.assertEqual(ip_range.family, 4)
+        ip_range_v6 = IPRange(start_address='2001:db8::1/64', end_address='2001:db8::ffff/64')
+        self.assertEqual(ip_range_v6.family, 6)
 
     def test_overlapping_range(self):
         iprange_192_168 = IPRange.objects.create(
@@ -89,6 +103,20 @@ class TestIPRange(TestCase):
 
 
 class TestPrefix(TestCase):
+
+    def test_family_string(self):
+        # Test property when prefix is a string
+        prefix = Prefix(prefix='10.0.0.0/8')
+        self.assertEqual(prefix.family, 4)
+        prefix_v6 = Prefix(prefix='2001:db8::/32')
+        self.assertEqual(prefix_v6.family, 6)
+
+    def test_mask_length_string(self):
+        # Test property when prefix is a string
+        prefix = Prefix(prefix='10.0.0.0/8')
+        self.assertEqual(prefix.mask_length, 8)
+        prefix_v6 = Prefix(prefix='2001:db8::/32')
+        self.assertEqual(prefix_v6.mask_length, 32)
 
     def test_get_duplicates(self):
         prefixes = Prefix.objects.bulk_create((
@@ -533,6 +561,13 @@ class TestPrefixHierarchy(TestCase):
 
 class TestIPAddress(TestCase):
 
+    def test_family_string(self):
+        # Test property when address is a string
+        ip = IPAddress(address='10.0.0.1/24')
+        self.assertEqual(ip.family, 4)
+        ip_v6 = IPAddress(address='2001:db8::1/64')
+        self.assertEqual(ip_v6.family, 6)
+
     def test_get_duplicates(self):
         ips = IPAddress.objects.bulk_create((
             IPAddress(address=IPNetwork('192.0.2.1/24')),
@@ -660,6 +695,10 @@ class TestVLANGroup(TestCase):
         vlangroup.vid_ranges = string_to_ranges('2-2')
         vlangroup.full_clean()
         vlangroup.save()
+
+    def test_total_vlan_ids(self):
+        vlangroup = VLANGroup.objects.first()
+        self.assertEqual(vlangroup._total_vlan_ids, 100)
 
 
 class TestVLAN(TestCase):

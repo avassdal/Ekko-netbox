@@ -1,3 +1,4 @@
+import json
 import urllib.parse
 import uuid
 from datetime import datetime
@@ -5,9 +6,10 @@ from datetime import datetime
 from django.urls import reverse
 from django.utils import timezone
 from django_rq import get_queue
-from django_rq.settings import QUEUES_MAP
+from django_rq.settings import get_queues_map
 from django_rq.workers import get_worker
-from rq.job import Job as RQ_Job, JobStatus
+from rq.job import Job as RQ_Job
+from rq.job import JobStatus
 from rq.registry import DeferredJobRegistry, FailedJobRegistry, FinishedJobRegistry, StartedJobRegistry
 
 from core.choices import ObjectChangeActionChoices
@@ -157,7 +159,7 @@ class BackgroundTaskTestCase(TestCase):
 
     def setUp(self):
         super().setUp()
-        self.user.is_staff = True
+        self.user.is_superuser = True
         self.user.is_active = True
         self.user.save()
 
@@ -170,13 +172,13 @@ class BackgroundTaskTestCase(TestCase):
         url = reverse('core:background_queue_list')
 
         # Attempt to load view without permission
-        self.user.is_staff = False
+        self.user.is_superuser = False
         self.user.save()
         response = self.client.get(url)
         self.assertEqual(response.status_code, 403)
 
         # Load view with permission
-        self.user.is_staff = True
+        self.user.is_superuser = True
         self.user.save()
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
@@ -187,7 +189,7 @@ class BackgroundTaskTestCase(TestCase):
     def test_background_tasks_list_default(self):
         queue = get_queue('default')
         queue.enqueue(self.dummy_job_default)
-        queue_index = QUEUES_MAP['default']
+        queue_index = get_queues_map()['default']
 
         response = self.client.get(reverse('core:background_task_list', args=[queue_index, 'queued']))
         self.assertEqual(response.status_code, 200)
@@ -196,7 +198,7 @@ class BackgroundTaskTestCase(TestCase):
     def test_background_tasks_list_high(self):
         queue = get_queue('high')
         queue.enqueue(self.dummy_job_high)
-        queue_index = QUEUES_MAP['high']
+        queue_index = get_queues_map()['high']
 
         response = self.client.get(reverse('core:background_task_list', args=[queue_index, 'queued']))
         self.assertEqual(response.status_code, 200)
@@ -205,7 +207,7 @@ class BackgroundTaskTestCase(TestCase):
     def test_background_tasks_list_finished(self):
         queue = get_queue('default')
         job = queue.enqueue(self.dummy_job_default)
-        queue_index = QUEUES_MAP['default']
+        queue_index = get_queues_map()['default']
 
         registry = FinishedJobRegistry(queue.name, queue.connection)
         registry.add(job, 2)
@@ -216,7 +218,7 @@ class BackgroundTaskTestCase(TestCase):
     def test_background_tasks_list_failed(self):
         queue = get_queue('default')
         job = queue.enqueue(self.dummy_job_default)
-        queue_index = QUEUES_MAP['default']
+        queue_index = get_queues_map()['default']
 
         registry = FailedJobRegistry(queue.name, queue.connection)
         registry.add(job, 2)
@@ -227,7 +229,7 @@ class BackgroundTaskTestCase(TestCase):
     def test_background_tasks_scheduled(self):
         queue = get_queue('default')
         queue.enqueue_at(datetime.now(), self.dummy_job_default)
-        queue_index = QUEUES_MAP['default']
+        queue_index = get_queues_map()['default']
 
         response = self.client.get(reverse('core:background_task_list', args=[queue_index, 'scheduled']))
         self.assertEqual(response.status_code, 200)
@@ -236,7 +238,7 @@ class BackgroundTaskTestCase(TestCase):
     def test_background_tasks_list_deferred(self):
         queue = get_queue('default')
         job = queue.enqueue(self.dummy_job_default)
-        queue_index = QUEUES_MAP['default']
+        queue_index = get_queues_map()['default']
 
         registry = DeferredJobRegistry(queue.name, queue.connection)
         registry.add(job, 2)
@@ -333,7 +335,7 @@ class BackgroundTaskTestCase(TestCase):
         worker2 = get_worker('high')
         worker2.register_birth()
 
-        queue_index = QUEUES_MAP['default']
+        queue_index = get_queues_map()['default']
         response = self.client.get(reverse('core:worker_list', args=[queue_index]))
         self.assertEqual(response.status_code, 200)
         self.assertIn(str(worker1.name), str(response.content))
@@ -355,7 +357,7 @@ class SystemTestCase(TestCase):
     def setUp(self):
         super().setUp()
 
-        self.user.is_staff = True
+        self.user.is_superuser = True
         self.user.save()
 
     def test_system_view_default(self):
@@ -366,6 +368,12 @@ class SystemTestCase(TestCase):
         # Test export
         response = self.client.get(f"{reverse('core:system')}?export=true")
         self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertIn('netbox_release', data)
+        self.assertIn('plugins', data)
+        self.assertIn('config', data)
+        self.assertIn('objects', data)
+        self.assertIn('db_schema', data)
 
     def test_system_view_with_config_revision(self):
         ConfigRevision.objects.create()

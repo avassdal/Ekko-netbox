@@ -14,8 +14,6 @@ BASE_PATH = 'netbox/'
 
 ## DATABASE_ROUTERS
 
-!!! info "This parameter was introduced in NetBox v4.3."
-
 Default: `[]` (empty list)
 
 An iterable of [database routers](https://docs.djangoproject.com/en/stable/topics/db/multi-db/) to use for automatically selecting the appropriate database(s) for a query. This is useful only when [multiple databases](./required-parameters.md#databases) have been configured.
@@ -69,6 +67,16 @@ Email is sent from NetBox only for critical events or if configured for [logging
   fail_silently=False
 )
 ```
+
+---
+
+## HOSTNAME
+
+!!! info "This parameter was introduced in NetBox v4.4."
+
+Default: System hostname
+
+The hostname displayed in the user interface identifying the system on which NetBox is running. If not defined, this defaults to the system hostname as reported by Python's `platform.node()`.
 
 ---
 
@@ -159,6 +167,7 @@ LOGGING = {
 * `netbox.auth.*` - Authentication events
 * `netbox.api.views.*` - Views which handle business logic for the REST API
 * `netbox.event_rules` - Event rules
+* `netbox.jobs.*` - Background jobs
 * `netbox.reports.*` - Report execution (`module.name`)
 * `netbox.scripts.*` - Custom script execution (`module.name`)
 * `netbox.views.*` - Views which handle business logic for the web UI
@@ -174,8 +183,6 @@ The file path to the location where media files (such as image attachments) are 
 ---
 
 ## PROXY_ROUTERS
-
-!!! info "This parameter was introduced in NetBox v4.3."
 
 Default: `["utilities.proxy.DefaultProxyRouter"]`
 
@@ -225,30 +232,104 @@ STORAGES = {
     },
     "scripts": {
         "BACKEND": "extras.storage.ScriptFileSystemStorage",
+        "OPTIONS": {
+            "allow_overwrite": True,
+        },
     },
 }
 ```
 
 Within the `STORAGES` dictionary, `"default"` is used for image uploads, "staticfiles" is for static files and `"scripts"` is used for custom scripts.
 
-If using a remote storage like S3, define the config as `STORAGES[key]["OPTIONS"]` for each storage item as needed. For example:
+If using a remote storage such as S3 or an S3-compatible service, define the configuration as `STORAGES[key]["OPTIONS"]` for each storage item as needed. For example:
 
 ```python
-STORAGES = { 
-    "scripts": { 
-        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage", 
-        "OPTIONS": { 
-            'access_key': 'access key', 
+STORAGES = {
+    'default': {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            'bucket_name': 'netbox',
+            'access_key': 'access key',
             'secret_key': 'secret key',
-        }
-    }, 
+            'region_name': 'us-east-1',
+            'endpoint_url': 'https://s3.example.com',
+            'location': 'media/',
+        },
+    },
+    'staticfiles': {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            'bucket_name': 'netbox',
+            'access_key': 'access key',
+            'secret_key': 'secret key',
+            'region_name': 'us-east-1',
+            'endpoint_url': 'https://s3.example.com',
+            'location': 'static/',
+        },
+    },
+    'scripts': {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            'bucket_name': 'netbox',
+            'access_key': 'access key',
+            'secret_key': 'secret key',
+            'region_name': 'us-east-1',
+            'endpoint_url': 'https://s3.example.com',
+            'location': 'scripts/',
+            'file_overwrite': True,
+        },
+    },
 }
 ```
+
+`bucket_name` is required for `S3Storage`. When using an S3-compatible service, set `region_name` and `endpoint_url` according to your provider.
 
 The specific configuration settings for each storage backend can be found in the [django-storages documentation](https://django-storages.readthedocs.io/en/latest/index.html).
 
 !!! note
     Any keys defined in the `STORAGES` configuration parameter replace those in the default configuration. It is only necessary to define keys within the `STORAGES` for the specific backend(s) you wish to configure.
+
+### Environment Variables and Third-Party Libraries
+
+NetBox uses an explicit Python configuration approach rather than automatic environment variable detection. While this provides clear configuration management and version control capabilities, it affects how some third-party libraries like `django-storages` function within NetBox's context.
+
+Many Django libraries (including `django-storages`) expect to automatically detect environment variables like `AWS_STORAGE_BUCKET_NAME` or `AWS_S3_ACCESS_KEY_ID`. However, NetBox's configuration processing prevents this automatic detection from working as documented in some of these libraries.
+
+When using third-party libraries that rely on environment variable detection, you may need to explicitly read environment variables in your NetBox `configuration.py`:
+
+```python
+import os
+
+STORAGES = {
+    'default': {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            'bucket_name': os.environ.get('AWS_STORAGE_BUCKET_NAME'),
+            'access_key': os.environ.get('AWS_S3_ACCESS_KEY_ID'),
+            'secret_key': os.environ.get('AWS_S3_SECRET_ACCESS_KEY'),
+            'region_name': os.environ.get('AWS_S3_REGION_NAME'),
+            'endpoint_url': os.environ.get('AWS_S3_ENDPOINT_URL'),
+            'location': 'media/',
+        }
+    },
+    'staticfiles': {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            'bucket_name': os.environ.get('AWS_STORAGE_BUCKET_NAME'),
+            'access_key': os.environ.get('AWS_S3_ACCESS_KEY_ID'),
+            'secret_key': os.environ.get('AWS_S3_SECRET_ACCESS_KEY'),
+            'region_name': os.environ.get('AWS_S3_REGION_NAME'),
+            'endpoint_url': os.environ.get('AWS_S3_ENDPOINT_URL'),
+            'location': 'static/',
+        }
+    },
+}
+```
+
+This approach works because the environment variables are resolved during NetBox's configuration processing, before the third-party library attempts its own environment variable detection.
+
+!!! warning "Configuration Behavior"
+    Simply setting environment variables like `AWS_STORAGE_BUCKET_NAME` without explicitly reading them in your configuration will not work. The variables must be read using `os.environ.get()` within your `configuration.py` file.
 
 ---
 

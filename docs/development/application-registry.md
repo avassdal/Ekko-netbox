@@ -20,26 +20,15 @@ A dictionary mapping data backend types to their respective classes. These are u
 
 Stores registration made using `netbox.denormalized.register()`. For each model, a list of related models and their field mappings is maintained to facilitate automatic updates.
 
+### `filtersets`
+
+A dictionary mapping each model (identified by its app and label) to its filterset class, if one has been registered for it. Filtersets are registered using the `@register_filterset` decorator.
+
 ### `model_features`
 
-A dictionary of particular features (e.g. custom fields) mapped to the NetBox models which support them, arranged by app. For example:
+A dictionary of model features (e.g. custom fields, tags, etc.) mapped to the functions used to qualify a model as supporting each feature. Model features are registered using the `register_model_feature()` function in `netbox.utils`.
 
-```python
-{
-    'custom_fields': {
-        'circuits': ['provider', 'circuit'],
-        'dcim': ['site', 'rack', 'devicetype', ...],
-        ...
-    },
-    'event_rules': {
-        'extras': ['configcontext', 'tag', ...],
-        'dcim': ['site', 'rack', 'devicetype', ...],
-    },
-    ...
-}
-```
-
-Supported model features are listed in the [features matrix](./models.md#features-matrix).
+Core model features are listed in the [features matrix](./models.md#features-matrix).
 
 ### `models`
 

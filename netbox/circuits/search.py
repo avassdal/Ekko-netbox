@@ -1,4 +1,5 @@
 from netbox.search import SearchIndex, register_search
+
 from . import models
 
 
@@ -20,6 +21,7 @@ class CircuitGroupIndex(SearchIndex):
         ('name', 100),
         ('slug', 110),
         ('description', 500),
+        ('comments', 5000),
     )
     display_attrs = ('description',)
 
@@ -44,6 +46,7 @@ class CircuitTypeIndex(SearchIndex):
         ('name', 100),
         ('slug', 110),
         ('description', 500),
+        ('comments', 5000),
     )
     display_attrs = ('description',)
 
@@ -109,5 +112,6 @@ class VirtualCircuitTypeIndex(SearchIndex):
         ('name', 100),
         ('slug', 110),
         ('description', 500),
+        ('comments', 5000),
     )
     display_attrs = ('description',)

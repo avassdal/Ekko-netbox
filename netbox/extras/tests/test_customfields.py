@@ -1,11 +1,13 @@
 import datetime
+import json
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
+from django.test import tag
 from django.urls import reverse
 from rest_framework import status
 
-from core.models import ObjectType
+from core.models import ObjectChange, ObjectType
 from dcim.filtersets import SiteFilterSet
 from dcim.forms import SiteImportForm
 from dcim.models import Manufacturer, Rack, Site
@@ -268,6 +270,60 @@ class CustomFieldTest(TestCase):
         instance.save()
         instance.refresh_from_db()
         self.assertIsNone(instance.custom_field_data.get(cf.name))
+
+    @tag('regression')
+    def test_json_field_falsy_defaults(self):
+        """Test that falsy JSON default values are properly handled"""
+        falsy_test_cases = [
+            ({}, 'empty_dict'),
+            ([], 'empty_array'),
+            (0, 'zero'),
+            (False, 'false_bool'),
+            ("", 'empty_string'),
+        ]
+
+        for default, suffix in falsy_test_cases:
+            with self.subTest(default=default, suffix=suffix):
+                cf = CustomField.objects.create(
+                    name=f'json_falsy_{suffix}',
+                    type=CustomFieldTypeChoices.TYPE_JSON,
+                    default=default,
+                    required=False
+                )
+                cf.object_types.set([self.object_type])
+
+                instance = Site.objects.create(name=f'Test Site {suffix}', slug=f'test-site-{suffix}')
+
+                self.assertIsNotNone(instance.custom_field_data)
+                self.assertIn(cf.name, instance.custom_field_data)
+
+                instance.refresh_from_db()
+                stored = instance.custom_field_data[cf.name]
+                self.assertEqual(stored, default)
+
+    @tag('regression')
+    def test_json_field_falsy_to_form_field(self):
+        """Test form field generation preserves falsy defaults"""
+        falsy_test_cases = (
+            ({}, json.dumps({}), 'empty_dict'),
+            ([], json.dumps([]), 'empty_array'),
+            (0, json.dumps(0), 'zero'),
+            (False, json.dumps(False), 'false_bool'),
+            ("", '""', 'empty_string'),
+        )
+
+        for default, expected, suffix in falsy_test_cases:
+            with self.subTest(default=default, expected=expected, suffix=suffix):
+                cf = CustomField.objects.create(
+                    name=f'json_falsy_{suffix}',
+                    type=CustomFieldTypeChoices.TYPE_JSON,
+                    default=default,
+                    required=False
+                )
+                cf.object_types.set([self.object_type])
+
+                form_field = cf.to_form_field(set_initial=True)
+                self.assertEqual(form_field.initial, expected)
 
     def test_select_field(self):
         CHOICES = (
@@ -1138,6 +1194,82 @@ class CustomFieldAPITest(APITestCase):
             list(original_cfvs['multiobject_field'])
         )
 
+    @tag('regression')
+    def test_update_single_object_rejects_unknown_custom_fields(self):
+        site2 = Site.objects.get(name='Site 2')
+        original_cf_data = {**site2.custom_field_data}
+        url = reverse('dcim-api:site-detail', kwargs={'pk': site2.pk})
+        self.add_permissions('dcim.change_site')
+
+        data = {
+            'custom_fields': {
+                'text_field': 'valid',
+                'thisfieldshouldntexist': 'random text here',
+            },
+        }
+
+        response = self.client.patch(url, data, format='json', **self.header)
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('custom_fields', response.data)
+        self.assertIn('thisfieldshouldntexist', response.data['custom_fields'])
+
+        # Ensure the object was not modified
+        site2.refresh_from_db()
+        self.assertEqual(site2.custom_field_data, original_cf_data)
+
+    @tag('regression')
+    def test_update_single_object_prunes_stale_custom_field_data_from_database_and_postchange_data(self):
+        stale_key = 'thisfieldshouldntexist'
+        stale_value = 'random text here'
+        updated_text_value = 'ABCD'
+
+        site2 = Site.objects.get(name='Site 2')
+        original_text_value = site2.custom_field_data['text_field']
+        object_type = ObjectType.objects.get_for_model(Site)
+
+        # Seed stale custom field data directly in the database to mimic a polluted row.
+        Site.objects.filter(pk=site2.pk).update(
+            custom_field_data={
+                **site2.custom_field_data,
+                stale_key: stale_value,
+            }
+        )
+        site2.refresh_from_db()
+        self.assertIn(stale_key, site2.custom_field_data)
+
+        existing_change_ids = set(
+            ObjectChange.objects.filter(
+                changed_object_type=object_type,
+                changed_object_id=site2.pk,
+            ).values_list('pk', flat=True)
+        )
+
+        url = reverse('dcim-api:site-detail', kwargs={'pk': site2.pk})
+        self.add_permissions('dcim.change_site')
+        data = {
+            'custom_fields': {
+                'text_field': updated_text_value,
+            },
+        }
+
+        response = self.client.patch(url, data, format='json', **self.header)
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+
+        site2.refresh_from_db()
+        self.assertEqual(site2.cf['text_field'], updated_text_value)
+        self.assertNotIn(stale_key, site2.custom_field_data)
+
+        object_changes = ObjectChange.objects.filter(
+            changed_object_type=object_type,
+            changed_object_id=site2.pk,
+        ).exclude(pk__in=existing_change_ids)
+        self.assertEqual(object_changes.count(), 1)
+
+        object_change = object_changes.get()
+        self.assertEqual(object_change.prechange_data['custom_fields']['text_field'], original_text_value)
+        self.assertEqual(object_change.postchange_data['custom_fields']['text_field'], updated_text_value)
+        self.assertNotIn(stale_key, object_change.postchange_data['custom_fields'])
+
     def test_specify_related_object_by_attr(self):
         site1 = Site.objects.get(name='Site 1')
         vlans = VLAN.objects.all()[:3]
@@ -1241,6 +1373,28 @@ class CustomFieldAPITest(APITestCase):
         self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
 
         data = {'custom_fields': {'text_field': 'ABC'}}
+        response = self.client.patch(url, data, format='json', **self.header)
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+
+    def test_url_regex_validation(self):
+        """
+        Test that validation_regex is applied to URL custom fields (fixes #20498).
+        """
+        site2 = Site.objects.get(name='Site 2')
+        url = reverse('dcim-api:site-detail', kwargs={'pk': site2.pk})
+        self.add_permissions('dcim.change_site')
+
+        cf_url = CustomField.objects.get(name='url_field')
+        cf_url.validation_regex = r'^https://'  # Require HTTPS
+        cf_url.save()
+
+        # Test invalid URL (http instead of https)
+        data = {'custom_fields': {'url_field': 'http://example.com'}}
+        response = self.client.patch(url, data, format='json', **self.header)
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+
+        # Test valid URL (https)
+        data = {'custom_fields': {'url_field': 'https://example.com'}}
         response = self.client.patch(url, data, format='json', **self.header)
         self.assertHttpStatus(response, status.HTTP_200_OK)
 
@@ -1428,18 +1582,17 @@ class CustomFieldModelTest(TestCase):
 
     def test_invalid_data(self):
         """
-        Setting custom field data for a non-applicable (or non-existent) CustomField should raise a ValidationError.
+        Any invalid or stale custom field data should be removed from the instance.
         """
         site = Site(name='Test Site', slug='test-site')
 
         # Set custom field data
         site.custom_field_data['foo'] = 'abc'
         site.custom_field_data['bar'] = 'def'
-        with self.assertRaises(ValidationError):
-            site.clean()
-
-        del site.custom_field_data['bar']
         site.clean()
+
+        self.assertIn('foo', site.custom_field_data)
+        self.assertNotIn('bar', site.custom_field_data)
 
     def test_missing_required_field(self):
         """

@@ -3,11 +3,12 @@ from django.db import models
 from django.urls import reverse
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
-from taggit.models import TagBase, GenericTaggedItemBase
+from taggit.models import GenericTaggedItemBase, TagBase
 
 from netbox.choices import ColorChoices
 from netbox.models import ChangeLoggedModel
 from netbox.models.features import CloningMixin, ExportTemplatesMixin
+from netbox.models.mixins import OwnerMixin
 from utilities.fields import ColorField
 from utilities.querysets import RestrictedQuerySet
 
@@ -21,7 +22,7 @@ __all__ = (
 # Tags
 #
 
-class Tag(CloningMixin, ExportTemplatesMixin, ChangeLoggedModel, TagBase):
+class Tag(CloningMixin, ExportTemplatesMixin, OwnerMixin, ChangeLoggedModel, TagBase):
     id = models.BigAutoField(
         primary_key=True
     )
@@ -35,7 +36,7 @@ class Tag(CloningMixin, ExportTemplatesMixin, ChangeLoggedModel, TagBase):
         blank=True,
     )
     object_types = models.ManyToManyField(
-        to='core.ObjectType',
+        to='contenttypes.ContentType',
         related_name='+',
         blank=True,
         help_text=_("The object type(s) to which this tag can be applied.")
@@ -65,7 +66,7 @@ class Tag(CloningMixin, ExportTemplatesMixin, ChangeLoggedModel, TagBase):
         # Allow Unicode in Tag slugs (avoids empty slugs for Tags with all-Unicode names)
         slug = slugify(tag, allow_unicode=True)
         if i is not None:
-            slug += "_%d" % i
+            slug += f'_{i}'
         return slug
 
 

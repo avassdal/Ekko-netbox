@@ -1,3 +1,7 @@
+# Shell text coloring
+# https://github.com/tartley/colorama/blob/master/CHANGELOG.rst
+colorama
+
 # The Python web framework on which NetBox is built
 # https://docs.djangoproject.com/en/stable/releases/
 Django==5.2.*
@@ -8,9 +12,7 @@ django-cors-headers
 
 # Runtime UI tool for debugging Django
 # https://github.com/jazzband/django-debug-toolbar/blob/main/docs/changes.rst
-# django-debug-toolbar v6.0.0 raises "Attribute Error at /: 'function' object has no attribute 'set'" 
-# see https://github.com/netbox-community/netbox/issues/19974
-django-debug-toolbar==5.2.0
+django-debug-toolbar
 
 # Library for writing reusable URL query filters
 # https://github.com/carltongibson/django-filter/blob/main/CHANGES.rst
@@ -25,7 +27,6 @@ django-graphiql-debug-toolbar
 django-htmx
 
 # Modified Preorder Tree Traversal (recursive nesting of objects)
-# https://github.com/django-mptt/django-mptt/blob/main/CHANGELOG.rst
 django-mptt
 
 # Context managers for PostgreSQL advisory locks
@@ -54,7 +55,8 @@ django-storages
 
 # Abstraction models for rendering and paginating HTML tables
 # https://github.com/jieter/django-tables2/blob/master/CHANGELOG.md
-django-tables2
+# See #21902 for upgrading to django-tables2 v2.9+
+django-tables2<2.9
 
 # User-defined tags for objects
 # https://github.com/jazzband/django-taggit/blob/master/CHANGELOG.rst
@@ -66,7 +68,8 @@ django-timezone-field
 
 # A REST API framework for Django projects
 # https://www.django-rest-framework.org/community/release-notes/
-djangorestframework
+# TODO: Re-evaluate the monkey-patch of get_unique_validators() before upgrading
+djangorestframework==3.16.1
 
 # Sane and flexible OpenAPI 3 schema generation for Django REST framework.
 # https://github.com/tfranzel/drf-spectacular/blob/master/CHANGELOG.rst
@@ -81,7 +84,7 @@ drf-spectacular-sidecar
 feedparser
 
 # WSGI HTTP server
-# https://docs.gunicorn.org/en/latest/news.html
+# https://gunicorn.org/news/
 gunicorn
 
 # Platform-agnostic template rendering engine
@@ -96,13 +99,21 @@ jsonschema
 # https://python-markdown.github.io/changelog/
 Markdown
 
+# MkDocs
+# https://github.com/mkdocs/mkdocs/releases
+mkdocs<2.0
+
 # MkDocs Material theme (for documentation build)
 # https://squidfunk.github.io/mkdocs-material/changelog/
 mkdocs-material
 
 # Introspection for embedded code
 # https://github.com/mkdocstrings/mkdocstrings/blob/main/CHANGELOG.md
-mkdocstrings[python]
+mkdocstrings
+
+# Python handler for mkdocstrings
+# https://github.com/mkdocstrings/python/blob/main/CHANGELOG.md
+mkdocstrings-python
 
 # Library for manipulating IP prefixes and addresses
 # https://github.com/netaddr/netaddr/blob/master/CHANGELOG.rst
@@ -139,7 +150,12 @@ social-auth-app-django
 
 # Social authentication framework
 # https://github.com/python-social-auth/social-core/blob/master/CHANGELOG.md
-social-auth-core
+# Need to verify that v4.9.0 does not introduce breaking changes (see #22095)
+social-auth-core==4.8.*
+
+# Image thumbnail generation
+# https://github.com/jazzband/sorl-thumbnail/blob/master/CHANGES.rst
+sorl-thumbnail
 
 # Strawberry GraphQL
 # https://github.com/strawberry-graphql/strawberry/blob/main/CHANGELOG.md
@@ -154,7 +170,8 @@ strawberry-graphql-django
 svgwrite
 
 # Tabular dataset library (for table-based exports)
-# https://github.com/jazzband/tablib/blob/master/HISTORY.md
+# Current: https://github.com/jazzband/tablib/releases
+# Previous: https://github.com/jazzband/tablib/blob/master/HISTORY.md
 tablib
 
 # Timezone data (required by django-timezone-field on Python 3.9+)

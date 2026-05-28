@@ -22,6 +22,7 @@ __all__ = (
     'content_type',
     'content_type_id',
     'fgcolor',
+    'getattr_',
     'isodate',
     'isodatetime',
     'isotime',
@@ -86,6 +87,14 @@ def fgcolor(value, dark='000000', light='ffffff'):
     if not re.match('^[0-9a-f]{6}$', value):
         return ''
     return f'#{foreground_color(value, dark, light)}'
+
+
+@register.filter('getattr')
+def getattr_(instance, name):
+    """
+    Call getattr() on the object for the specified attribute.
+    """
+    return getattr(instance, name, None)
 
 
 @register.filter()
@@ -218,12 +227,11 @@ def isodate(value):
     if type(value) is datetime.date:
         text = value.isoformat()
         return mark_safe(f'<span title="{naturalday(value)}">{text}</span>')
-    elif type(value) is datetime.datetime:
+    if type(value) is datetime.datetime:
         local_value = localtime(value) if value.tzinfo else value
         text = local_value.date().isoformat()
         return mark_safe(f'<span title="{naturaltime(value)}">{text}</span>')
-    else:
-        return ''
+    return ''
 
 
 @register.filter()
@@ -243,3 +251,16 @@ def isodatetime(value, spec='seconds'):
     else:
         return ''
     return mark_safe(f'<span title="{naturaltime(value)}">{text}</span>')
+
+
+@register.filter
+def truncate_middle(value, length):
+    if len(value) <= length:
+        return value
+
+    # Calculate split points for the two parts
+    half_len = (length - 1) // 2  # 1 for the ellipsis
+    first_part = value[:half_len]
+    second_part = value[len(value) - (length - 1 - half_len):]
+
+    return mark_safe(f"{first_part}&hellip;{second_part}")

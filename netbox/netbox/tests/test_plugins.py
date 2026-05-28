@@ -6,13 +6,15 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from core.choices import JobIntervalChoices
+from core.models import ObjectType
+from netbox.graphql.schema import Query
+from netbox.plugins.navigation import PluginMenu, PluginMenuButton, PluginMenuItem
+from netbox.plugins.utils import get_plugin_config
+from netbox.registry import registry
 from netbox.tests.dummy_plugin import config as dummy_config
 from netbox.tests.dummy_plugin.data_backends import DummyBackend
 from netbox.tests.dummy_plugin.jobs import DummySystemJob
-from netbox.plugins.navigation import PluginMenu
-from netbox.plugins.utils import get_plugin_config
-from netbox.graphql.schema import Query
-from netbox.registry import registry
+from netbox.tests.dummy_plugin.webhook_callbacks import set_context
 
 
 @skipIf('netbox.tests.dummy_plugin' not in settings.PLUGINS, "dummy_plugin not in settings.PLUGINS")
@@ -23,8 +25,9 @@ class PluginTest(TestCase):
         self.assertIn('netbox.tests.dummy_plugin.DummyPluginConfig', settings.INSTALLED_APPS)
 
     def test_model_registration(self):
-        self.assertIn('dummy_plugin', registry['models'])
-        self.assertIn('dummymodel', registry['models']['dummy_plugin'])
+        self.assertTrue(
+            ObjectType.objects.filter(app_label='dummy_plugin', model='dummymodel').exists()
+        )
 
     def test_models(self):
         from netbox.tests.dummy_plugin.models import DummyModel
@@ -218,3 +221,52 @@ class PluginTest(TestCase):
         Check that events pipeline is registered.
         """
         self.assertIn('netbox.tests.dummy_plugin.events.process_events_queue', settings.EVENTS_PIPELINE)
+
+    def test_webhook_callbacks(self):
+        """
+        Test the registration of webhook callbacks.
+        """
+        self.assertIn(set_context, registry['webhook_callbacks'])
+
+
+class PluginNavigationTest(TestCase):
+
+    def test_plugin_menu_item_independent_permissions(self):
+        item1 = PluginMenuItem(link='test1', link_text='Test 1')
+        item1.permissions.append('leaked_permission')
+
+        item2 = PluginMenuItem(link='test2', link_text='Test 2')
+
+        self.assertIsNot(item1.permissions, item2.permissions)
+        self.assertEqual(item1.permissions, ['leaked_permission'])
+        self.assertEqual(item2.permissions, [])
+
+    def test_plugin_menu_item_independent_buttons(self):
+        item1 = PluginMenuItem(link='test1', link_text='Test 1')
+        button = PluginMenuButton(link='button1', title='Button 1', icon_class='mdi-test')
+        item1.buttons.append(button)
+
+        item2 = PluginMenuItem(link='test2', link_text='Test 2')
+
+        self.assertIsNot(item1.buttons, item2.buttons)
+        self.assertEqual(len(item1.buttons), 1)
+        self.assertEqual(item1.buttons[0], button)
+        self.assertEqual(item2.buttons, [])
+
+    def test_plugin_menu_button_independent_permissions(self):
+        button1 = PluginMenuButton(link='button1', title='Button 1', icon_class='mdi-test')
+        button1.permissions.append('leaked_permission')
+
+        button2 = PluginMenuButton(link='button2', title='Button 2', icon_class='mdi-test')
+
+        self.assertIsNot(button1.permissions, button2.permissions)
+        self.assertEqual(button1.permissions, ['leaked_permission'])
+        self.assertEqual(button2.permissions, [])
+
+    def test_explicit_permissions_remain_independent(self):
+        item1 = PluginMenuItem(link='test1', link_text='Test 1', permissions=['explicit_permission'])
+        item2 = PluginMenuItem(link='test2', link_text='Test 2', permissions=['different_permission'])
+
+        self.assertIsNot(item1.permissions, item2.permissions)
+        self.assertEqual(item1.permissions, ['explicit_permission'])
+        self.assertEqual(item2.permissions, ['different_permission'])

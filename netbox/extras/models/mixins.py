@@ -30,8 +30,7 @@ class CustomStoragesLoader(importlib.abc.Loader):
         return None  # Use default module creation
 
     def exec_module(self, module):
-        storage = storages.create_storage(storages.backends["scripts"])
-        with storage.open(self.filename, 'rb') as f:
+        with storages["scripts"].open(self.filename, 'rb') as f:
             code = f.read()
         exec(code, module.__dict__)
 
@@ -59,8 +58,7 @@ class PythonModuleMixin:
         if name == '__init__':
             # File is a package
             return os.path.basename(path)
-        else:
-            return name
+        return name
 
     def get_module(self):
         """

@@ -1,18 +1,24 @@
 import datetime
+import hashlib
+import io
+from unittest.mock import MagicMock, patch
 
 from django.contrib.contenttypes.models import ContentType
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils.timezone import make_aware, now
 from rest_framework import status
 
 from core.choices import ManagedFileRootPathChoices
 from core.events import *
-from core.models import ObjectType
-from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Rack, Location, RackRole, Site
+from core.models import DataFile, DataSource, ObjectType
+from dcim.models import Device, DeviceRole, DeviceType, Location, Manufacturer, Rack, RackRole, Site
 from extras.choices import *
 from extras.models import *
-from extras.scripts import BooleanVar, IntegerVar, Script as PythonClass, StringVar
-from users.models import Group, User
+from extras.scripts import BooleanVar, IntegerVar, StringVar
+from extras.scripts import Script as PythonClass
+from users.constants import TOKEN_PREFIX
+from users.models import Group, Token, User
 from utilities.testing import APITestCase, APIViewTestCases
 
 
@@ -580,7 +586,7 @@ class ImageAttachmentTest(
     APIViewTestCases.GraphQLTestCase
 ):
     model = ImageAttachment
-    brief_fields = ['display', 'id', 'image', 'name', 'url']
+    brief_fields = ['description', 'display', 'id', 'image', 'name', 'url']
 
     @classmethod
     def setUpTestData(cls):
@@ -667,6 +673,115 @@ class JournalEntryTest(APIViewTestCases.APIViewTestCase):
         ]
 
 
+class ConfigContextProfileTest(APIViewTestCases.APIViewTestCase):
+    model = ConfigContextProfile
+    brief_fields = ['description', 'display', 'id', 'name', 'url']
+    create_data = [
+        {
+            'name': 'Config Context Profile 4',
+        },
+        {
+            'name': 'Config Context Profile 5',
+        },
+        {
+            'name': 'Config Context Profile 6',
+        },
+    ]
+    bulk_update_data = {
+        'description': 'New description',
+    }
+
+    @classmethod
+    def setUpTestData(cls):
+        profiles = (
+            ConfigContextProfile(
+                name='Config Context Profile 1',
+                schema={
+                    "properties": {
+                        "foo": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "foo"
+                    ]
+                }
+            ),
+            ConfigContextProfile(
+                name='Config Context Profile 2',
+                schema={
+                    "properties": {
+                        "bar": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "bar"
+                    ]
+                }
+            ),
+            ConfigContextProfile(
+                name='Config Context Profile 3',
+                schema={
+                    "properties": {
+                        "baz": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "baz"
+                    ]
+                }
+            ),
+        )
+        ConfigContextProfile.objects.bulk_create(profiles)
+
+    def test_update_data_source_and_data_file(self):
+        """
+        Regression test: Ensure data_source and data_file can be assigned via the API.
+
+        This specifically covers PATCHing a ConfigContext with integer IDs for both fields.
+        """
+        self.add_permissions(
+            'core.view_datafile',
+            'core.view_datasource',
+            'extras.view_configcontextprofile',
+            'extras.change_configcontextprofile',
+        )
+        config_context_profile = ConfigContextProfile.objects.first()
+
+        # Create a data source and file
+        datasource = DataSource.objects.create(
+            name='Data Source 1',
+            type='local',
+            source_url='file:///tmp/netbox-datasource/',
+        )
+        # Generate a valid dummy YAML file
+        file_data = b'profile: configcontext\n'
+        datafile = DataFile.objects.create(
+            source=datasource,
+            path='dir1/file1.yml',
+            last_updated=now(),
+            size=len(file_data),
+            hash=hashlib.sha256(file_data).hexdigest(),
+            data=file_data,
+        )
+
+        url = self._get_detail_url(config_context_profile)
+        payload = {
+            'data_source': datasource.pk,
+            'data_file': datafile.pk,
+        }
+        response = self.client.patch(url, payload, format='json', **self.header)
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+
+        config_context_profile.refresh_from_db()
+        self.assertEqual(config_context_profile.data_source_id, datasource.pk)
+        self.assertEqual(config_context_profile.data_file_id, datafile.pk)
+        self.assertEqual(response.data['data_source']['id'], datasource.pk)
+        self.assertEqual(response.data['data_file']['id'], datafile.pk)
+
+
 class ConfigContextTest(APIViewTestCases.APIViewTestCase):
     model = ConfigContext
     brief_fields = ['description', 'display', 'id', 'name', 'url']
@@ -747,6 +862,51 @@ class ConfigContextTest(APIViewTestCases.APIViewTestCase):
         rendered_context = device.get_config_context()
         self.assertEqual(rendered_context['bar'], 456)
 
+    def test_update_data_source_and_data_file(self):
+        """
+        Regression test: Ensure data_source and data_file can be assigned via the API.
+
+        This specifically covers PATCHing a ConfigContext with integer IDs for both fields.
+        """
+        self.add_permissions(
+            'core.view_datafile',
+            'core.view_datasource',
+            'extras.view_configcontext',
+            'extras.change_configcontext',
+        )
+        config_context = ConfigContext.objects.first()
+
+        # Create a data source and file
+        datasource = DataSource.objects.create(
+            name='Data Source 1',
+            type='local',
+            source_url='file:///tmp/netbox-datasource/',
+        )
+        # Generate a valid dummy YAML file
+        file_data = b'context: config\n'
+        datafile = DataFile.objects.create(
+            source=datasource,
+            path='dir1/file1.yml',
+            last_updated=now(),
+            size=len(file_data),
+            hash=hashlib.sha256(file_data).hexdigest(),
+            data=file_data,
+        )
+
+        url = self._get_detail_url(config_context)
+        payload = {
+            'data_source': datasource.pk,
+            'data_file': datafile.pk,
+        }
+        response = self.client.patch(url, payload, format='json', **self.header)
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+
+        config_context.refresh_from_db()
+        self.assertEqual(config_context.data_source_id, datasource.pk)
+        self.assertEqual(config_context.data_file_id, datafile.pk)
+        self.assertEqual(response.data['data_source']['id'], datasource.pk)
+        self.assertEqual(response.data['data_file']['id'], datafile.pk)
+
 
 class ConfigTemplateTest(APIViewTestCases.APIViewTestCase):
     model = ConfigTemplate
@@ -791,20 +951,61 @@ class ConfigTemplateTest(APIViewTestCases.APIViewTestCase):
         )
         ConfigTemplate.objects.bulk_create(config_templates)
 
+    def test_render(self):
+        configtemplate = ConfigTemplate.objects.first()
+
+        self.add_permissions('extras.render_configtemplate', 'extras.view_configtemplate')
+        url = reverse('extras-api:configtemplate-render', kwargs={'pk': configtemplate.pk})
+        response = self.client.post(url, {'foo': 'bar'}, format='json', **self.header)
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+        self.assertEqual(response.data['content'], 'Foo: bar')
+
+    def test_render_without_permission(self):
+        configtemplate = ConfigTemplate.objects.first()
+
+        # No permissions added - user has no render permission
+        url = reverse('extras-api:configtemplate-render', kwargs={'pk': configtemplate.pk})
+        response = self.client.post(url, {'foo': 'bar'}, format='json', **self.header)
+        self.assertHttpStatus(response, status.HTTP_404_NOT_FOUND)
+
+    def test_render_token_write_enabled(self):
+        configtemplate = ConfigTemplate.objects.first()
+
+        self.add_permissions('extras.render_configtemplate', 'extras.view_configtemplate')
+        url = reverse('extras-api:configtemplate-render', kwargs={'pk': configtemplate.pk})
+
+        # Request without token auth should fail with PermissionDenied
+        response = self.client.post(url, {'foo': 'bar'}, format='json')
+        self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)
+
+        # Create token with write_enabled=False
+        token = Token.objects.create(version=2, user=self.user, write_enabled=False)
+        token_header = f'Bearer {TOKEN_PREFIX}{token.key}.{token.token}'
+
+        # Request with write-disabled token should fail
+        response = self.client.post(url, {'foo': 'bar'}, format='json', HTTP_AUTHORIZATION=token_header)
+        self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)
+
+        # Enable write and retry
+        token.write_enabled = True
+        token.save()
+        response = self.client.post(url, {'foo': 'bar'}, format='json', HTTP_AUTHORIZATION=token_header)
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+
 
 class ScriptTest(APITestCase):
 
     class TestScriptClass(PythonClass):
-
         class Meta:
-            name = "Test script"
+            name = 'Test script'
+            commit = True
+            scheduling_enabled = True
 
         var1 = StringVar()
         var2 = IntegerVar()
         var3 = BooleanVar()
 
         def run(self, data, commit=True):
-
             self.log_info(data['var1'])
             self.log_success(data['var2'])
             self.log_failure(data['var3'])
@@ -813,38 +1014,109 @@ class ScriptTest(APITestCase):
 
     @classmethod
     def setUpTestData(cls):
-        module = ScriptModule.objects.create(
-            file_root=ManagedFileRootPathChoices.SCRIPTS,
-            file_path='/var/tmp/script.py'
-        )
-        Script.objects.create(
+        # Avoid trying to import a non-existent on-disk module during setup.
+        # This test creates the Script row explicitly and monkey-patches
+        # Script.python_class below.
+        with patch.object(ScriptModule, 'sync_classes'):
+            module = ScriptModule.objects.create(
+                file_root=ManagedFileRootPathChoices.SCRIPTS,
+                file_path='script.py',
+            )
+        script = Script.objects.create(
             module=module,
-            name="Test script",
+            name='Test script',
             is_executable=True,
         )
+        cls.url = reverse('extras-api:script-detail', kwargs={'pk': script.pk})
 
+    @property
     def python_class(self):
         return self.TestScriptClass
 
     def setUp(self):
         super().setUp()
+        self.add_permissions('extras.view_script')
 
         # Monkey-patch the Script model to return our TestScriptClass above
         Script.python_class = self.python_class
 
     def test_get_script(self):
-        module = ScriptModule.objects.get(
-            file_root=ManagedFileRootPathChoices.SCRIPTS,
-            file_path='/var/tmp/script.py'
-        )
-        script = module.scripts.all().first()
-        url = reverse('extras-api:script-detail', kwargs={'pk': script.pk})
-        response = self.client.get(url, **self.header)
+        response = self.client.get(self.url, **self.header)
 
         self.assertEqual(response.data['name'], self.TestScriptClass.Meta.name)
         self.assertEqual(response.data['vars']['var1'], 'StringVar')
         self.assertEqual(response.data['vars']['var2'], 'IntegerVar')
         self.assertEqual(response.data['vars']['var3'], 'BooleanVar')
+
+    def test_schedule_script_past_time_rejected(self):
+        """
+        Scheduling with past schedule_at should fail.
+        """
+        self.add_permissions('extras.run_script')
+
+        payload = {
+            'data': {'var1': 'hello', 'var2': 1, 'var3': False},
+            'commit': True,
+            'schedule_at': now() - datetime.timedelta(hours=1),
+        }
+        response = self.client.post(self.url, payload, format='json', **self.header)
+
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('schedule_at', response.data)
+        # Be tolerant of exact wording but ensure we failed on schedule_at being in the past
+        self.assertIn('future', str(response.data['schedule_at']).lower())
+
+    def test_schedule_script_interval_only(self):
+        """
+        Interval without schedule_at should auto-set schedule_at now.
+        """
+        self.add_permissions('extras.run_script')
+
+        payload = {
+            'data': {'var1': 'hello', 'var2': 1, 'var3': False},
+            'commit': True,
+            'interval': 60,
+        }
+        response = self.client.post(self.url, payload, format='json', **self.header)
+
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+        # The latest job is returned in the script detail serializer under "result"
+        self.assertIn('result', response.data)
+        self.assertEqual(response.data['result']['interval'], 60)
+        # Ensure a start time was autopopulated
+        self.assertIsNotNone(response.data['result']['scheduled'])
+
+    def test_schedule_script_when_disabled(self):
+        """
+        Scheduling should fail when script.scheduling_enabled=False.
+        """
+        self.add_permissions('extras.run_script')
+
+        # Temporarily disable scheduling on the in-test Python class
+        original = getattr(self.TestScriptClass.Meta, 'scheduling_enabled', True)
+        self.TestScriptClass.Meta.scheduling_enabled = False
+        base = {
+            'data': {'var1': 'hello', 'var2': 1, 'var3': False},
+            'commit': True,
+        }
+        # Check both schedule_at and interval paths
+        cases = [
+            {**base, 'schedule_at': now() + datetime.timedelta(minutes=5)},
+            {**base, 'interval': 60},
+        ]
+        try:
+            for case in cases:
+                with self.subTest(case=list(case.keys())):
+                    response = self.client.post(self.url, case, format='json', **self.header)
+
+                    self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+                    # Error should be attached to whichever field we used
+                    key = 'schedule_at' if 'schedule_at' in case else 'interval'
+                    self.assertIn(key, response.data)
+                    self.assertIn('scheduling is not enabled', str(response.data[key]).lower())
+        finally:
+            # Restore the original setting for other tests
+            self.TestScriptClass.Meta.scheduling_enabled = original
 
 
 class CreatedUpdatedFilterTest(APITestCase):
@@ -919,22 +1191,6 @@ class CreatedUpdatedFilterTest(APITestCase):
 
         self.assertEqual(response.data['count'], 1)
         self.assertEqual(response.data['results'][0]['id'], rack2.pk)
-
-
-class ObjectTypeTest(APITestCase):
-
-    def test_list_objects(self):
-        object_type_count = ObjectType.objects.count()
-
-        response = self.client.get(reverse('extras-api:objecttype-list'), **self.header)
-        self.assertHttpStatus(response, status.HTTP_200_OK)
-        self.assertEqual(response.data['count'], object_type_count)
-
-    def test_get_object(self):
-        object_type = ObjectType.objects.first()
-
-        url = reverse('extras-api:objecttype-detail', kwargs={'pk': object_type.pk})
-        self.assertHttpStatus(self.client.get(url, **self.header), status.HTTP_200_OK)
 
 
 class SubscriptionTest(APIViewTestCases.APIViewTestCase):
@@ -1135,3 +1391,81 @@ class NotificationTest(APIViewTestCases.APIViewTestCase):
                 'event_type': OBJECT_DELETED,
             },
         ]
+
+
+class ScriptModuleTest(APITestCase):
+    """
+    Tests for the POST /api/extras/scripts/upload/ endpoint.
+
+    ScriptModule is a proxy of core.ManagedFile (a different app) so the standard
+    APIViewTestCases mixins cannot be used directly. All tests use add_permissions()
+    with explicit Django model-level permissions.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('extras-api:scriptmodule-list')  # /api/extras/scripts/upload/
+
+    def test_upload_script_module_without_permission(self):
+        script_content = b"from extras.scripts import Script\nclass TestScript(Script):\n    pass\n"
+        upload_file = SimpleUploadedFile('test_upload.py', script_content, content_type='text/plain')
+        response = self.client.post(
+            self.url,
+            {'file': upload_file},
+            format='multipart',
+            **self.header,
+        )
+        self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)
+
+    def test_upload_script_module(self):
+        # ScriptModule is a proxy of core.ManagedFile; both permissions required.
+        self.add_permissions('extras.add_scriptmodule', 'core.add_managedfile')
+        script_content = b"from extras.scripts import Script\nclass TestScript(Script):\n    pass\n"
+        upload_file = SimpleUploadedFile('test_upload.py', script_content, content_type='text/plain')
+        mock_storage = MagicMock()
+        mock_storage.save.return_value = 'test_upload.py'
+
+        # The upload serializer writes the file via storages.create_storage(...).save(),
+        # but ScriptModule.sync_classes() later imports it via storages["scripts"].open().
+        # Provide both behaviors so the uploaded module can actually be loaded during the test.
+        mock_storage.open.side_effect = lambda *args, **kwargs: io.BytesIO(script_content)
+
+        with (
+            patch('extras.api.serializers_.scripts.storages') as mock_serializer_storages,
+            patch('extras.models.mixins.storages') as mock_module_storages,
+        ):
+            mock_serializer_storages.create_storage.return_value = mock_storage
+            mock_serializer_storages.backends = {'scripts': {}}
+            mock_module_storages.__getitem__.return_value = mock_storage
+
+            response = self.client.post(
+                self.url,
+                {'file': upload_file},
+                format='multipart',
+                **self.header,
+            )
+        self.assertHttpStatus(response, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['file_path'], 'test_upload.py')
+        mock_storage.save.assert_called_once()
+        self.assertTrue(ScriptModule.objects.filter(file_path='test_upload.py').exists())
+        self.assertTrue(Script.objects.filter(module__file_path='test_upload.py', name='TestScript').exists())
+
+    def test_upload_faulty_script_module(self):
+        """Uploading a script with an import error should return 400 and not create a DB record."""
+        self.add_permissions('extras.add_scriptmodule', 'core.add_managedfile')
+        # 'extras.script' is invalid; the correct module is 'extras.scripts'
+        script_content = b"from extras.script import Script\nclass TestScript(Script):\n    pass\n"
+        upload_file = SimpleUploadedFile('test_faulty.py', script_content, content_type='text/plain')
+        response = self.client.post(
+            self.url,
+            {'file': upload_file},
+            format='multipart',
+            **self.header,
+        )
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(ScriptModule.objects.filter(file_path='test_faulty.py').exists())
+
+    def test_upload_script_module_without_file_fails(self):
+        self.add_permissions('extras.add_scriptmodule', 'core.add_managedfile')
+        response = self.client.post(self.url, {}, format='json', **self.header)
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)

@@ -6,8 +6,8 @@ from rest_framework.request import Request
 
 from netbox.api.exceptions import QuerySetNotOrdered
 from netbox.api.pagination import OptionalLimitOffsetPagination
-from utilities.testing import APITestCase
 from users.models import Token
+from utilities.testing import APITestCase
 
 
 class AppTest(APITestCase):
@@ -31,6 +31,18 @@ class AppTest(APITestCase):
         response = self.client.get(f'{url}?format=api', **self.header)
 
         self.assertEqual(response.status_code, 200)
+
+    def test_authentication_check(self):
+        url = reverse('api-authentication-check')
+
+        # Test an unauthenticated request
+        response = self.client.get(f'{url}')
+        self.assertEqual(response.status_code, 403)
+
+        # Test an authenticated request
+        response = self.client.get(f'{url}', **self.header)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['id'], self.user.pk)
 
 
 class OptionalLimitOffsetPaginationTest(TestCase):

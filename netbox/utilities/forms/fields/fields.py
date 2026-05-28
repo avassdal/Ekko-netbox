@@ -1,24 +1,58 @@
 import json
 
 from django import forms
+from django.conf import settings
+from django.db.models import BigIntegerField as BigIntegerModelField
 from django.db.models import Count
-from django.forms.fields import JSONField as _JSONField, InvalidJSONInput
+from django.forms.fields import InvalidJSONInput
+from django.forms.fields import JSONField as _JSONField
 from django.templatetags.static import static
 from django.utils.translation import gettext_lazy as _
-from netaddr import AddrFormatError, EUI
+from netaddr import EUI, AddrFormatError
 
 from utilities.forms import widgets
 from utilities.validators import EnhancedURLValidator
 
 __all__ = (
+    'BigIntegerField',
     'ColorField',
     'CommentField',
     'JSONField',
     'LaxURLField',
     'MACAddressField',
+    'PositiveBigIntegerField',
+    'QueryField',
     'SlugField',
     'TagFilterField',
 )
+
+
+class BigIntegerField(forms.IntegerField):
+    """
+    An IntegerField constrained to the range of a signed 64-bit integer.
+    """
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('min_value', -BigIntegerModelField.MAX_BIGINT - 1)
+        kwargs.setdefault('max_value', BigIntegerModelField.MAX_BIGINT)
+        super().__init__(*args, **kwargs)
+
+
+class PositiveBigIntegerField(BigIntegerField):
+    """
+    An IntegerField constrained to the range supported by Django's
+    PositiveBigIntegerField model field.
+    """
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('min_value', 0)
+        super().__init__(*args, **kwargs)
+
+
+class QueryField(forms.CharField):
+    """
+    A CharField subclass used for global search/query fields in filter forms.
+    This field type signals to FilterModifierMixin to skip enhancement with lookup modifiers.
+    """
+    pass
 
 
 class CommentField(forms.CharField):
@@ -52,6 +86,14 @@ class SlugField(forms.SlugField):
 
         self.widget.attrs['slug-source'] = slug_source
 
+    def get_bound_field(self, form, field_name):
+        if prefix := form.prefix:
+            slug_source = self.widget.attrs.get('slug-source')
+            if slug_source and not slug_source.startswith(f'{prefix}-'):
+                self.widget.attrs['slug-source'] = f"{prefix}-{slug_source}"
+
+        return super().get_bound_field(form, field_name)
+
 
 class ColorField(forms.CharField):
     """
@@ -74,7 +116,8 @@ class TagFilterField(forms.MultipleChoiceField):
                 count=Count('extras_taggeditem_items')
             ).order_by('name')
             return [
-                (str(tag.slug), '{} ({})'.format(tag.name, tag.count)) for tag in tags
+                (settings.FILTERS_NULL_CHOICE_VALUE, settings.FILTERS_NULL_CHOICE_LABEL),  # "None" option
+                *[(str(tag.slug), f'{tag.name} ({tag.count})') for tag in tags]
             ]
 
         # Choices are fetched each time the form is initialized

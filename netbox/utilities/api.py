@@ -1,20 +1,28 @@
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.core.exceptions import (
-    FieldDoesNotExist, FieldError, MultipleObjectsReturned, ObjectDoesNotExist, ValidationError,
+    FieldDoesNotExist,
+    FieldError,
+    MultipleObjectsReturned,
+    ObjectDoesNotExist,
+    ValidationError,
 )
 from django.db.models.fields.related import ManyToOneRel, RelatedField
 from django.urls import reverse
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
+from rest_framework.permissions import BasePermission
 from rest_framework.serializers import Serializer
 from rest_framework.views import get_view_name as drf_get_view_name
 
+from extras.constants import HTTP_CONTENT_TYPE_JSON
 from netbox.api.exceptions import GraphQLTypeNotFound, SerializerNotFound
 from netbox.api.fields import RelatedObjectCountField
+
 from .query import count_related, dict_to_filter_params
 from .string import title
 
 __all__ = (
+    'IsSuperuser',
     'get_annotations_for_serializer',
     'get_graphql_type_for_model',
     'get_prefetches_for_serializer',
@@ -22,7 +30,16 @@ __all__ = (
     'get_serializer_for_model',
     'get_view_name',
     'is_api_request',
+    'is_graphql_request',
 )
+
+
+class IsSuperuser(BasePermission):
+    """
+    Allows access only to superusers.
+    """
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_superuser)
 
 
 def get_serializer_for_model(model, prefix=''):
@@ -58,12 +75,19 @@ def is_api_request(request):
     return request.path_info.startswith(reverse('api-root'))
 
 
+def is_graphql_request(request):
+    """
+    Return True of the request is being made via the GraphQL API.
+    """
+    return request.path_info == reverse('graphql') and request.content_type == HTTP_CONTENT_TYPE_JSON
+
+
 def get_view_name(view):
     """
     Derive the view name from its associated model, if it has one. Fall back to DRF's built-in `get_view_name()`.
     This function is provided to DRF as its VIEW_NAME_FUNCTION.
     """
-    if hasattr(view, 'queryset'):
+    if hasattr(view, 'queryset') and view.queryset is not None:
         # Derive the model name from the queryset.
         name = title(view.queryset.model._meta.verbose_name)
         if suffix := getattr(view, 'suffix', None):
@@ -74,18 +98,23 @@ def get_view_name(view):
     return drf_get_view_name(view)
 
 
-def get_prefetches_for_serializer(serializer_class, fields_to_include=None):
+def get_prefetches_for_serializer(serializer_class, fields=None, omit=None):
     """
     Compile and return a list of fields which should be prefetched on the queryset for a serializer.
     """
+    if fields is not None and omit is not None:
+        raise TypeError("Cannot specify both 'fields' and 'omit' parameters.")
+
     model = serializer_class.Meta.model
 
     # If fields are not specified, default to all
-    if not fields_to_include:
-        fields_to_include = serializer_class.Meta.fields
+    fields_to_include = fields or serializer_class.Meta.fields
+    fields_to_omit = omit or []
 
     prefetch_fields = []
     for field_name in fields_to_include:
+        if field_name in fields_to_omit:
+            continue
         serializer_field = serializer_class._declared_fields.get(field_name)
 
         # Determine the name of the model field referenced by the serializer field
@@ -113,19 +142,23 @@ def get_prefetches_for_serializer(serializer_class, fields_to_include=None):
     return prefetch_fields
 
 
-def get_annotations_for_serializer(serializer_class, fields_to_include=None):
+def get_annotations_for_serializer(serializer_class, fields=None, omit=None):
     """
     Return a mapping of field names to annotations to be applied to the queryset for a serializer.
     """
-    annotations = {}
-
-    # If specific fields are not specified, default to all
-    if not fields_to_include:
-        fields_to_include = serializer_class.Meta.fields
+    if fields is not None and omit is not None:
+        raise TypeError("Cannot specify both 'fields' and 'omit' parameters.")
 
     model = serializer_class.Meta.model
 
+    # If fields are not specified, default to all
+    fields_to_include = fields or serializer_class.Meta.fields
+    fields_to_omit = omit or []
+
+    annotations = {}
     for field_name, field in serializer_class._declared_fields.items():
+        if field_name in fields_to_omit:
+            continue
         if field_name in fields_to_include and type(field) is RelatedObjectCountField:
             related_field = getattr(model, field.relation).field
             annotations[field_name] = count_related(related_field.model, related_field.name)

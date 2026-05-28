@@ -1,28 +1,56 @@
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.expressions import RawSQL
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
-from core.models import ObjectType
 from netbox.models import ChangeLoggedModel, NestedGroupModel, OrganizationalModel, PrimaryModel
-from netbox.models.features import CustomFieldsMixin, ExportTemplatesMixin, TagsMixin
+from netbox.models.features import CustomFieldsMixin, ExportTemplatesMixin, TagsMixin, has_feature
 from tenancy.choices import *
+from utilities.mptt import TreeManager
 
 __all__ = (
-    'ContactAssignment',
     'Contact',
+    'ContactAssignment',
     'ContactGroup',
     'ContactRole',
 )
+
+
+class ContactGroupManager(TreeManager):
+
+    def annotate_contacts(self):
+        """
+        Annotate the total number of Contacts belonging to each ContactGroup.
+
+        This returns both direct children and children of child groups. Raw SQL is used here to avoid double-counting
+        contacts which are assigned to multiple child groups of the parent.
+        """
+        return self.annotate(
+            contact_count=RawSQL(
+                "SELECT COUNT(DISTINCT m2m.contact_id)"
+                " FROM tenancy_contact_groups m2m"
+                " INNER JOIN tenancy_contactgroup cg ON m2m.contactgroup_id = cg.id"
+                " WHERE cg.tree_id = tenancy_contactgroup.tree_id"
+                " AND cg.lft >= tenancy_contactgroup.lft"
+                " AND cg.lft <= tenancy_contactgroup.rght",
+                ()
+            )
+        )
 
 
 class ContactGroup(NestedGroupModel):
     """
     An arbitrary collection of Contacts.
     """
+    objects = ContactGroupManager()
+
     class Meta:
         ordering = ['name']
+        # Empty tuple triggers Django migration detection for MPTT indexes
+        # (see #21016, django-mptt/django-mptt#682)
+        indexes = ()
         constraints = (
             models.UniqueConstraint(
                 fields=('parent', 'name'),
@@ -83,7 +111,7 @@ class Contact(PrimaryModel):
     )
 
     clone_fields = (
-        'groups', 'name', 'title', 'phone', 'email', 'address', 'link',
+        'groups',
     )
 
     class Meta:
@@ -151,7 +179,7 @@ class ContactAssignment(CustomFieldsMixin, ExportTemplatesMixin, TagsMixin, Chan
         super().clean()
 
         # Validate the assigned object type
-        if self.object_type not in ObjectType.objects.with_feature('contacts'):
+        if not has_feature(self.object_type, 'contacts'):
             raise ValidationError(
                 _("Contacts cannot be assigned to this object type ({type}).").format(type=self.object_type)
             )

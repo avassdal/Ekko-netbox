@@ -1,46 +1,59 @@
+from datetime import datetime
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import EmptyPage
 from django.db.models import Count, Q
-from django.http import HttpResponseBadRequest, HttpResponseForbidden, HttpResponse
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.module_loading import import_string
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _
 from django.views.generic import View
 from jinja2.exceptions import TemplateError
 
 from core.choices import ManagedFileRootPathChoices
 from core.models import Job
+from core.object_actions import BulkSync
 from dcim.models import Device, DeviceRole, Platform
 from extras.choices import LogLevelChoices
 from extras.dashboard.forms import DashboardWidgetAddForm, DashboardWidgetForm
 from extras.dashboard.utils import get_widget_class
 from extras.utils import SharedObjectViewMixin
-from netbox.constants import DEFAULT_ACTION_PERMISSIONS
+from netbox.object_actions import *
+from netbox.ui import layout
+from netbox.ui.panels import (
+    CommentsPanel,
+    ContextTablePanel,
+    JSONPanel,
+    TemplatePanel,
+    TextCodePanel,
+)
 from netbox.views import generic
 from netbox.views.generic.mixins import TableMixin
 from utilities.forms import ConfirmationForm, get_field_value
-from utilities.htmx import htmx_partial
+from utilities.htmx import htmx_maybe_redirect_current_page, htmx_partial
 from utilities.paginator import EnhancedPaginator, get_paginate_count
 from utilities.query import count_related
 from utilities.querydict import normalize_querydict
 from utilities.request import copy_safe_request
 from utilities.rqworker import get_workers_for_queue
 from utilities.templatetags.builtins.filters import render_markdown
-from utilities.views import ContentTypePermissionRequiredMixin, get_viewname, register_model_view
+from utilities.views import ContentTypePermissionRequiredMixin, get_action_url, register_model_view
 from virtualization.models import VirtualMachine
+
 from . import filtersets, forms, tables
 from .constants import LOG_LEVEL_RANK
 from .models import *
-from .tables import ReportResultsTable, ScriptResultsTable, ScriptJobTable
-
+from .tables import ReportResultsTable, ScriptJobTable, ScriptResultsTable
+from .ui import panels
 
 #
 # Custom fields
 #
+
 
 @register_model_view(CustomField, 'list', path='', detail=False)
 class CustomFieldListView(generic.ObjectListView):
@@ -53,6 +66,18 @@ class CustomFieldListView(generic.ObjectListView):
 @register_model_view(CustomField)
 class CustomFieldView(generic.ObjectView):
     queryset = CustomField.objects.select_related('choice_set')
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.CustomFieldPanel(),
+            panels.CustomFieldBehaviorPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            panels.CustomFieldObjectTypesPanel(),
+            panels.CustomFieldValidationPanel(),
+            panels.CustomFieldRelatedObjectsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         related_models = ()
@@ -96,6 +121,12 @@ class CustomFieldBulkEditView(generic.BulkEditView):
     form = forms.CustomFieldBulkEditForm
 
 
+@register_model_view(CustomField, 'bulk_rename', path='rename', detail=False)
+class CustomFieldBulkRenameView(generic.BulkRenameView):
+    queryset = CustomField.objects.all()
+    filterset = filtersets.CustomFieldFilterSet
+
+
 @register_model_view(CustomField, 'bulk_delete', path='delete', detail=False)
 class CustomFieldBulkDeleteView(generic.BulkDeleteView):
     queryset = CustomField.objects.select_related('choice_set')
@@ -118,6 +149,14 @@ class CustomFieldChoiceSetListView(generic.ObjectListView):
 @register_model_view(CustomFieldChoiceSet)
 class CustomFieldChoiceSetView(generic.ObjectView):
     queryset = CustomFieldChoiceSet.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.CustomFieldChoiceSetPanel(),
+        ],
+        right_panels=[
+            panels.CustomFieldChoiceSetChoicesPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
 
@@ -165,6 +204,12 @@ class CustomFieldChoiceSetBulkEditView(generic.BulkEditView):
     form = forms.CustomFieldChoiceSetBulkEditForm
 
 
+@register_model_view(CustomFieldChoiceSet, 'bulk_rename', path='rename', detail=False)
+class CustomFieldChoiceSetBulkRenameView(generic.BulkRenameView):
+    queryset = CustomFieldChoiceSet.objects.all()
+    filterset = filtersets.CustomFieldChoiceSetFilterSet
+
+
 @register_model_view(CustomFieldChoiceSet, 'bulk_delete', path='delete', detail=False)
 class CustomFieldChoiceSetBulkDeleteView(generic.BulkDeleteView):
     queryset = CustomFieldChoiceSet.objects.all()
@@ -187,6 +232,16 @@ class CustomLinkListView(generic.ObjectListView):
 @register_model_view(CustomLink)
 class CustomLinkView(generic.ObjectView):
     queryset = CustomLink.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.CustomLinkPanel(),
+            panels.ObjectTypesPanel(title=_('Assigned Models')),
+        ],
+        right_panels=[
+            TextCodePanel('link_text', title=_('Link Text')),
+            TextCodePanel('link_url', title=_('Link URL')),
+        ],
+    )
 
 
 @register_model_view(CustomLink, 'add', detail=False)
@@ -215,6 +270,12 @@ class CustomLinkBulkEditView(generic.BulkEditView):
     form = forms.CustomLinkBulkEditForm
 
 
+@register_model_view(CustomLink, 'bulk_rename', path='rename', detail=False)
+class CustomLinkBulkRenameView(generic.BulkRenameView):
+    queryset = CustomLink.objects.all()
+    filterset = filtersets.CustomLinkFilterSet
+
+
 @register_model_view(CustomLink, 'bulk_delete', path='delete', detail=False)
 class CustomLinkBulkDeleteView(generic.BulkDeleteView):
     queryset = CustomLink.objects.all()
@@ -232,16 +293,25 @@ class ExportTemplateListView(generic.ObjectListView):
     filterset = filtersets.ExportTemplateFilterSet
     filterset_form = forms.ExportTemplateFilterForm
     table = tables.ExportTemplateTable
-    template_name = 'extras/exporttemplate_list.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_sync': {'sync'},
-    }
+    actions = (AddObject, BulkImport, BulkSync, BulkExport, BulkEdit, BulkRename, BulkDelete)
 
 
 @register_model_view(ExportTemplate)
 class ExportTemplateView(generic.ObjectView):
     queryset = ExportTemplate.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ExportTemplatePanel(),
+            TemplatePanel('core/inc/datafile_panel.html'),
+        ],
+        right_panels=[
+            panels.ObjectTypesPanel(title=_('Assigned Models')),
+            JSONPanel('environment_params', title=_('Environment Parameters')),
+        ],
+        bottom_panels=[
+            TextCodePanel('template_code', title=_('Template'), show_sync_warning=True),
+        ],
+    )
 
 
 @register_model_view(ExportTemplate, 'add', detail=False)
@@ -268,6 +338,12 @@ class ExportTemplateBulkEditView(generic.BulkEditView):
     filterset = filtersets.ExportTemplateFilterSet
     table = tables.ExportTemplateTable
     form = forms.ExportTemplateBulkEditForm
+
+
+@register_model_view(ExportTemplate, 'bulk_rename', path='rename', detail=False)
+class ExportTemplateBulkRenameView(generic.BulkRenameView):
+    queryset = ExportTemplate.objects.all()
+    filterset = filtersets.ExportTemplateFilterSet
 
 
 @register_model_view(ExportTemplate, 'bulk_delete', path='delete', detail=False)
@@ -297,6 +373,15 @@ class SavedFilterListView(SharedObjectViewMixin, generic.ObjectListView):
 @register_model_view(SavedFilter)
 class SavedFilterView(SharedObjectViewMixin, generic.ObjectView):
     queryset = SavedFilter.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.SavedFilterPanel(),
+            panels.SavedFilterObjectTypesPanel(),
+        ],
+        right_panels=[
+            JSONPanel('parameters', title=_('Parameters')),
+        ],
+    )
 
 
 @register_model_view(SavedFilter, 'add', detail=False)
@@ -330,6 +415,12 @@ class SavedFilterBulkEditView(SharedObjectViewMixin, generic.BulkEditView):
     form = forms.SavedFilterBulkEditForm
 
 
+@register_model_view(SavedFilter, 'bulk_rename', path='rename', detail=False)
+class SavedFilterBulkRenameView(generic.BulkRenameView):
+    queryset = SavedFilter.objects.all()
+    filterset = filtersets.SavedFilterFilterSet
+
+
 @register_model_view(SavedFilter, 'bulk_delete', path='delete', detail=False)
 class SavedFilterBulkDeleteView(SharedObjectViewMixin, generic.BulkDeleteView):
     queryset = SavedFilter.objects.all()
@@ -347,14 +438,21 @@ class TableConfigListView(SharedObjectViewMixin, generic.ObjectListView):
     filterset = filtersets.TableConfigFilterSet
     filterset_form = forms.TableConfigFilterForm
     table = tables.TableConfigTable
-    actions = {
-        'export': {'view'},
-    }
+    actions = (BulkExport, BulkEdit, BulkRename, BulkDelete)
 
 
 @register_model_view(TableConfig)
 class TableConfigView(SharedObjectViewMixin, generic.ObjectView):
     queryset = TableConfig.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.TableConfigPanel(),
+        ],
+        right_panels=[
+            panels.TableConfigColumnsPanel(),
+            panels.TableConfigOrderingPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         table = instance.table_class([])
@@ -387,6 +485,12 @@ class TableConfigBulkEditView(SharedObjectViewMixin, generic.BulkEditView):
     filterset = filtersets.TableConfigFilterSet
     table = tables.TableConfigTable
     form = forms.TableConfigBulkEditForm
+
+
+@register_model_view(TableConfig, 'bulk_rename', path='rename', detail=False)
+class TableConfigBulkRenameView(generic.BulkRenameView):
+    queryset = TableConfig.objects.all()
+    filterset = filtersets.TableConfigFilterSet
 
 
 @register_model_view(TableConfig, 'bulk_delete', path='delete', detail=False)
@@ -442,6 +546,15 @@ class NotificationGroupListView(generic.ObjectListView):
 @register_model_view(NotificationGroup)
 class NotificationGroupView(generic.ObjectView):
     queryset = NotificationGroup.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.NotificationGroupPanel(),
+        ],
+        right_panels=[
+            panels.NotificationGroupGroupsPanel(),
+            panels.NotificationGroupUsersPanel(),
+        ],
+    )
 
 
 @register_model_view(NotificationGroup, 'add', detail=False)
@@ -470,6 +583,12 @@ class NotificationGroupBulkEditView(generic.BulkEditView):
     form = forms.NotificationGroupBulkEditForm
 
 
+@register_model_view(NotificationGroup, 'bulk_rename', path='rename', detail=False)
+class NotificationGroupBulkRenameView(generic.BulkRenameView):
+    queryset = NotificationGroup.objects.all()
+    filterset = filtersets.NotificationGroupFilterSet
+
+
 @register_model_view(NotificationGroup, 'bulk_delete', path='delete', detail=False)
 class NotificationGroupBulkDeleteView(generic.BulkDeleteView):
     queryset = NotificationGroup.objects.all()
@@ -487,8 +606,9 @@ class NotificationsView(LoginRequiredMixin, View):
     """
     def get(self, request):
         return render(request, 'htmx/notifications.html', {
-            'notifications': request.user.notifications.unread(),
+            'notifications': request.user.notifications.unread()[:10],
             'total_count': request.user.notifications.count(),
+            'unread_count': request.user.notifications.unread().count(),
         })
 
 
@@ -497,6 +617,7 @@ class NotificationReadView(LoginRequiredMixin, View):
     """
     Mark the Notification read and redirect the user to its attached object.
     """
+
     def get(self, request, pk):
         # Mark the Notification as read
         notification = get_object_or_404(request.user.notifications, pk=pk)
@@ -510,18 +631,48 @@ class NotificationReadView(LoginRequiredMixin, View):
         return redirect('account:notifications')
 
 
+@register_model_view(Notification, name='dismiss_all', path='dismiss-all', detail=False)
+class NotificationDismissAllView(LoginRequiredMixin, View):
+    """
+    Convenience view to clear all *unread* notifications for the current user.
+    """
+
+    def get(self, request):
+        request.user.notifications.unread().delete()
+        if htmx_partial(request):
+            # If a user is currently on the notification page, redirect there (full repaint)
+            redirect_resp = htmx_maybe_redirect_current_page(request, 'account:notifications', preserve_query=True)
+            if redirect_resp:
+                return redirect_resp
+
+            return render(request, 'htmx/notifications.html', {
+                'notifications': request.user.notifications.unread()[:10],
+                'total_count': request.user.notifications.count(),
+                'unread_count': request.user.notifications.unread().count(),
+            })
+        return redirect('account:notifications')
+
+
 @register_model_view(Notification, 'dismiss')
 class NotificationDismissView(LoginRequiredMixin, View):
     """
     A convenience view which allows deleting notifications with one click.
     """
+
     def get(self, request, pk):
         notification = get_object_or_404(request.user.notifications, pk=pk)
         notification.delete()
 
         if htmx_partial(request):
+            # If a user is currently on the notification page, redirect there (full repaint)
+            redirect_resp = htmx_maybe_redirect_current_page(request, 'account:notifications', preserve_query=True)
+            if redirect_resp:
+                return redirect_resp
+
             return render(request, 'htmx/notifications.html', {
                 'notifications': request.user.notifications.unread()[:10],
+                'total_count': request.user.notifications.count(),
+                'unread_count': request.user.notifications.unread().count(),
             })
 
         return redirect('account:notifications')
@@ -588,6 +739,19 @@ class WebhookListView(generic.ObjectListView):
 @register_model_view(Webhook)
 class WebhookView(generic.ObjectView):
     queryset = Webhook.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.WebhookPanel(),
+            panels.WebhookHTTPPanel(),
+            panels.WebhookSSLPanel(),
+        ],
+        right_panels=[
+            TextCodePanel('additional_headers', title=_('Additional Headers')),
+            TextCodePanel('body_template', title=_('Body Template')),
+            panels.CustomFieldsPanel(),
+            panels.TagsPanel(),
+        ],
+    )
 
 
 @register_model_view(Webhook, 'add', detail=False)
@@ -616,6 +780,12 @@ class WebhookBulkEditView(generic.BulkEditView):
     form = forms.WebhookBulkEditForm
 
 
+@register_model_view(Webhook, 'bulk_rename', path='rename', detail=False)
+class WebhookBulkRenameView(generic.BulkRenameView):
+    queryset = Webhook.objects.all()
+    filterset = filtersets.WebhookFilterSet
+
+
 @register_model_view(Webhook, 'bulk_delete', path='delete', detail=False)
 class WebhookBulkDeleteView(generic.BulkDeleteView):
     queryset = Webhook.objects.all()
@@ -638,6 +808,19 @@ class EventRuleListView(generic.ObjectListView):
 @register_model_view(EventRule)
 class EventRuleView(generic.ObjectView):
     queryset = EventRule.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.EventRulePanel(),
+            panels.ObjectTypesPanel(),
+            panels.EventRuleEventTypesPanel(),
+        ],
+        right_panels=[
+            JSONPanel('conditions', title=_('Conditions')),
+            panels.EventRuleActionPanel(),
+            panels.CustomFieldsPanel(),
+            panels.TagsPanel(),
+        ],
+    )
 
 
 @register_model_view(EventRule, 'add', detail=False)
@@ -666,6 +849,12 @@ class EventRuleBulkEditView(generic.BulkEditView):
     form = forms.EventRuleBulkEditForm
 
 
+@register_model_view(EventRule, 'bulk_rename', path='rename', detail=False)
+class EventRuleBulkRenameView(generic.BulkRenameView):
+    queryset = EventRule.objects.all()
+    filterset = filtersets.EventRuleFilterSet
+
+
 @register_model_view(EventRule, 'bulk_delete', path='delete', detail=False)
 class EventRuleBulkDeleteView(generic.BulkDeleteView):
     queryset = EventRule.objects.all()
@@ -690,6 +879,18 @@ class TagListView(generic.ObjectListView):
 @register_model_view(Tag)
 class TagView(generic.ObjectView):
     queryset = Tag.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.TagPanel(),
+        ],
+        right_panels=[
+            panels.TagObjectTypesPanel(),
+            panels.TagItemTypesPanel(),
+        ],
+        bottom_panels=[
+            ContextTablePanel('taggeditem_table', title=_('Tagged Objects')),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         tagged_items = TaggedItem.objects.filter(tag=instance)
@@ -740,12 +941,91 @@ class TagBulkEditView(generic.BulkEditView):
     form = forms.TagBulkEditForm
 
 
+@register_model_view(Tag, 'bulk_rename', path='rename', detail=False)
+class TagBulkRenameView(generic.BulkRenameView):
+    queryset = Tag.objects.all()
+
+
 @register_model_view(Tag, 'bulk_delete', path='delete', detail=False)
 class TagBulkDeleteView(generic.BulkDeleteView):
     queryset = Tag.objects.annotate(
         items=count_related(TaggedItem, 'tag')
     )
     table = tables.TagTable
+
+
+#
+# Config context profiles
+#
+
+@register_model_view(ConfigContextProfile, 'list', path='', detail=False)
+class ConfigContextProfileListView(generic.ObjectListView):
+    queryset = ConfigContextProfile.objects.all()
+    filterset = filtersets.ConfigContextProfileFilterSet
+    filterset_form = forms.ConfigContextProfileFilterForm
+    table = tables.ConfigContextProfileTable
+    actions = (AddObject, BulkSync, BulkEdit, BulkRename, BulkDelete)
+
+
+@register_model_view(ConfigContextProfile)
+class ConfigContextProfileView(generic.ObjectView):
+    queryset = ConfigContextProfile.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ConfigContextProfilePanel(),
+            TemplatePanel('core/inc/datafile_panel.html'),
+            panels.CustomFieldsPanel(),
+            panels.TagsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            JSONPanel('schema', title=_('JSON Schema')),
+        ],
+    )
+
+
+@register_model_view(ConfigContextProfile, 'add', detail=False)
+@register_model_view(ConfigContextProfile, 'edit')
+class ConfigContextProfileEditView(generic.ObjectEditView):
+    queryset = ConfigContextProfile.objects.all()
+    form = forms.ConfigContextProfileForm
+
+
+@register_model_view(ConfigContextProfile, 'delete')
+class ConfigContextProfileDeleteView(generic.ObjectDeleteView):
+    queryset = ConfigContextProfile.objects.all()
+
+
+@register_model_view(ConfigContextProfile, 'bulk_import', path='import', detail=False)
+class ConfigContextProfileBulkImportView(generic.BulkImportView):
+    queryset = ConfigContextProfile.objects.all()
+    model_form = forms.ConfigContextProfileImportForm
+
+
+@register_model_view(ConfigContextProfile, 'bulk_edit', path='edit', detail=False)
+class ConfigContextProfileBulkEditView(generic.BulkEditView):
+    queryset = ConfigContextProfile.objects.all()
+    filterset = filtersets.ConfigContextProfileFilterSet
+    table = tables.ConfigContextProfileTable
+    form = forms.ConfigContextProfileBulkEditForm
+
+
+@register_model_view(ConfigContextProfile, 'bulk_rename', path='rename', detail=False)
+class ConfigContextProfileBulkRenameView(generic.BulkRenameView):
+    queryset = ConfigContextProfile.objects.all()
+    filterset = filtersets.ConfigContextProfileFilterSet
+
+
+@register_model_view(ConfigContextProfile, 'bulk_delete', path='delete', detail=False)
+class ConfigContextProfileBulkDeleteView(generic.BulkDeleteView):
+    queryset = ConfigContextProfile.objects.all()
+    filterset = filtersets.ConfigContextProfileFilterSet
+    table = tables.ConfigContextProfileTable
+
+
+@register_model_view(ConfigContextProfile, 'bulk_sync', path='sync', detail=False)
+class ConfigContextProfileBulkSyncDataView(generic.BulkSyncDataView):
+    queryset = ConfigContextProfile.objects.all()
 
 
 #
@@ -758,18 +1038,22 @@ class ConfigContextListView(generic.ObjectListView):
     filterset = filtersets.ConfigContextFilterSet
     filterset_form = forms.ConfigContextFilterForm
     table = tables.ConfigContextTable
-    template_name = 'extras/configcontext_list.html'
-    actions = {
-        'add': {'add'},
-        'bulk_edit': {'change'},
-        'bulk_delete': {'delete'},
-        'bulk_sync': {'sync'},
-    }
+    actions = (AddObject, BulkSync, BulkEdit, BulkRename, BulkDelete)
 
 
 @register_model_view(ConfigContext)
 class ConfigContextView(generic.ObjectView):
     queryset = ConfigContext.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ConfigContextPanel(),
+            TemplatePanel('core/inc/datafile_panel.html'),
+            panels.ConfigContextAssignmentPanel(),
+        ],
+        right_panels=[
+            TemplatePanel('extras/panels/configcontext_data.html'),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         # Gather assigned objects for parsing in the template
@@ -825,6 +1109,12 @@ class ConfigContextBulkEditView(generic.BulkEditView):
     form = forms.ConfigContextBulkEditForm
 
 
+@register_model_view(ConfigContext, 'bulk_rename', path='rename', detail=False)
+class ConfigContextBulkRenameView(generic.BulkRenameView):
+    queryset = ConfigContext.objects.all()
+    filterset = filtersets.ConfigContextFilterSet
+
+
 @register_model_view(ConfigContext, 'bulk_delete', path='delete', detail=False)
 class ConfigContextBulkDeleteView(generic.BulkDeleteView):
     queryset = ConfigContext.objects.all()
@@ -877,16 +1167,24 @@ class ConfigTemplateListView(generic.ObjectListView):
     filterset = filtersets.ConfigTemplateFilterSet
     filterset_form = forms.ConfigTemplateFilterForm
     table = tables.ConfigTemplateTable
-    template_name = 'extras/configtemplate_list.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_sync': {'sync'},
-    }
+    actions = (AddObject, BulkImport, BulkExport, BulkSync, BulkEdit, BulkRename, BulkDelete)
 
 
 @register_model_view(ConfigTemplate)
 class ConfigTemplateView(generic.ObjectView):
     queryset = ConfigTemplate.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ConfigTemplatePanel(),
+            panels.TagsPanel(),
+        ],
+        right_panels=[
+            JSONPanel('environment_params', title=_('Environment Parameters')),
+        ],
+        bottom_panels=[
+            TextCodePanel('template_code', title=_('Template'), show_sync_warning=True),
+        ],
+    )
 
 
 @register_model_view(ConfigTemplate, 'add', detail=False)
@@ -913,6 +1211,12 @@ class ConfigTemplateBulkEditView(generic.BulkEditView):
     filterset = filtersets.ConfigTemplateFilterSet
     table = tables.ConfigTemplateTable
     form = forms.ConfigTemplateBulkEditForm
+
+
+@register_model_view(ConfigTemplate, 'bulk_rename', path='rename', detail=False)
+class ConfigTemplateBulkRenameView(generic.BulkRenameView):
+    queryset = ConfigTemplate.objects.all()
+    filterset = filtersets.ConfigTemplateFilterSet
 
 
 @register_model_view(ConfigTemplate, 'bulk_delete', path='delete', detail=False)
@@ -964,10 +1268,20 @@ class ObjectRenderConfigView(generic.ObjectView):
         context_data = instance.get_config_context()
         context_data.update(self.get_extra_context_data(request, instance))
 
+        # Check for an optional config_template_id override in the query params
+        config_template = None
+        error_message = ''
+        if config_template_id := request.GET.get('config_template_id'):
+            try:
+                config_template = ConfigTemplate.objects.restrict(request.user, 'view').get(pk=config_template_id)
+            except (ConfigTemplate.DoesNotExist, ValueError):
+                error_message = _("Config template with ID {id} not found.").format(id=config_template_id)
+        else:
+            config_template = instance.get_config_template()
+
         # Render the config template
         rendered_config = None
-        error_message = ''
-        if config_template := instance.get_config_template():
+        if config_template:
             try:
                 rendered_config = config_template.render(context=context_data)
             except TemplateError as e:
@@ -992,9 +1306,23 @@ class ImageAttachmentListView(generic.ObjectListView):
     filterset = filtersets.ImageAttachmentFilterSet
     filterset_form = forms.ImageAttachmentFilterForm
     table = tables.ImageAttachmentTable
-    actions = {
-        'export': {'view'},
-    }
+    actions = (BulkExport, BulkEdit, BulkRename, BulkDelete)
+
+
+@register_model_view(ImageAttachment)
+class ImageAttachmentView(generic.ObjectView):
+    queryset = ImageAttachment.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ImageAttachmentPanel(),
+        ],
+        right_panels=[
+            panels.ImageAttachmentFilePanel(),
+        ],
+        bottom_panels=[
+            panels.ImageAttachmentImagePanel(),
+        ],
+    )
 
 
 @register_model_view(ImageAttachment, 'add', detail=False)
@@ -1010,9 +1338,6 @@ class ImageAttachmentEditView(generic.ObjectEditView):
             instance.parent = get_object_or_404(object_type.model_class(), pk=request.GET.get('object_id'))
         return instance
 
-    def get_return_url(self, request, obj=None):
-        return obj.parent.get_absolute_url() if obj else super().get_return_url(request)
-
     def get_extra_addanother_params(self, request):
         return {
             'object_type': request.GET.get('object_type'),
@@ -1024,8 +1349,26 @@ class ImageAttachmentEditView(generic.ObjectEditView):
 class ImageAttachmentDeleteView(generic.ObjectDeleteView):
     queryset = ImageAttachment.objects.all()
 
-    def get_return_url(self, request, obj=None):
-        return obj.parent.get_absolute_url() if obj else super().get_return_url(request)
+
+@register_model_view(ImageAttachment, 'bulk_edit', path='edit', detail=False)
+class ImageAttachmentBulkEditView(generic.BulkEditView):
+    queryset = ImageAttachment.objects.all()
+    filterset = filtersets.ImageAttachmentFilterSet
+    table = tables.ImageAttachmentTable
+    form = forms.ImageAttachmentBulkEditForm
+
+
+@register_model_view(ImageAttachment, 'bulk_rename', path='rename', detail=False)
+class ImageAttachmentBulkRenameView(generic.BulkRenameView):
+    queryset = ImageAttachment.objects.all()
+    filterset = filtersets.ImageAttachmentFilterSet
+
+
+@register_model_view(ImageAttachment, 'bulk_delete', path='delete', detail=False)
+class ImageAttachmentBulkDeleteView(generic.BulkDeleteView):
+    queryset = ImageAttachment.objects.all()
+    filterset = filtersets.ImageAttachmentFilterSet
+    table = tables.ImageAttachmentTable
 
 
 #
@@ -1038,17 +1381,22 @@ class JournalEntryListView(generic.ObjectListView):
     filterset = filtersets.JournalEntryFilterSet
     filterset_form = forms.JournalEntryFilterForm
     table = tables.JournalEntryTable
-    actions = {
-        'export': {'view'},
-        'bulk_import': {'add'},
-        'bulk_edit': {'change'},
-        'bulk_delete': {'delete'},
-    }
+    actions = (BulkImport, BulkEdit, BulkDelete)
 
 
 @register_model_view(JournalEntry)
 class JournalEntryView(generic.ObjectView):
     queryset = JournalEntry.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.JournalEntryPanel(),
+            panels.CustomFieldsPanel(),
+            panels.TagsPanel(),
+        ],
+        right_panels=[
+            CommentsPanel(),
+        ],
+    )
 
 
 @register_model_view(JournalEntry, 'add', detail=False)
@@ -1066,8 +1414,7 @@ class JournalEntryEditView(generic.ObjectEditView):
         if not instance.assigned_object:
             return reverse('extras:journalentry_list')
         obj = instance.assigned_object
-        viewname = get_viewname(obj, 'journal')
-        return reverse(viewname, kwargs={'pk': obj.pk})
+        return get_action_url(obj, action='journal', kwargs={'pk': obj.pk})
 
 
 @register_model_view(JournalEntry, 'delete')
@@ -1076,8 +1423,7 @@ class JournalEntryDeleteView(generic.ObjectDeleteView):
 
     def get_return_url(self, request, instance):
         obj = instance.assigned_object
-        viewname = get_viewname(obj, 'journal')
-        return reverse(viewname, kwargs={'pk': obj.pk})
+        return get_action_url(obj, action='journal', kwargs={'pk': obj.pk})
 
 
 @register_model_view(JournalEntry, 'bulk_import', path='import', detail=False)
@@ -1279,12 +1625,16 @@ class ScriptListView(ContentTypePermissionRequiredMixin, View):
         return 'extras.view_script'
 
     def get(self, request):
-        script_modules = ScriptModule.objects.restrict(request.user).prefetch_related(
-            'data_source', 'data_file', 'jobs'
+        available_scripts = Script.objects.restrict(request.user)
+        module_ids = {s.module_id for s in available_scripts}
+        script_modules = ScriptModule.objects.restrict(request.user).filter(pk__in=module_ids).prefetch_related(
+            'data_source', 'data_file',
         )
+
         context = {
             'model': ScriptModule,
             'script_modules': script_modules,
+            'available_scripts': available_scripts,
         }
 
         # Use partial template for dashboard widgets
@@ -1302,10 +1652,9 @@ class BaseScriptView(generic.ObjectView):
     def get_object(self, **kwargs):
         if pk := kwargs.get('pk', False):
             return get_object_or_404(self.queryset, pk=pk)
-        elif (module := kwargs.get('module')) and (name := kwargs.get('name', False)):
+        if (module := kwargs.get('module')) and (name := kwargs.get('name', False)):
             return get_object_or_404(self.queryset, module__file_path=f'{module}.py', name=name)
-        else:
-            raise Http404
+        raise Http404
 
     def _get_script_class(self, script):
         """
@@ -1313,6 +1662,7 @@ class BaseScriptView(generic.ObjectView):
         """
         if script_class := script.python_class:
             return script_class()
+        return None
 
 
 class ScriptView(BaseScriptView):
@@ -1349,7 +1699,13 @@ class ScriptView(BaseScriptView):
                 'script': script,
             })
 
-        form = script_class.as_form(request.POST, request.FILES)
+        # Populate missing variables with their default values, if defined
+        post_data = request.POST.copy()
+        for name, var in script_class._get_vars().items():
+            if name not in post_data and (initial := var.field_attrs.get('initial')) is not None:
+                post_data[name] = initial
+
+        form = script_class.as_form(post_data, request.FILES)
 
         # Allow execution only if RQ worker process is running
         if not get_workers_for_queue('default'):
@@ -1368,6 +1724,15 @@ class ScriptView(BaseScriptView):
             )
 
             return redirect('extras:script_result', job_pk=job.pk)
+        else:
+            fieldset_fields = {field for _, fields in script_class.get_fieldsets() for field in fields}
+            hidden_errors = {
+                field: errors for field, errors in form.errors.items()
+                if field not in fieldset_fields
+            }
+            if hidden_errors:
+                error_msg = '; '.join(f"{field}: {', '.join(errors)}" for field, errors in hidden_errors.items())
+                messages.error(request, error_msg)
 
         return render(request, 'extras/script.html', {
             'object': script,
@@ -1399,11 +1764,7 @@ class ScriptJobsView(BaseScriptView):
     def get(self, request, **kwargs):
         script = self.get_object(**kwargs)
 
-        jobs_table = ScriptJobTable(
-            data=script.jobs.all(),
-            orderable=False,
-            user=request.user
-        )
+        jobs_table = ScriptJobTable(data=script.jobs.all(), orderable=False)
         jobs_table.configure(request)
 
         return render(request, 'extras/script/jobs.html', {
@@ -1431,7 +1792,6 @@ class ScriptResultView(TableMixin, generic.ObjectView):
         except KeyError:
             log_threshold = LOG_LEVEL_RANK[LogLevelChoices.LOG_INFO]
         if job.data:
-
             if 'log' in job.data:
                 if 'tests' in job.data:
                     tests = job.data['tests']
@@ -1442,7 +1802,7 @@ class ScriptResultView(TableMixin, generic.ObjectView):
                         index += 1
                         result = {
                             'index': index,
-                            'time': log.get('time'),
+                            'time': datetime.fromisoformat(log.get('time')),
                             'status': log.get('status'),
                             'message': log.get('message'),
                             'object': log.get('obj'),
@@ -1450,7 +1810,7 @@ class ScriptResultView(TableMixin, generic.ObjectView):
                         }
                         data.append(result)
 
-                table = ScriptResultsTable(data, user=request.user)
+                table = ScriptResultsTable(data)
                 table.configure(request)
             else:
                 # for legacy reports
@@ -1474,7 +1834,7 @@ class ScriptResultView(TableMixin, generic.ObjectView):
                             }
                             data.append(result)
 
-            table = ReportResultsTable(data, user=request.user)
+            table = ReportResultsTable(data)
             table.configure(request)
 
         return table
@@ -1492,7 +1852,7 @@ class ScriptResultView(TableMixin, generic.ObjectView):
             response['Content-Disposition'] = f'attachment; filename="{filename}"'
             return response
 
-        elif job.completed:
+        if job.completed:
             table = self.get_table(job, request, bulk_actions=False)
 
         log_threshold = request.GET.get('log_threshold', LogLevelChoices.LOG_INFO)

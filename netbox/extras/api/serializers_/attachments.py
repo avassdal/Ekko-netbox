@@ -1,12 +1,11 @@
 from django.core.exceptions import ObjectDoesNotExist
-from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from core.models import ObjectType
 from extras.models import ImageAttachment
 from netbox.api.fields import ContentTypeField
+from netbox.api.gfk_fields import GFKSerializerField
 from netbox.api.serializers import ValidatedModelSerializer
-from utilities.api import get_serializer_for_model
 
 __all__ = (
     'ImageAttachmentSerializer',
@@ -17,17 +16,17 @@ class ImageAttachmentSerializer(ValidatedModelSerializer):
     object_type = ContentTypeField(
         queryset=ObjectType.objects.all()
     )
-    parent = serializers.SerializerMethodField(read_only=True)
+    parent = GFKSerializerField(read_only=True)
     image_width = serializers.IntegerField(read_only=True)
     image_height = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = ImageAttachment
         fields = [
-            'id', 'url', 'display', 'object_type', 'object_id', 'parent', 'name', 'image',
+            'id', 'url', 'display', 'object_type', 'object_id', 'parent', 'name', 'image', 'description',
             'image_height', 'image_width', 'created', 'last_updated',
         ]
-        brief_fields = ('id', 'url', 'display', 'name', 'image')
+        brief_fields = ('id', 'url', 'display', 'name', 'image', 'description')
 
     def validate(self, data):
 
@@ -43,9 +42,3 @@ class ImageAttachmentSerializer(ValidatedModelSerializer):
         super().validate(data)
 
         return data
-
-    @extend_schema_field(serializers.JSONField(allow_null=True))
-    def get_parent(self, obj):
-        serializer = get_serializer_for_model(obj.parent)
-        context = {'request': self.context['request']}
-        return serializer(obj.parent, nested=True, context=context).data

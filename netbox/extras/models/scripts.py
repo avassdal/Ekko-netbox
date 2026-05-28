@@ -5,16 +5,15 @@ from functools import cached_property
 from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
 from django.db.models import Q
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
 from core.choices import ManagedFileRootPathChoices
 from core.models import ManagedFile
 from extras.utils import is_script
-from netbox.models.features import JobsMixin, EventRulesMixin
+from netbox.models.features import EventRulesMixin, JobsMixin
 from utilities.querysets import RestrictedQuerySet
+
 from .mixins import PythonModuleMixin
 
 __all__ = (
@@ -126,7 +125,7 @@ class ScriptModule(PythonModuleMixin, JobsMixin, ManagedFile):
         ordered.extend(script_objects.values())
         return ordered
 
-    @property
+    @cached_property
     def module_scripts(self):
 
         def _get_name(cls):
@@ -137,7 +136,7 @@ class ScriptModule(PythonModuleMixin, JobsMixin, ManagedFile):
             module = self.get_module()
         except Exception as e:
             self.error = e
-            logger.debug(f"Failed to load script: {self.python_name} error: {e}")
+            logger.error(f"Failed to load script: {self.python_name} error: {e}")
             module = None
 
         scripts = {}
@@ -178,16 +177,16 @@ class ScriptModule(PythonModuleMixin, JobsMixin, ManagedFile):
                 name=name,
                 is_executable=True,
             )
+    sync_classes.alters_data = True
 
     def sync_data(self):
         super().sync_data()
+    sync_data.alters_data = True
 
     def save(self, *args, **kwargs):
         self.file_root = ManagedFileRootPathChoices.SCRIPTS
         super().save(*args, **kwargs)
+
+        # Sync script classes after the module has been saved. This is the
+        # single intended synchronization path for ScriptModule saves.
         self.sync_classes()
-
-
-@receiver(post_save, sender=ScriptModule)
-def script_module_post_save_handler(instance, created, **kwargs):
-    instance.sync_classes()

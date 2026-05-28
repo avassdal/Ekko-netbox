@@ -4,6 +4,7 @@ from django.urls import reverse
 
 from dcim.choices import InterfaceModeChoices
 from dcim.models import DeviceRole, Platform, Site
+from extras.models import ConfigTemplate
 from ipam.models import VLAN, VRF
 from utilities.testing import ViewTestCases, create_tags, create_test_device, create_test_virtualmachine
 from virtualization.choices import *
@@ -156,12 +157,20 @@ class ClusterTestCase(ViewTestCases.PrimaryObjectViewTestCase):
             'tags': [t.pk for t in tags],
         }
 
-        cls.csv_data = (
-            "name,type,status",
-            "Cluster 4,Cluster Type 1,active",
-            "Cluster 5,Cluster Type 1,active",
-            "Cluster 6,Cluster Type 1,active",
-        )
+        cls.csv_data = {
+            'default': (
+                "name,type,status,scope_type,scope_id",
+                f"Cluster 4,Cluster Type 1,active,dcim.site,{sites[0].pk}",
+                f"Cluster 5,Cluster Type 1,active,dcim.site,{sites[0].pk}",
+                f"Cluster 6,Cluster Type 1,active,dcim.site,{sites[0].pk}",
+            ),
+            'scope_name': (
+                "name,type,status,scope_type,scope_name",
+                f"Cluster 4,Cluster Type 1,active,dcim.site,{sites[0].name}",
+                f"Cluster 5,Cluster Type 1,active,dcim.site,{sites[0].name}",
+                f"Cluster 6,Cluster Type 1,active,dcim.site,{sites[0].name}",
+            ),
+        }
 
         cls.csv_update_data = (
             "id,name,comments",
@@ -210,7 +219,8 @@ class VirtualMachineTestCase(ViewTestCases.PrimaryObjectViewTestCase):
             Platform(name='Platform 1', slug='platform-1'),
             Platform(name='Platform 2', slug='platform-2'),
         )
-        Platform.objects.bulk_create(platforms)
+        for platform in platforms:
+            platform.save()
 
         sites = (
             Site(name='Site 1', slug='site-1'),
@@ -270,6 +280,7 @@ class VirtualMachineTestCase(ViewTestCases.PrimaryObjectViewTestCase):
             'platform': platforms[1].pk,
             'name': 'Virtual Machine X',
             'status': VirtualMachineStatusChoices.STATUS_STAGED,
+            'start_on_boot': VirtualMachineStartOnBootChoices.STATUS_ON,
             'role': roles[1].pk,
             'primary_ip4': None,
             'primary_ip6': None,
@@ -308,6 +319,7 @@ class VirtualMachineTestCase(ViewTestCases.PrimaryObjectViewTestCase):
             'memory': 65535,
             'disk': 8000,
             'comments': 'New comments',
+            'start_on_boot': VirtualMachineStartOnBootChoices.STATUS_OFF,
         }
 
     @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'])
@@ -322,6 +334,95 @@ class VirtualMachineTestCase(ViewTestCases.PrimaryObjectViewTestCase):
 
         url = reverse('virtualization:virtualmachine_interfaces', kwargs={'pk': virtualmachine.pk})
         self.assertHttpStatus(self.client.get(url), 200)
+
+    def test_bulk_edit_device_context_preserves_device(self):
+        """
+        Regression test for #21990: Bulk editing VMs from the Device's VMs tab (URL contains
+        ?device=<id>) must not clear the device field on those VMs.
+        """
+        self.add_permissions('virtualization.view_virtualmachine', 'virtualization.change_virtualmachine')
+
+        device = VirtualMachine.objects.filter(device__isnull=False).first().device
+        vms = list(VirtualMachine.objects.filter(device=device)[:3])
+        pk_list = [vm.pk for vm in vms]
+
+        data = {
+            'pk': pk_list,
+            '_apply': True,
+            # Only change status — device is intentionally omitted
+            'status': VirtualMachineStatusChoices.STATUS_STAGED,
+        }
+
+        # Simulate navigation from Device -> Virtual Machines tab by passing ?device=<id> as GET param
+        url = reverse('virtualization:virtualmachine_bulk_edit') + f'?device={device.pk}'
+        response = self.client.post(url, data)
+        self.assertHttpStatus(response, 302)
+
+        for vm in VirtualMachine.objects.filter(pk__in=pk_list):
+            self.assertEqual(vm.device, device, msg=f"Device was unexpectedly cleared on VM '{vm.name}'")
+            self.assertEqual(vm.status, VirtualMachineStatusChoices.STATUS_STAGED)
+
+    def test_virtualmachine_renderconfig(self):
+        configtemplate = ConfigTemplate.objects.create(
+            name='Test Config Template',
+            template_code='Config for VM {{ virtualmachine.name }}'
+        )
+        vm = VirtualMachine.objects.first()
+        vm.config_template = configtemplate
+        vm.save()
+        url = reverse('virtualization:virtualmachine_render-config', kwargs={'pk': vm.pk})
+
+        # User with only view permission should NOT be able to render config
+        self.add_permissions('virtualization.view_virtualmachine')
+        self.assertHttpStatus(self.client.get(url), 403)
+
+        # With render_config permission added should be able to render config
+        self.add_permissions('virtualization.render_config_virtualmachine')
+        self.assertHttpStatus(self.client.get(url), 200)
+
+        # With view permission removed should NOT be able to render config
+        self.remove_permissions('virtualization.view_virtualmachine')
+        self.assertHttpStatus(self.client.get(url), 403)
+
+    def test_virtualmachine_renderconfig_with_config_template_id(self):
+        default_template = ConfigTemplate.objects.create(
+            name='Default Template',
+            template_code='Default config for {{ virtualmachine.name }}'
+        )
+        override_template = ConfigTemplate.objects.create(
+            name='Override Template',
+            template_code='Override config for {{ virtualmachine.name }}'
+        )
+        vm = VirtualMachine.objects.first()
+        vm.config_template = default_template
+        vm.save()
+
+        self.add_permissions(
+            'virtualization.view_virtualmachine', 'virtualization.render_config_virtualmachine',
+            'extras.view_configtemplate'
+        )
+        url = reverse('virtualization:virtualmachine_render-config', kwargs={'pk': vm.pk})
+
+        # Render with override config_template_id
+        response = self.client.get(url, {'config_template_id': override_template.pk})
+        self.assertHttpStatus(response, 200)
+        self.assertIn(b'Override config for', response.content)
+
+        # Render with nonexistent config_template_id still returns 200 with error message
+        response = self.client.get(url, {'config_template_id': 999999})
+        self.assertHttpStatus(response, 200)
+        self.assertIn(b'Error rendering template', response.content)
+
+        # Render with non-integer config_template_id still returns 200 with error message
+        response = self.client.get(url, {'config_template_id': 'abc'})
+        self.assertHttpStatus(response, 200)
+        self.assertIn(b'Error rendering template', response.content)
+
+        # Without view_configtemplate permission, override template should not be accessible
+        self.remove_permissions('extras.view_configtemplate')
+        response = self.client.get(url, {'config_template_id': override_template.pk})
+        self.assertHttpStatus(response, 200)
+        self.assertIn(b'Error rendering template', response.content)
 
 
 class VMInterfaceTestCase(ViewTestCases.DeviceComponentViewTestCase):
@@ -394,10 +495,19 @@ class VMInterfaceTestCase(ViewTestCases.DeviceComponentViewTestCase):
         }
 
         cls.csv_data = (
-            "virtual_machine,name,vrf.pk",
-            f"Virtual Machine 2,Interface 4,{vrfs[0].pk}",
-            f"Virtual Machine 2,Interface 5,{vrfs[0].pk}",
-            f"Virtual Machine 2,Interface 6,{vrfs[0].pk}",
+            "virtual_machine,name,vrf.pk,mode,untagged_vlan,tagged_vlans",
+            (
+                f"Virtual Machine 2,Interface 4,{vrfs[0].pk},"
+                f"tagged,{vlans[0].vid},'{','.join([str(v.vid) for v in vlans[1:4]])}'"
+            ),
+            (
+                f"Virtual Machine 2,Interface 5,{vrfs[0].pk},"
+                f"tagged,{vlans[0].vid},'{','.join([str(v.vid) for v in vlans[1:4]])}'"
+            ),
+            (
+                f"Virtual Machine 2,Interface 6,{vrfs[0].pk},"
+                f"tagged,{vlans[0].vid},'{','.join([str(v.vid) for v in vlans[1:4]])}'"
+            ),
         )
 
         cls.csv_update_data = (

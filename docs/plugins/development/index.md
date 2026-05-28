@@ -66,7 +66,7 @@ The top level is the project root, which can have any name that you like. Immedi
 * `README.md` - A brief introduction to your plugin, how to install and configure it, where to find help, and any other pertinent information. It is recommended to write `README` files using a markup language such as Markdown to enable human-friendly display.
 * The plugin source directory. This must be a valid Python package name, typically comprising only lowercase letters, numbers, and underscores.
 
-The plugin source directory contains all the actual Python code and other resources used by your plugin. Its structure is left to the author's discretion, however it is recommended to follow best practices as outlined in the [Django documentation](https://docs.djangoproject.com/en/stable/intro/reusable-apps/). At a minimum, this directory **must** contain an `__init__.py` file containing an instance of NetBox's `PluginConfig` class, discussed below.
+The plugin source directory contains all the actual Python code and other resources used by your plugin. Its structure is left to the author's discretion; however, it is recommended to follow best practices as outlined in the [Django documentation](https://docs.djangoproject.com/en/stable/intro/reusable-apps/). At a minimum, this directory **must** contain an `__init__.py` file containing an instance of NetBox's `PluginConfig` class, discussed below.
 
 **Note:** The [Cookiecutter NetBox Plugin](https://github.com/netbox-community/cookiecutter-netbox-plugin) can be used to auto-generate all the needed directories and files for a new plugin.
 
@@ -74,7 +74,7 @@ The plugin source directory contains all the actual Python code and other resour
 
 The `PluginConfig` class is a NetBox-specific wrapper around Django's built-in [`AppConfig`](https://docs.djangoproject.com/en/stable/ref/applications/) class. It is used to declare NetBox plugin functionality within a Python package. Each plugin should provide its own subclass, defining its name, metadata, and default and required configuration parameters. An example is below:
 
-```python
+```python title="__init__.py"
 from netbox.plugins import PluginConfig
 
 class FooBarConfig(PluginConfig):
@@ -151,7 +151,7 @@ Any additional apps must be installed within the same Python environment as NetB
 
 An example `pyproject.toml` is below:
 
-```
+```toml title="pyproject.toml"
 # See PEP 518 for the spec of this file
 # https://www.python.org/dev/peps/pep-0518/
 
@@ -173,20 +173,33 @@ classifiers=[
     'Intended Audience :: Developers',
     'Natural Language :: English',
     "Programming Language :: Python :: 3 :: Only",
-    'Programming Language :: Python :: 3.10',
-    'Programming Language :: Python :: 3.11',
     'Programming Language :: Python :: 3.12',
+    'Programming Language :: Python :: 3.13',
+    'Programming Language :: Python :: 3.14',
 ]
 
-requires-python = ">=3.10.0"
-
+requires-python = ">=3.12.0"
 ```
 
 Many of these are self-explanatory, but for more information, see the [pyproject.toml documentation](https://packaging.python.org/en/latest/specifications/pyproject-toml/).
 
+## Compatibility Matrix
+
+Consider adding a file named `COMPATIBILITY.md` to your plugin project root (alongside `pyproject.toml`). This file should contain a table listing the minimum and maximum supported versions of NetBox (`min_version` and `max_version`) for each release. This serves as a handy reference for users who are upgrading from a previous version of your plugin. An example is shown below:
+
+```markdown title="COMPATIBILITY.md"
+# Compatibility Matrix
+
+| Release | Minimum NetBox Version | Maximum NetBox Version |
+|---------|------------------------|------------------------|
+| 0.2.0   | 4.4.0                  | 4.5.x                  |
+| 0.1.1   | 4.3.0                  | 4.4.x                  |
+| 0.1.0   | 4.3.0                  | 4.4.x                  |
+```
+
 ## Create a Virtual Environment
 
-It is strongly recommended to create a Python [virtual environment](https://docs.python.org/3/tutorial/venv.html) for the development of your plugin, as opposed to using system-wide packages. This will afford you complete control over the installed versions of all dependencies and avoid conflict with system packages. This environment can live wherever you'd like, however it should be excluded from revision control. (A popular convention is to keep all virtual environments in the user's home directory, e.g. `~/.virtualenvs/`.)
+It is strongly recommended to create a Python [virtual environment](https://docs.python.org/3/tutorial/venv.html) for the development of your plugin, as opposed to using system-wide packages. This will afford you complete control over the installed versions of all dependencies and avoid conflict with system packages. This environment can live wherever you'd like;however, it should be excluded from revision control. (A popular convention is to keep all virtual environments in the user's home directory, e.g. `~/.virtualenvs/`.)
 
 ```shell
 python3 -m venv ~/.virtualenvs/my_plugin
@@ -195,7 +208,7 @@ python3 -m venv ~/.virtualenvs/my_plugin
 You can make NetBox available within this environment by creating a path file pointing to its location. This will add NetBox to the Python path upon activation. (Be sure to adjust the command below to specify your actual virtual environment path, Python version, and NetBox installation.)
 
 ```shell
-echo /opt/netbox/netbox > $VENV/lib/python3.10/site-packages/netbox.pth
+echo /opt/netbox/netbox > $VENV/lib/python3.12/site-packages/netbox.pth
 ```
 
 ## Development Installation

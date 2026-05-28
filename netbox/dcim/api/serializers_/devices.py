@@ -6,20 +6,22 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from dcim.choices import *
-from dcim.constants import MACADDRESS_ASSIGNMENT_MODELS
+from dcim.constants import MACADDRESS_ASSIGNMENT_MODELS, MODULE_TOKEN
 from dcim.models import Device, DeviceBay, MACAddress, Module, VirtualDeviceContext
+from dcim.utils import get_module_bay_positions, resolve_module_placeholder
 from extras.api.serializers_.configtemplates import ConfigTemplateSerializer
 from ipam.api.serializers_.ip import IPAddressSerializer
 from netbox.api.fields import ChoiceField, ContentTypeField, RelatedObjectCountField
-from netbox.api.serializers import NetBoxModelSerializer
+from netbox.api.gfk_fields import GFKSerializerField
+from netbox.api.serializers import PrimaryModelSerializer
 from tenancy.api.serializers_.tenants import TenantSerializer
-from utilities.api import get_serializer_for_model
 from virtualization.api.serializers_.clusters import ClusterSerializer
+
 from .devicetypes import *
+from .nested import NestedDeviceBaySerializer, NestedDeviceSerializer, NestedModuleBaySerializer
 from .platforms import PlatformSerializer
 from .racks import RackSerializer
 from .roles import DeviceRoleSerializer
-from .nested import NestedDeviceBaySerializer, NestedDeviceSerializer, NestedModuleBaySerializer
 from .sites import LocationSerializer, SiteSerializer
 from .virtualchassis import VirtualChassisSerializer
 
@@ -32,7 +34,7 @@ __all__ = (
 )
 
 
-class DeviceSerializer(NetBoxModelSerializer):
+class DeviceSerializer(PrimaryModelSerializer):
     device_type = DeviceTypeSerializer(nested=True)
     role = DeviceRoleSerializer(nested=True)
     tenant = TenantSerializer(
@@ -84,8 +86,8 @@ class DeviceSerializer(NetBoxModelSerializer):
             'id', 'url', 'display_url', 'display', 'name', 'device_type', 'role', 'tenant', 'platform', 'serial',
             'asset_tag', 'site', 'location', 'rack', 'position', 'face', 'latitude', 'longitude', 'parent_device',
             'status', 'airflow', 'primary_ip', 'primary_ip4', 'primary_ip6', 'oob_ip', 'cluster', 'virtual_chassis',
-            'vc_position', 'vc_priority', 'description', 'comments', 'config_template', 'local_context_data', 'tags',
-            'custom_fields', 'created', 'last_updated', 'console_port_count', 'console_server_port_count',
+            'vc_position', 'vc_priority', 'description', 'owner', 'comments', 'config_template', 'local_context_data',
+            'tags', 'custom_fields', 'created', 'last_updated', 'console_port_count', 'console_server_port_count',
             'power_port_count', 'power_outlet_count', 'interface_count', 'front_port_count', 'rear_port_count',
             'device_bay_count', 'module_bay_count', 'inventory_item_count',
         ]
@@ -111,7 +113,7 @@ class DeviceWithConfigContextSerializer(DeviceSerializer):
             'id', 'url', 'display_url', 'display', 'name', 'device_type', 'role', 'tenant', 'platform', 'serial',
             'asset_tag', 'site', 'location', 'rack', 'position', 'face', 'latitude', 'longitude', 'parent_device',
             'status', 'airflow', 'primary_ip', 'primary_ip4', 'primary_ip6', 'oob_ip', 'cluster', 'virtual_chassis',
-            'vc_position', 'vc_priority', 'description', 'comments', 'config_template', 'config_context',
+            'vc_position', 'vc_priority', 'description', 'owner', 'comments', 'config_template', 'config_context',
             'local_context_data', 'tags', 'custom_fields', 'created', 'last_updated', 'console_port_count',
             'console_server_port_count', 'power_port_count', 'power_outlet_count', 'interface_count',
             'front_port_count', 'rear_port_count', 'device_bay_count', 'module_bay_count', 'inventory_item_count',
@@ -122,7 +124,7 @@ class DeviceWithConfigContextSerializer(DeviceSerializer):
         return obj.get_config_context()
 
 
-class VirtualDeviceContextSerializer(NetBoxModelSerializer):
+class VirtualDeviceContextSerializer(PrimaryModelSerializer):
     device = DeviceSerializer(nested=True)
     identifier = serializers.IntegerField(allow_null=True, max_value=32767, min_value=0, required=False, default=None)
     tenant = TenantSerializer(nested=True, required=False, allow_null=True, default=None)
@@ -138,13 +140,13 @@ class VirtualDeviceContextSerializer(NetBoxModelSerializer):
         model = VirtualDeviceContext
         fields = [
             'id', 'url', 'display_url', 'display', 'name', 'device', 'identifier', 'tenant', 'primary_ip',
-            'primary_ip4', 'primary_ip6', 'status', 'description', 'comments', 'tags', 'custom_fields',
+            'primary_ip4', 'primary_ip6', 'status', 'description', 'owner', 'comments', 'tags', 'custom_fields',
             'created', 'last_updated', 'interface_count',
         ]
         brief_fields = ('id', 'url', 'display', 'name', 'identifier', 'device', 'description')
 
 
-class ModuleSerializer(NetBoxModelSerializer):
+class ModuleSerializer(PrimaryModelSerializer):
     device = DeviceSerializer(nested=True)
     module_bay = NestedModuleBaySerializer()
     module_type = ModuleTypeSerializer(nested=True)
@@ -154,31 +156,77 @@ class ModuleSerializer(NetBoxModelSerializer):
         model = Module
         fields = [
             'id', 'url', 'display_url', 'display', 'device', 'module_bay', 'module_type', 'status', 'serial',
-            'asset_tag', 'description', 'comments', 'tags', 'custom_fields', 'created', 'last_updated',
+            'asset_tag', 'description', 'owner', 'comments', 'tags', 'custom_fields', 'created', 'last_updated',
         ]
         brief_fields = ('id', 'url', 'display', 'device', 'module_bay', 'module_type', 'description')
 
+    def validate(self, data):
+        data = super().validate(data)
 
-class MACAddressSerializer(NetBoxModelSerializer):
+        if self.nested:
+            return data
+
+        # Skip validation for existing modules (updates)
+        if self.instance is not None:
+            return data
+
+        module_bay = data.get('module_bay')
+        module_type = data.get('module_type')
+        device = data.get('device')
+
+        if not all((module_bay, module_type, device)):
+            return data
+
+        positions = get_module_bay_positions(module_bay)
+
+        for templates, component_attribute in [
+            ("consoleporttemplates", "consoleports"),
+            ("consoleserverporttemplates", "consoleserverports"),
+            ("interfacetemplates", "interfaces"),
+            ("powerporttemplates", "powerports"),
+            ("poweroutlettemplates", "poweroutlets"),
+            ("rearporttemplates", "rearports"),
+            ("frontporttemplates", "frontports"),
+        ]:
+            installed_components = {
+                component.name: component for component in getattr(device, component_attribute).all()
+            }
+
+            for template in getattr(module_type, templates).all():
+                resolved_name = template.name
+                if MODULE_TOKEN in template.name:
+                    if not module_bay.position:
+                        raise serializers.ValidationError(
+                            _("Cannot install module with placeholder values in a module bay with no position defined.")
+                        )
+                    try:
+                        resolved_name = resolve_module_placeholder(template.name, positions)
+                    except ValueError as e:
+                        raise serializers.ValidationError(str(e))
+
+                if resolved_name in installed_components:
+                    raise serializers.ValidationError(
+                        _("A {model} named {name} already exists").format(
+                            model=template.component_model.__name__,
+                            name=resolved_name
+                        )
+                    )
+
+        return data
+
+
+class MACAddressSerializer(PrimaryModelSerializer):
     assigned_object_type = ContentTypeField(
         queryset=ContentType.objects.filter(MACADDRESS_ASSIGNMENT_MODELS),
         required=False,
         allow_null=True
     )
-    assigned_object = serializers.SerializerMethodField(read_only=True)
+    assigned_object = GFKSerializerField(read_only=True)
 
     class Meta:
         model = MACAddress
         fields = [
             'id', 'url', 'display_url', 'display', 'mac_address', 'assigned_object_type', 'assigned_object_id',
-            'assigned_object', 'description', 'comments', 'tags', 'custom_fields', 'created', 'last_updated',
+            'assigned_object', 'description', 'owner', 'comments', 'tags', 'custom_fields', 'created', 'last_updated',
         ]
         brief_fields = ('id', 'url', 'display', 'mac_address', 'description')
-
-    @extend_schema_field(serializers.JSONField(allow_null=True))
-    def get_assigned_object(self, obj):
-        if obj.assigned_object is None:
-            return None
-        serializer = get_serializer_for_model(obj.assigned_object)
-        context = {'request': self.context['request']}
-        return serializer(obj.assigned_object, nested=True, context=context).data

@@ -3,21 +3,22 @@ from django.db.models.signals import m2m_changed, post_save, pre_delete
 from django.dispatch import receiver
 
 from core.events import *
-from core.models import ObjectType
 from core.signals import job_end, job_start
-from extras.events import process_event_rules
+from extras.events import EventContext, process_event_rules
 from extras.models import EventRule, Notification, Subscription
 from netbox.config import get_config
-from netbox.registry import registry
+from netbox.models.features import has_feature
 from netbox.signals import post_clean
+from utilities.data import get_config_value_ci
 from utilities.exceptions import AbortRequest
+
 from .models import CustomField, TaggedItem
 from .utils import run_validators
-
 
 #
 # Custom fields
 #
+
 
 def handle_cf_added_obj_types(instance, action, pk_set, **kwargs):
     """
@@ -66,7 +67,7 @@ def run_save_validators(sender, instance, **kwargs):
     Run any custom validation rules for the model prior to calling save().
     """
     model_name = f'{sender._meta.app_label}.{sender._meta.model_name}'
-    validators = get_config().CUSTOM_VALIDATORS.get(model_name, [])
+    validators = get_config_value_ci(get_config().CUSTOM_VALIDATORS, model_name, default=[])
 
     run_validators(instance, validators)
 
@@ -82,7 +83,7 @@ def validate_assigned_tags(sender, instance, action, model, pk_set, **kwargs):
     """
     if action != 'pre_add':
         return
-    ct = ObjectType.objects.get_for_model(instance)
+    ct = ContentType.objects.get_for_model(instance)
     # Retrieve any applied Tags that are restricted to certain object types
     for tag in model.objects.filter(pk__in=pk_set, object_types__isnull=False).prefetch_related('object_types'):
         if ct not in tag.object_types.all():
@@ -103,14 +104,12 @@ def process_job_start_event_rules(sender, **kwargs):
         enabled=True,
         object_types=sender.object_type
     )
-    username = sender.user.username if sender.user else None
-    process_event_rules(
-        event_rules=event_rules,
-        object_type=sender.object_type,
+    event = EventContext(
         event_type=JOB_STARTED,
         data=sender.data,
-        username=username
+        user=sender.user,
     )
+    process_event_rules(event_rules, sender.object_type, event)
 
 
 @receiver(job_end)
@@ -123,14 +122,12 @@ def process_job_end_event_rules(sender, **kwargs):
         enabled=True,
         object_types=sender.object_type
     )
-    username = sender.user.username if sender.user else None
-    process_event_rules(
-        event_rules=event_rules,
-        object_type=sender.object_type,
+    event = EventContext(
         event_type=JOB_COMPLETED,
         data=sender.data,
-        username=username
+        user=sender.user,
     )
+    process_event_rules(event_rules, sender.object_type, event)
 
 
 #
@@ -150,17 +147,25 @@ def notify_object_changed(sender, instance, **kwargs):
         event_type = OBJECT_DELETED
 
     # Skip unsupported object types
-    ct = ContentType.objects.get_for_model(instance)
-    if ct.model not in registry['model_features']['notifications'].get(ct.app_label, []):
+    if not has_feature(instance, 'notifications'):
         return
 
+    ct = ContentType.objects.get_for_model(instance)
+
     # Find all subscribed Users
-    subscribed_users = Subscription.objects.filter(object_type=ct, object_id=instance.pk).values_list('user', flat=True)
+    subscribed_users = Subscription.objects.filter(
+        object_type=ct,
+        object_id=instance.pk
+    ).values_list('user', flat=True)
     if not subscribed_users:
         return
 
     # Delete any existing Notifications for the object
-    Notification.objects.filter(object_type=ct, object_id=instance.pk, user__in=subscribed_users).delete()
+    Notification.objects.filter(
+        object_type=ct,
+        object_id=instance.pk,
+        user__in=subscribed_users
+    ).delete()
 
     # Create Notifications for Subscribers
     Notification.objects.bulk_create([

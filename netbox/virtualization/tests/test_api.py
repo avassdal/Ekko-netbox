@@ -11,9 +11,15 @@ from dcim.models import Site
 from extras.choices import CustomFieldTypeChoices
 from extras.models import ConfigTemplate, CustomField
 from ipam.choices import VLANQinQRoleChoices
-from ipam.models import Prefix, VLAN, VRF
+from ipam.models import VLAN, VRF, Prefix
+from users.constants import TOKEN_PREFIX
+from users.models import Token
 from utilities.testing import (
-    APITestCase, APIViewTestCases, create_test_device, create_test_virtualmachine, disable_logging,
+    APITestCase,
+    APIViewTestCases,
+    create_test_device,
+    create_test_virtualmachine,
+    disable_logging,
 )
 from virtualization.choices import *
 from virtualization.models import *
@@ -209,7 +215,8 @@ class VirtualMachineTest(APIViewTestCases.APIViewTestCase):
                 name='Virtual Machine 3',
                 site=sites[0],
                 cluster=clusters[0],
-                local_context_data={'C': 3}
+                local_context_data={'C': 3},
+                start_on_boot=VirtualMachineStartOnBootChoices.STATUS_ON,
             ),
         )
         VirtualMachine.objects.bulk_create(virtual_machines)
@@ -233,6 +240,7 @@ class VirtualMachineTest(APIViewTestCases.APIViewTestCase):
             {
                 'name': 'Virtual Machine 7',
                 'cluster': clusters[2].pk,
+                'start_on_boot': VirtualMachineStartOnBootChoices.STATUS_ON,
             },
         ]
 
@@ -281,11 +289,97 @@ class VirtualMachineTest(APIViewTestCases.APIViewTestCase):
         vm.config_template = configtemplate
         vm.save()
 
-        self.add_permissions('virtualization.add_virtualmachine')
-        url = reverse('virtualization-api:virtualmachine-detail', kwargs={'pk': vm.pk}) + 'render-config/'
+        self.add_permissions(
+            'virtualization.render_config_virtualmachine', 'virtualization.view_virtualmachine'
+        )
+        url = reverse('virtualization-api:virtualmachine-render-config', kwargs={'pk': vm.pk})
         response = self.client.post(url, {}, format='json', **self.header)
         self.assertHttpStatus(response, status.HTTP_200_OK)
         self.assertEqual(response.data['content'], f'Config for virtual machine {vm.name}')
+
+    def test_render_config_without_permission(self):
+        configtemplate = ConfigTemplate.objects.create(
+            name='Config Template 1',
+            template_code='Config for virtual machine {{ virtualmachine.name }}'
+        )
+
+        vm = VirtualMachine.objects.first()
+        vm.config_template = configtemplate
+        vm.save()
+
+        # No permissions added - user has no render_config permission
+        url = reverse('virtualization-api:virtualmachine-render-config', kwargs={'pk': vm.pk})
+        response = self.client.post(url, {}, format='json', **self.header)
+        self.assertHttpStatus(response, status.HTTP_404_NOT_FOUND)
+
+    def test_render_config_token_write_enabled(self):
+        configtemplate = ConfigTemplate.objects.create(
+            name='Config Template 1',
+            template_code='Config for virtual machine {{ virtualmachine.name }}'
+        )
+
+        vm = VirtualMachine.objects.first()
+        vm.config_template = configtemplate
+        vm.save()
+
+        self.add_permissions('virtualization.render_config_virtualmachine', 'virtualization.view_virtualmachine')
+        url = reverse('virtualization-api:virtualmachine-render-config', kwargs={'pk': vm.pk})
+
+        # Request without token auth should fail with PermissionDenied
+        response = self.client.post(url, {}, format='json')
+        self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)
+
+        # Create token with write_enabled=False
+        token = Token.objects.create(version=2, user=self.user, write_enabled=False)
+        token_header = f'Bearer {TOKEN_PREFIX}{token.key}.{token.token}'
+
+        # Request with write-disabled token should fail
+        response = self.client.post(url, {}, format='json', HTTP_AUTHORIZATION=token_header)
+        self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)
+
+        # Enable write and retry
+        token.write_enabled = True
+        token.save()
+        response = self.client.post(url, {}, format='json', HTTP_AUTHORIZATION=token_header)
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+
+    def test_render_config_with_config_template_id(self):
+        default_template = ConfigTemplate.objects.create(
+            name='Default Template',
+            template_code='Default config for {{ virtualmachine.name }}'
+        )
+        override_template = ConfigTemplate.objects.create(
+            name='Override Template',
+            template_code='Override config for {{ virtualmachine.name }}'
+        )
+
+        vm = VirtualMachine.objects.first()
+        vm.config_template = default_template
+        vm.save()
+
+        self.add_permissions(
+            'virtualization.render_config_virtualmachine', 'virtualization.view_virtualmachine',
+            'extras.view_configtemplate'
+        )
+        url = reverse('virtualization-api:virtualmachine-render-config', kwargs={'pk': vm.pk})
+
+        # Render with override template
+        response = self.client.post(url, {'config_template_id': override_template.pk}, format='json', **self.header)
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+        self.assertEqual(response.data['content'], f'Override config for {vm.name}')
+
+        # Render with nonexistent config_template_id
+        response = self.client.post(url, {'config_template_id': 999999}, format='json', **self.header)
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+
+        # Render with non-integer config_template_id
+        response = self.client.post(url, {'config_template_id': 'abc'}, format='json', **self.header)
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+
+        # Without view_configtemplate permission, override template should not be accessible
+        self.remove_permissions('extras.view_configtemplate')
+        response = self.client.post(url, {'config_template_id': override_template.pk}, format='json', **self.header)
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
 
 
 class VMInterfaceTest(APIViewTestCases.APIViewTestCase):

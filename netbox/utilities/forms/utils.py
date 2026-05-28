@@ -6,6 +6,7 @@ from django.utils.translation import gettext as _
 
 from utilities.choices import unpack_grouped_choices
 from utilities.querysets import RestrictedQuerySet
+
 from .constants import *
 
 __all__ = (
@@ -13,12 +14,13 @@ __all__ = (
     'expand_alphanumeric_pattern',
     'expand_ipaddress_pattern',
     'form_from_model',
+    'get_capacity_unit_label',
     'get_field_value',
     'get_selected_values',
     'parse_alphanumeric_range',
+    'parse_csv',
     'parse_numeric_range',
     'restrict_form_fields',
-    'parse_csv',
     'validate_csv',
 )
 
@@ -129,6 +131,13 @@ def expand_ipaddress_pattern(string, family):
             yield ''.join([lead, format(i, 'x' if family == 6 else 'd'), remnant])
 
 
+def get_capacity_unit_label(divisor=1000):
+    """
+    Return the appropriate base unit label: 'MiB' for binary (1024), 'MB' for decimal (1000).
+    """
+    return 'MiB' if divisor == 1024 else 'MB'
+
+
 def get_field_value(form, field_name):
     """
     Return the current bound or initial value associated with a form field, prior to calling
@@ -138,7 +147,7 @@ def get_field_value(form, field_name):
 
     if form.is_bound and field_name in form.data:
         if (value := form.data[field_name]) is None:
-            return
+            return None
         if hasattr(field, 'valid_value') and field.valid_value(value):
             return value
 

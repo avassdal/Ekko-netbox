@@ -1,7 +1,13 @@
 from django.db.backends.postgresql.psycopg_any import NumericRange
 from django.test import TestCase
 
-from utilities.data import check_ranges_overlap, ranges_to_string, string_to_ranges
+from utilities.data import (
+    check_ranges_overlap,
+    get_config_value_ci,
+    ranges_to_string,
+    ranges_to_string_list,
+    string_to_ranges,
+)
 
 
 class RangeFunctionsTestCase(TestCase):
@@ -47,32 +53,44 @@ class RangeFunctionsTestCase(TestCase):
             ])
         )
 
+    def test_ranges_to_string_list(self):
+        self.assertEqual(
+            ranges_to_string_list([
+                NumericRange(10, 20),    # 10-19
+                NumericRange(30, 40),    # 30-39
+                NumericRange(50, 51),    # 50-50
+                NumericRange(100, 200),  # 100-199
+            ]),
+            ['10-19', '30-39', '50', '100-199']
+        )
+
     def test_ranges_to_string(self):
         self.assertEqual(
             ranges_to_string([
                 NumericRange(10, 20),    # 10-19
                 NumericRange(30, 40),    # 30-39
+                NumericRange(50, 51),    # 50-50
                 NumericRange(100, 200),  # 100-199
             ]),
-            '10-19,30-39,100-199'
+            '10-19,30-39,50,100-199'
         )
 
     def test_string_to_ranges(self):
         self.assertEqual(
             string_to_ranges('10-19, 30-39, 100-199'),
             [
-                NumericRange(10, 19, bounds='[]'),    # 10-19
-                NumericRange(30, 39, bounds='[]'),    # 30-39
-                NumericRange(100, 199, bounds='[]'),  # 100-199
+                NumericRange(10, 20, bounds='[)'),    # 10-20
+                NumericRange(30, 40, bounds='[)'),    # 30-40
+                NumericRange(100, 200, bounds='[)'),  # 100-200
             ]
         )
 
         self.assertEqual(
             string_to_ranges('1-2, 5, 10-12'),
             [
-                NumericRange(1, 2, bounds='[]'),    # 1-2
-                NumericRange(5, 5, bounds='[]'),    # 5-5
-                NumericRange(10, 12, bounds='[]'),  # 10-12
+                NumericRange(1, 3, bounds='[)'),    # 1-3
+                NumericRange(5, 6, bounds='[)'),    # 5-6
+                NumericRange(10, 13, bounds='[)'),  # 10-13
             ]
         )
 
@@ -80,3 +98,25 @@ class RangeFunctionsTestCase(TestCase):
             string_to_ranges('2-10, a-b'),
             None  # Fails to convert
         )
+
+
+class GetConfigValueCITestCase(TestCase):
+
+    def test_exact_match(self):
+        config = {'dcim.site': 'value1', 'dcim.Device': 'value2'}
+        self.assertEqual(get_config_value_ci(config, 'dcim.site'), 'value1')
+        self.assertEqual(get_config_value_ci(config, 'dcim.Device'), 'value2')
+
+    def test_case_insensitive_match(self):
+        config = {'dcim.Site': 'value1', 'ipam.IPAddress': 'value2'}
+        self.assertEqual(get_config_value_ci(config, 'dcim.site'), 'value1')
+        self.assertEqual(get_config_value_ci(config, 'ipam.ipaddress'), 'value2')
+
+    def test_default_value(self):
+        config = {'dcim.site': 'value1'}
+        self.assertIsNone(get_config_value_ci(config, 'nonexistent'))
+        self.assertEqual(get_config_value_ci(config, 'nonexistent', default=[]), [])
+
+    def test_empty_dict(self):
+        self.assertIsNone(get_config_value_ci({}, 'any.key'))
+        self.assertEqual(get_config_value_ci({}, 'any.key', default=[]), [])

@@ -1,11 +1,12 @@
-from typing import Annotated, List
+from typing import Annotated
 
 import strawberry
 import strawberry_django
 from django.contrib.contenttypes.models import ContentType as DjangoContentType
 
 from core import models
-from netbox.graphql.types import BaseObjectType, NetBoxObjectType
+from netbox.graphql.types import BaseObjectType, PrimaryObjectType
+
 from .filters import *
 
 __all__ = (
@@ -32,9 +33,8 @@ class DataFileType(BaseObjectType):
     filters=DataSourceFilter,
     pagination=True
 )
-class DataSourceType(NetBoxObjectType):
-
-    datafiles: List[Annotated["DataFileType", strawberry.lazy('core.graphql.types')]]
+class DataSourceType(PrimaryObjectType):
+    datafiles: list[Annotated["DataFileType", strawberry.lazy('core.graphql.types')]]
 
 
 @strawberry_django.type(

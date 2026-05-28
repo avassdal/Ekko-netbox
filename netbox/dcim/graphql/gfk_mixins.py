@@ -1,3 +1,5 @@
+from strawberry.types import Info
+
 from circuits.graphql.types import CircuitTerminationType, ProviderNetworkType
 from circuits.models import CircuitTermination, ProviderNetwork
 from dcim.graphql.types import (
@@ -49,7 +51,7 @@ class InventoryItemTemplateComponentType:
         )
 
     @classmethod
-    def resolve_type(cls, instance, info):
+    def resolve_type(cls, instance, info: Info):
         if type(instance) is ConsolePortTemplate:
             return ConsolePortTemplateType
         if type(instance) is ConsoleServerPortTemplate:
@@ -64,6 +66,7 @@ class InventoryItemTemplateComponentType:
             return PowerPortTemplateType
         if type(instance) is RearPortTemplate:
             return RearPortTemplateType
+        return None
 
 
 class InventoryItemComponentType:
@@ -79,7 +82,7 @@ class InventoryItemComponentType:
         )
 
     @classmethod
-    def resolve_type(cls, instance, info):
+    def resolve_type(cls, instance, info: Info):
         if type(instance) is ConsolePort:
             return ConsolePortType
         if type(instance) is ConsoleServerPort:
@@ -94,6 +97,7 @@ class InventoryItemComponentType:
             return PowerPortType
         if type(instance) is RearPort:
             return RearPortType
+        return None
 
 
 class ConnectedEndpointType:
@@ -112,10 +116,10 @@ class ConnectedEndpointType:
         )
 
     @classmethod
-    def resolve_type(cls, instance, info):
+    def resolve_type(cls, instance, info: Info):
         if type(instance) is CircuitTermination:
             return CircuitTerminationType
-        if type(instance) is ConsolePortType:
+        if type(instance) is ConsolePort:
             return ConsolePortType
         if type(instance) is ConsoleServerPort:
             return ConsoleServerPortType
@@ -133,3 +137,4 @@ class ConnectedEndpointType:
             return ProviderNetworkType
         if type(instance) is RearPort:
             return RearPortType
+        return None

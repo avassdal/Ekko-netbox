@@ -6,6 +6,7 @@ import platform
 import sys
 import warnings
 
+import storages.utils  # type: ignore
 from django.contrib.messages import constants as messages
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.validators import URLValidator
@@ -17,9 +18,11 @@ from netbox.config import PARAMS as CONFIG_PARAMS
 from netbox.constants import RQ_QUEUE_DEFAULT, RQ_QUEUE_HIGH, RQ_QUEUE_LOW
 from netbox.plugins import PluginConfig
 from netbox.registry import registry
-import storages.utils  # type: ignore
 from utilities.release import load_release_data
+from utilities.security import validate_peppers
 from utilities.string import trailing_slash
+
+from .monkey import get_unique_validators
 
 #
 # Environment setup
@@ -27,14 +30,13 @@ from utilities.string import trailing_slash
 
 RELEASE = load_release_data()
 VERSION = RELEASE.full_version  # Retained for backward compatibility
-HOSTNAME = platform.node()
 # Set the base directory two levels up
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Validate Python version
-if sys.version_info < (3, 10):
+# Validate the Python version
+if sys.version_info < (3, 12):  # noqa: UP036
     raise RuntimeError(
-        f"NetBox requires Python 3.10 or later. (Currently installed: Python {platform.python_version()})"
+        f"NetBox requires Python 3.12 or later. (Currently installed: Python {platform.python_version()})"
     )
 
 #
@@ -64,8 +66,8 @@ elif hasattr(configuration, 'DATABASE') and hasattr(configuration, 'DATABASES'):
 
 # Set static config parameters
 ADMINS = getattr(configuration, 'ADMINS', [])
-ALLOW_TOKEN_RETRIEVAL = getattr(configuration, 'ALLOW_TOKEN_RETRIEVAL', False)
 ALLOWED_HOSTS = getattr(configuration, 'ALLOWED_HOSTS')  # Required
+API_TOKEN_PEPPERS = getattr(configuration, 'API_TOKEN_PEPPERS', {})
 AUTH_PASSWORD_VALIDATORS = getattr(configuration, 'AUTH_PASSWORD_VALIDATORS', [
     {
         "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
@@ -85,6 +87,7 @@ CORS_ORIGIN_REGEX_WHITELIST = getattr(configuration, 'CORS_ORIGIN_REGEX_WHITELIS
 CORS_ORIGIN_WHITELIST = getattr(configuration, 'CORS_ORIGIN_WHITELIST', [])
 CSRF_COOKIE_NAME = getattr(configuration, 'CSRF_COOKIE_NAME', 'csrftoken')
 CSRF_COOKIE_PATH = f'/{BASE_PATH.rstrip("/")}'
+CSRF_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SECURE = getattr(configuration, 'CSRF_COOKIE_SECURE', False)
 CSRF_TRUSTED_ORIGINS = getattr(configuration, 'CSRF_TRUSTED_ORIGINS', [])
 DATA_UPLOAD_MAX_MEMORY_SIZE = getattr(configuration, 'DATA_UPLOAD_MAX_MEMORY_SIZE', 2621440)
@@ -124,7 +127,9 @@ EVENTS_PIPELINE = getattr(configuration, 'EVENTS_PIPELINE', [
 EXEMPT_VIEW_PERMISSIONS = getattr(configuration, 'EXEMPT_VIEW_PERMISSIONS', [])
 FIELD_CHOICES = getattr(configuration, 'FIELD_CHOICES', {})
 FILE_UPLOAD_MAX_MEMORY_SIZE = getattr(configuration, 'FILE_UPLOAD_MAX_MEMORY_SIZE', 2621440)
+GRAPHQL_DEFAULT_VERSION = getattr(configuration, 'GRAPHQL_DEFAULT_VERSION', 1)
 GRAPHQL_MAX_ALIASES = getattr(configuration, 'GRAPHQL_MAX_ALIASES', 10)
+HOSTNAME = getattr(configuration, 'HOSTNAME', platform.node())
 HTTP_PROXIES = getattr(configuration, 'HTTP_PROXIES', {})
 INTERNAL_IPS = getattr(configuration, 'INTERNAL_IPS', ('127.0.0.1', '::1'))
 ISOLATED_DEPLOYMENT = getattr(configuration, 'ISOLATED_DEPLOYMENT', False)
@@ -161,10 +166,9 @@ REMOTE_AUTH_SUPERUSERS = getattr(configuration, 'REMOTE_AUTH_SUPERUSERS', [])
 REMOTE_AUTH_USER_EMAIL = getattr(configuration, 'REMOTE_AUTH_USER_EMAIL', 'HTTP_REMOTE_USER_EMAIL')
 REMOTE_AUTH_USER_FIRST_NAME = getattr(configuration, 'REMOTE_AUTH_USER_FIRST_NAME', 'HTTP_REMOTE_USER_FIRST_NAME')
 REMOTE_AUTH_USER_LAST_NAME = getattr(configuration, 'REMOTE_AUTH_USER_LAST_NAME', 'HTTP_REMOTE_USER_LAST_NAME')
-REMOTE_AUTH_STAFF_GROUPS = getattr(configuration, 'REMOTE_AUTH_STAFF_GROUPS', [])
-REMOTE_AUTH_STAFF_USERS = getattr(configuration, 'REMOTE_AUTH_STAFF_USERS', [])
 # Required by extras/migrations/0109_script_models.py
 REPORTS_ROOT = getattr(configuration, 'REPORTS_ROOT', os.path.join(BASE_DIR, 'reports')).rstrip('/')
+RQ = getattr(configuration, 'RQ', {})
 RQ_DEFAULT_TIMEOUT = getattr(configuration, 'RQ_DEFAULT_TIMEOUT', 300)
 RQ_RETRY_INTERVAL = getattr(configuration, 'RQ_RETRY_INTERVAL', 60)
 RQ_RETRY_MAX = getattr(configuration, 'RQ_RETRY_MAX', 0)
@@ -175,11 +179,16 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = getattr(configuration, 'SECURE_HSTS_INCLUDE_SUB
 SECURE_HSTS_PRELOAD = getattr(configuration, 'SECURE_HSTS_PRELOAD', False)
 SECURE_HSTS_SECONDS = getattr(configuration, 'SECURE_HSTS_SECONDS', 0)
 SECURE_SSL_REDIRECT = getattr(configuration, 'SECURE_SSL_REDIRECT', False)
+SENTRY_CONFIG = getattr(configuration, 'SENTRY_CONFIG', {})
+# TODO: Remove in NetBox v4.5
 SENTRY_DSN = getattr(configuration, 'SENTRY_DSN', None)
 SENTRY_ENABLED = getattr(configuration, 'SENTRY_ENABLED', False)
+# TODO: Remove in NetBox v4.5
 SENTRY_SAMPLE_RATE = getattr(configuration, 'SENTRY_SAMPLE_RATE', 1.0)
+# TODO: Remove in NetBox v4.5
 SENTRY_SEND_DEFAULT_PII = getattr(configuration, 'SENTRY_SEND_DEFAULT_PII', False)
 SENTRY_TAGS = getattr(configuration, 'SENTRY_TAGS', {})
+# TODO: Remove in NetBox v4.5
 SENTRY_TRACES_SAMPLE_RATE = getattr(configuration, 'SENTRY_TRACES_SAMPLE_RATE', 0)
 SESSION_COOKIE_NAME = getattr(configuration, 'SESSION_COOKIE_NAME', 'sessionid')
 SESSION_COOKIE_PATH = CSRF_COOKIE_PATH
@@ -210,6 +219,12 @@ if len(SECRET_KEY) < 50:
         f"SECRET_KEY must be at least 50 characters in length. To generate a suitable key, run the following command:\n"
         f"  python {BASE_DIR}/generate_secret_key.py"
     )
+
+# Validate API token peppers
+if API_TOKEN_PEPPERS:
+    validate_peppers(API_TOKEN_PEPPERS)
+else:
+    warnings.warn("API_TOKEN_PEPPERS is not defined. v2 API tokens cannot be used.")
 
 # Validate update repo URL and timeout
 if RELEASE_CHECK_URL:
@@ -273,6 +288,9 @@ DEFAULT_STORAGES = {
     },
     "scripts": {
         "BACKEND": "extras.storage.ScriptFileSystemStorage",
+        "OPTIONS": {
+            "allow_overwrite": True,
+        },
     },
 }
 STORAGES = DEFAULT_STORAGES | STORAGES
@@ -372,6 +390,11 @@ if CACHING_REDIS_CA_CERT_PATH:
     CACHES['default']['OPTIONS'].setdefault('CONNECTION_POOL_KWARGS', {})
     CACHES['default']['OPTIONS']['CONNECTION_POOL_KWARGS']['ssl_ca_certs'] = CACHING_REDIS_CA_CERT_PATH
 
+# Merge in KWARGS for additional parameters
+if caching_redis_kwargs := REDIS['caching'].get('KWARGS'):
+    CACHES['default']['OPTIONS'].setdefault('CONNECTION_POOL_KWARGS', {})
+    CACHES['default']['OPTIONS']['CONNECTION_POOL_KWARGS'].update(caching_redis_kwargs)
+
 
 #
 # Sessions
@@ -424,6 +447,7 @@ INSTALLED_APPS = [
     'mptt',
     'rest_framework',
     'social_django',
+    'sorl.thumbnail',
     'taggit',
     'timezone_field',
     'core',
@@ -450,7 +474,7 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.locale.LocaleMiddleware',
-    'django.middleware.common.CommonMiddleware',
+    'netbox.middleware.CommonMiddleware',  # Replaces django.middleware.common.CommonMiddleware
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -471,9 +495,9 @@ if DEBUG:
 if METRICS_ENABLED:
     # If metrics are enabled, add the before & after Prometheus middleware
     MIDDLEWARE = [
-        'django_prometheus.middleware.PrometheusBeforeMiddleware',
+        'netbox.middleware.PrometheusBeforeMiddleware',
         *MIDDLEWARE,
-        'django_prometheus.middleware.PrometheusAfterMiddleware',
+        'netbox.middleware.PrometheusAfterMiddleware',
     ]
 
 # URLs
@@ -596,18 +620,29 @@ if SENTRY_ENABLED:
         import sentry_sdk
     except ModuleNotFoundError:
         raise ImproperlyConfigured("SENTRY_ENABLED is True but the sentry-sdk package is not installed.")
-    if not SENTRY_DSN:
-        raise ImproperlyConfigured("SENTRY_ENABLED is True but SENTRY_DSN has not been defined.")
+
+    # Construct default Sentry initialization parameters from legacy SENTRY_* config parameters
+    sentry_config = {
+        'dsn': SENTRY_DSN,
+        'sample_rate': SENTRY_SAMPLE_RATE,
+        'send_default_pii': SENTRY_SEND_DEFAULT_PII,
+        'traces_sample_rate': SENTRY_TRACES_SAMPLE_RATE,
+        # TODO: Support proxy routing
+        'http_proxy': HTTP_PROXIES.get('http') if HTTP_PROXIES else None,
+        'https_proxy': HTTP_PROXIES.get('https') if HTTP_PROXIES else None,
+    }
+    # Override/extend the default parameters with any provided via SENTRY_CONFIG
+    sentry_config.update(SENTRY_CONFIG)
+    # Check for a DSN
+    if not sentry_config.get('dsn'):
+        raise ImproperlyConfigured(
+            "Sentry is enabled but a DSN has not been specified. Set one under the SENTRY_CONFIG parameter."
+        )
+
     # Initialize the SDK
     sentry_sdk.init(
-        dsn=SENTRY_DSN,
         release=RELEASE.full_version,
-        sample_rate=SENTRY_SAMPLE_RATE,
-        traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
-        send_default_pii=SENTRY_SEND_DEFAULT_PII,
-        # TODO: Support proxy routing
-        http_proxy=HTTP_PROXIES.get('http') if HTTP_PROXIES else None,
-        https_proxy=HTTP_PROXIES.get('https') if HTTP_PROXIES else None
+        **sentry_config
     )
     # Assign any configured tags
     for k, v in SENTRY_TAGS.items():
@@ -621,6 +656,13 @@ if SENTRY_ENABLED:
 # Calculate a unique deployment ID from the secret key
 DEPLOYMENT_ID = hashlib.sha256(SECRET_KEY.encode('utf-8')).hexdigest()[:16]
 CENSUS_URL = 'https://census.netbox.oss.netboxlabs.com/api/v1/'
+
+
+#
+# NetBox Copilot
+#
+
+NETBOX_COPILOT_URL = 'https://static.copilot.netboxlabs.ai/load.js'
 
 
 #
@@ -718,7 +760,7 @@ SPECTACULAR_SETTINGS = {
     'COMPONENT_SPLIT_REQUEST': True,
     'REDOC_DIST': 'SIDECAR',
     'SERVERS': [{
-        'url': BASE_PATH,
+        'url': '',
         'description': 'NetBox',
     }],
     'SWAGGER_UI_DIST': 'SIDECAR',
@@ -762,6 +804,11 @@ if TASKS_REDIS_CA_CERT_PATH:
     RQ_PARAMS.setdefault('REDIS_CLIENT_KWARGS', {})
     RQ_PARAMS['REDIS_CLIENT_KWARGS']['ssl_ca_certs'] = TASKS_REDIS_CA_CERT_PATH
 
+# Merge in KWARGS for additional parameters
+if tasks_redis_kwargs := TASKS_REDIS.get('KWARGS'):
+    RQ_PARAMS.setdefault('REDIS_CLIENT_KWARGS', {})
+    RQ_PARAMS['REDIS_CLIENT_KWARGS'].update(tasks_redis_kwargs)
+
 # Define named RQ queues
 RQ_QUEUES = {
     RQ_QUEUE_HIGH: RQ_PARAMS,
@@ -787,6 +834,7 @@ LANGUAGES = (
     ('fr', _('French')),
     ('it', _('Italian')),
     ('ja', _('Japanese')),
+    ('lv', _('Latvian')),
     ('nl', _('Dutch')),
     ('pl', _('Polish')),
     ('pt', _('Portuguese')),
@@ -901,6 +949,27 @@ for plugin_name in PLUGINS:
             EVENTS_PIPELINE.extend(events_pipeline)
         else:
             raise ImproperlyConfigured(f"events_pipline in plugin: {plugin_name} must be a list or tuple")
+
+
+#
+# Monkey-patching
+#
+
+from rest_framework.utils import field_mapping  # noqa: E402
+from strawberry_django import pagination  # noqa: E402
+from strawberry_django.fields.field import StrawberryDjangoField  # noqa: E402
+
+from netbox.graphql.pagination import OffsetPaginationInput, apply_pagination  # noqa: E402
+
+# TODO: Remove this once #20547 has been implemented
+# Override DRF's get_unique_validators() function with our own (see bug #19302)
+field_mapping.get_unique_validators = get_unique_validators
+
+# Override strawberry-django's OffsetPaginationInput class to add the `start` parameter
+pagination.OffsetPaginationInput = OffsetPaginationInput
+
+# Patch StrawberryDjangoField to use our custom `apply_pagination()` method with support for cursor-based pagination
+StrawberryDjangoField.apply_pagination = apply_pagination
 
 
 # UNSUPPORTED FUNCTIONALITY: Import any local overrides.

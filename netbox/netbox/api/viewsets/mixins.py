@@ -108,13 +108,17 @@ class BulkUpdateModelMixin:
             obj.pop('id'): obj for obj in request.data
         }
 
-        data = self.perform_bulk_update(qs, update_data, partial=partial)
+        object_pks = self.perform_bulk_update(qs, update_data, partial=partial)
 
-        return Response(data, status=status.HTTP_200_OK)
+        # Prefetch related objects for all updated instances
+        qs = self.get_queryset().filter(pk__in=object_pks)
+        serializer = self.get_serializer(qs, many=True)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def perform_bulk_update(self, objects, update_data, partial):
+        updated_pks = []
         with transaction.atomic(using=router.db_for_write(self.queryset.model)):
-            data_list = []
             for obj in objects:
                 data = update_data.get(obj.id)
                 if hasattr(obj, 'snapshot'):
@@ -122,9 +126,9 @@ class BulkUpdateModelMixin:
                 serializer = self.get_serializer(obj, data=data, partial=partial)
                 serializer.is_valid(raise_exception=True)
                 self.perform_update(serializer)
-                data_list.append(serializer.data)
+                updated_pks.append(obj.pk)
 
-            return data_list
+        return updated_pks
 
     def bulk_partial_update(self, request, *args, **kwargs):
         kwargs['partial'] = True
@@ -149,18 +153,25 @@ class BulkDestroyModelMixin:
         serializer = BulkOperationSerializer(data=request.data, many=True)
         serializer.is_valid(raise_exception=True)
         qs = self.get_bulk_destroy_queryset().filter(
-            pk__in=[o['id'] for o in serializer.data]
+            pk__in=[o['id'] for o in serializer.validated_data]
         )
 
-        self.perform_bulk_destroy(qs)
+        # Compile any changelog messages to be recorded on the objects being deleted
+        changelog_messages = {
+            o['id']: o.get('changelog_message') for o in serializer.validated_data
+        }
+
+        self.perform_bulk_destroy(qs, changelog_messages)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    def perform_bulk_destroy(self, objects):
+    def perform_bulk_destroy(self, objects, changelog_messages=None):
+        changelog_messages = changelog_messages or {}
         with transaction.atomic(using=router.db_for_write(self.queryset.model)):
             for obj in objects:
                 if hasattr(obj, 'snapshot'):
                     obj.snapshot()
+                obj._changelog_message = changelog_messages.get(obj.pk)
                 self.perform_destroy(obj)
 
 

@@ -2,7 +2,7 @@ import django_tables2 as tables
 from django.utils.translation import gettext_lazy as _
 
 from circuits.models import *
-from netbox.tables import NetBoxTable, columns
+from netbox.tables import NetBoxTable, OrganizationalModelTable, PrimaryModelTable, columns
 from tenancy.tables import ContactsColumnMixin, TenancyColumnsMixin
 
 __all__ = (
@@ -12,7 +12,7 @@ __all__ = (
 )
 
 
-class VirtualCircuitTypeTable(NetBoxTable):
+class VirtualCircuitTypeTable(OrganizationalModelTable):
     name = tables.Column(
         linkify=True,
         verbose_name=_('Name'),
@@ -27,7 +27,7 @@ class VirtualCircuitTypeTable(NetBoxTable):
         verbose_name=_('Circuits')
     )
 
-    class Meta(NetBoxTable.Meta):
+    class Meta(OrganizationalModelTable.Meta):
         model = VirtualCircuitType
         fields = (
             'pk', 'id', 'name', 'virtual_circuit_count', 'color', 'description', 'slug', 'tags', 'created',
@@ -36,7 +36,7 @@ class VirtualCircuitTypeTable(NetBoxTable):
         default_columns = ('pk', 'name', 'virtual_circuit_count', 'color', 'description')
 
 
-class VirtualCircuitTable(TenancyColumnsMixin, ContactsColumnMixin, NetBoxTable):
+class VirtualCircuitTable(TenancyColumnsMixin, ContactsColumnMixin, PrimaryModelTable):
     cid = tables.Column(
         linkify=True,
         verbose_name=_('Circuit ID')
@@ -63,18 +63,15 @@ class VirtualCircuitTable(TenancyColumnsMixin, ContactsColumnMixin, NetBoxTable)
         url_params={'virtual_circuit_id': 'pk'},
         verbose_name=_('Terminations')
     )
-    comments = columns.MarkdownColumn(
-        verbose_name=_('Comments')
-    )
     tags = columns.TagColumn(
         url_name='circuits:virtualcircuit_list'
     )
 
-    class Meta(NetBoxTable.Meta):
+    class Meta(PrimaryModelTable.Meta):
         model = VirtualCircuit
         fields = (
             'pk', 'id', 'cid', 'provider', 'provider_account', 'provider_network', 'type', 'status', 'tenant',
-            'tenant_group', 'description', 'comments', 'tags', 'created', 'last_updated',
+            'tenant_group', 'description', 'comments', 'contacts', 'tags', 'created', 'last_updated',
         )
         default_columns = (
             'pk', 'cid', 'provider', 'provider_account', 'provider_network', 'type', 'status', 'tenant',
@@ -98,6 +95,7 @@ class VirtualCircuitTerminationTable(NetBoxTable):
         verbose_name=_('Provider network')
     )
     provider_account = tables.Column(
+        accessor=tables.A('virtual_circuit__provider_account'),
         linkify=True,
         verbose_name=_('Account')
     )
@@ -115,7 +113,7 @@ class VirtualCircuitTerminationTable(NetBoxTable):
     class Meta(NetBoxTable.Meta):
         model = VirtualCircuitTermination
         fields = (
-            'pk', 'id', 'virtual_circuit', 'provider', 'provider_network', 'provider_account', 'role', 'interfaces',
+            'pk', 'id', 'virtual_circuit', 'provider', 'provider_network', 'provider_account', 'role', 'interface',
             'description', 'created', 'last_updated', 'actions',
         )
         default_columns = (

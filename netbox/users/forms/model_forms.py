@@ -1,5 +1,8 @@
+import json
+from collections import defaultdict
+
 from django import forms
-from django.conf import settings
+from django.apps import apps
 from django.contrib.auth import password_validation
 from django.contrib.postgres.forms import SimpleArrayField
 from django.core.exceptions import FieldError
@@ -9,23 +12,32 @@ from django.utils.translation import gettext_lazy as _
 from core.models import ObjectType
 from ipam.formfields import IPNetworkFormField
 from ipam.validators import prefix_validator
+from netbox.config import get_config
 from netbox.preferences import PREFERENCES
+from users.choices import TokenVersionChoices
 from users.constants import *
 from users.models import *
 from utilities.data import flatten_dict
-from utilities.forms.fields import ContentTypeMultipleChoiceField, DynamicModelMultipleChoiceField
+from utilities.forms.fields import (
+    ContentTypeMultipleChoiceField,
+    DynamicModelChoiceField,
+    DynamicModelMultipleChoiceField,
+    JSONField,
+)
 from utilities.forms.rendering import FieldSet
 from utilities.forms.widgets import DateTimePicker, SplitMultiSelectWidget
 from utilities.permissions import qs_filter_from_constraints
+from utilities.string import title
 
 __all__ = (
     'GroupForm',
     'ObjectPermissionForm',
+    'OwnerForm',
+    'OwnerGroupForm',
     'TokenForm',
     'UserConfigForm',
     'UserForm',
     'UserTokenForm',
-    'TokenForm',
 )
 
 
@@ -58,11 +70,10 @@ class UserConfigFormMetaclass(forms.models.ModelFormMetaclass):
 class UserConfigForm(forms.ModelForm, metaclass=UserConfigFormMetaclass):
     fieldsets = (
         FieldSet(
-            'locale.language', 'pagination.per_page', 'pagination.placement', 'ui.htmx_navigation',
-            'ui.tables.striping',
-            name=_('User Interface')
+            'locale.language', 'ui.copilot_enabled', 'pagination.per_page', 'pagination.placement',
+            'ui.tables.striping', name=_('User Interface')
         ),
-        FieldSet('data_format', name=_('Miscellaneous')),
+        FieldSet('data_format', 'csv_delimiter', name=_('Miscellaneous')),
     )
     # List of clearable preferences
     pk = forms.MultipleChoiceField(
@@ -77,8 +88,7 @@ class UserConfigForm(forms.ModelForm, metaclass=UserConfigFormMetaclass):
     def __init__(self, *args, instance=None, **kwargs):
 
         # Get initial data from UserConfig instance
-        initial_data = flatten_dict(instance.data)
-        kwargs['initial'] = initial_data
+        kwargs['initial'] = flatten_dict(instance.data)
 
         super().__init__(*args, instance=instance, **kwargs)
 
@@ -86,6 +96,10 @@ class UserConfigForm(forms.ModelForm, metaclass=UserConfigFormMetaclass):
         self.fields['pk'].choices = (
             (f'tables.{table_name}', '') for table_name in instance.data.get('tables', [])
         )
+
+        # Disable Copilot preference if it has been disabled globally
+        if not get_config().COPILOT_ENABLED:
+            self.fields['ui.copilot_enabled'].disabled = True
 
     def save(self, *args, **kwargs):
 
@@ -109,11 +123,11 @@ class UserConfigForm(forms.ModelForm, metaclass=UserConfigFormMetaclass):
 
 
 class UserTokenForm(forms.ModelForm):
-    key = forms.CharField(
-        label=_('Key'),
+    token = forms.CharField(
+        label=_('Token'),
         help_text=_(
-            'Keys must be at least 40 characters in length. <strong>Be sure to record your key</strong> prior to '
-            'submitting this form, as it may no longer be accessible once the token has been created.'
+            'Tokens must be at least 40 characters in length. <strong>Be sure to record your token</strong> prior to '
+            'submitting this form, as it will no longer be accessible once the token has been created.'
         ),
         widget=forms.TextInput(
             attrs={'data-clipboard': 'true'}
@@ -132,7 +146,7 @@ class UserTokenForm(forms.ModelForm):
     class Meta:
         model = Token
         fields = [
-            'key', 'write_enabled', 'expires', 'description', 'allowed_ips',
+            'version', 'token', 'enabled', 'write_enabled', 'expires', 'description', 'allowed_ips',
         ]
         widgets = {
             'expires': DateTimePicker(),
@@ -141,13 +155,24 @@ class UserTokenForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # Omit the key field if token retrieval is not permitted
-        if self.instance.pk and not settings.ALLOW_TOKEN_RETRIEVAL:
-            del self.fields['key']
+        if self.instance.pk:
+            # Disable the version & user fields for existing Tokens
+            self.fields['version'].disabled = True
+            self.fields['user'].disabled = True
+
+            # Omit the key field when editing an existing Token
+            del self.fields['token']
 
         # Generate an initial random key if none has been specified
-        if not self.instance.pk and not self.initial.get('key'):
-            self.initial['key'] = Token.generate_key()
+        elif self.instance._state.adding and not self.initial.get('token'):
+            self.initial['version'] = TokenVersionChoices.V2
+            self.initial['token'] = Token.generate()
+
+    def save(self, commit=True):
+        if self.instance._state.adding and self.cleaned_data.get('token'):
+            self.instance.token = self.cleaned_data['token']
+
+        return super().save(commit=commit)
 
 
 class TokenForm(UserTokenForm):
@@ -156,14 +181,17 @@ class TokenForm(UserTokenForm):
         label=_('User')
     )
 
-    class Meta:
-        model = Token
+    class Meta(UserTokenForm.Meta):
         fields = [
-            'user', 'key', 'write_enabled', 'expires', 'description', 'allowed_ips',
+            'version', 'token', 'user', 'enabled', 'write_enabled', 'expires', 'description', 'allowed_ips',
         ]
-        widgets = {
-            'expires': DateTimePicker(),
-        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # If not creating a new Token, disable the user field
+        if self.instance and not self.instance._state.adding:
+            self.fields['user'].disabled = True
 
 
 class UserForm(forms.ModelForm):
@@ -192,7 +220,7 @@ class UserForm(forms.ModelForm):
     fieldsets = (
         FieldSet('username', 'password', 'confirm_password', 'first_name', 'last_name', 'email', name=_('User')),
         FieldSet('groups', name=_('Groups')),
-        FieldSet('is_active', 'is_staff', 'is_superuser', name=_('Status')),
+        FieldSet('is_active', 'is_superuser', name=_('Status')),
         FieldSet('object_permissions', name=_('Permissions')),
     )
 
@@ -200,7 +228,7 @@ class UserForm(forms.ModelForm):
         model = User
         fields = [
             'username', 'first_name', 'last_name', 'email', 'groups', 'object_permissions',
-            'is_active', 'is_staff', 'is_superuser',
+            'is_active', 'is_superuser',
         ]
 
     def __init__(self, *args, **kwargs):
@@ -273,10 +301,24 @@ class GroupForm(forms.ModelForm):
 
 
 def get_object_types_choices():
-    return [
-        (ot.pk, str(ot))
-        for ot in ObjectType.objects.filter(OBJECTPERMISSION_OBJECT_TYPES).order_by('app_label', 'model')
-    ]
+    """
+    Generate choices for object types grouped by app label using optgroups.
+    Returns nested structure: [(app_label, [(id, model_name), ...]), ...]
+    """
+    app_label_map = {
+        app_config.label: app_config.verbose_name
+        for app_config in apps.get_app_configs()
+    }
+    choices_by_app = defaultdict(list)
+
+    for ot in ObjectType.objects.filter(OBJECTPERMISSION_OBJECT_TYPES).order_by('app_label', 'model'):
+        app_label = app_label_map.get(ot.app_label, ot.app_label)
+
+        model_class = ot.model_class()
+        model_name = model_class._meta.verbose_name if model_class else ot.model
+        choices_by_app[app_label].append((ot.pk, title(model_name)))
+
+    return list(choices_by_app.items())
 
 
 class ObjectPermissionForm(forms.ModelForm):
@@ -286,7 +328,7 @@ class ObjectPermissionForm(forms.ModelForm):
         widget=SplitMultiSelectWidget(
             choices=get_object_types_choices
         ),
-        help_text=_('Select the types of objects to which the permission will appy.')
+        help_text=_('Select the types of objects to which the permission will apply.')
     )
     can_view = forms.BooleanField(
         required=False
@@ -316,13 +358,22 @@ class ObjectPermissionForm(forms.ModelForm):
         required=False,
         queryset=Group.objects.all()
     )
+    constraints = JSONField(
+        required=False,
+        label=_('Constraints'),
+        help_text=_(
+            'JSON expression of a queryset filter that will return only permitted objects. Leave null '
+            'to match all objects of this type. A list of multiple objects will result in a logical OR '
+            'operation.'
+        ),
+    )
 
     fieldsets = (
         FieldSet('name', 'description', 'enabled'),
         FieldSet('can_view', 'can_add', 'can_change', 'can_delete', 'actions', name=_('Actions')),
         FieldSet('object_types', name=_('Objects')),
         FieldSet('groups', 'users', name=_('Assignment')),
-        FieldSet('constraints', name=_('Constraints'))
+        FieldSet('constraints', name=_('Constraints')),
     )
 
     class Meta:
@@ -330,13 +381,6 @@ class ObjectPermissionForm(forms.ModelForm):
         fields = [
             'name', 'description', 'enabled', 'object_types', 'users', 'groups', 'constraints', 'actions',
         ]
-        help_texts = {
-            'constraints': _(
-                'JSON expression of a queryset filter that will return only permitted objects. Leave null '
-                'to match all objects of this type. A list of multiple objects will result in a logical OR '
-                'operation.'
-            )
-        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -344,17 +388,34 @@ class ObjectPermissionForm(forms.ModelForm):
         # Make the actions field optional since the form uses it only for non-CRUD actions
         self.fields['actions'].required = False
 
-        # Populate assigned users and groups
+        # Prepare the appropriate fields when editing an existing ObjectPermission
         if self.instance.pk:
+            # Populate assigned users and groups
             self.fields['groups'].initial = self.instance.groups.values_list('id', flat=True)
             self.fields['users'].initial = self.instance.users.values_list('id', flat=True)
 
-        # Check the appropriate checkboxes when editing an existing ObjectPermission
-        if self.instance.pk:
+            # Check the appropriate checkboxes when editing an existing ObjectPermission
             for action in ['view', 'add', 'change', 'delete']:
                 if action in self.instance.actions:
                     self.fields[f'can_{action}'].initial = True
                     self.instance.actions.remove(action)
+
+        # Populate initial data for a new ObjectPermission
+        elif self.initial:
+            # Handle cloned objects - actions come from initial data (URL parameters)
+            if 'actions' in self.initial:
+                # Normalize actions to a list of strings
+                if isinstance(self.initial['actions'], str):
+                    self.initial['actions'] = [self.initial['actions']]
+                if cloned_actions := self.initial['actions']:
+                    for action in ['view', 'add', 'change', 'delete']:
+                        if action in cloned_actions:
+                            self.fields[f'can_{action}'].initial = True
+                            self.initial['actions'].remove(action)
+            # Convert data delivered via initial data to JSON data
+            if 'constraints' in self.initial:
+                if type(self.initial['constraints']) is str:
+                    self.initial['constraints'] = json.loads(self.initial['constraints'])
 
     def clean(self):
         super().clean()
@@ -400,3 +461,47 @@ class ObjectPermissionForm(forms.ModelForm):
         instance.groups.set(self.cleaned_data['groups'])
 
         return instance
+
+
+class OwnerGroupForm(forms.ModelForm):
+
+    fieldsets = (
+        FieldSet('name', 'description', name=_('Owner Group')),
+    )
+
+    class Meta:
+        model = OwnerGroup
+        fields = [
+            'name', 'description',
+        ]
+
+
+class OwnerForm(forms.ModelForm):
+    fieldsets = (
+        FieldSet('name', 'group', 'description', name=_('Owner')),
+        FieldSet('user_groups', name=_('Groups')),
+        FieldSet('users', name=_('Users')),
+    )
+    group = DynamicModelChoiceField(
+        label=_('Group'),
+        queryset=OwnerGroup.objects.all(),
+        required=False,
+        selector=True,
+        quick_add=True
+    )
+    user_groups = DynamicModelMultipleChoiceField(
+        label=_('User groups'),
+        queryset=Group.objects.all(),
+        required=False
+    )
+    users = DynamicModelMultipleChoiceField(
+        label=_('Users'),
+        queryset=User.objects.all(),
+        required=False
+    )
+
+    class Meta:
+        model = Owner
+        fields = [
+            'name', 'group', 'description', 'user_groups', 'users',
+        ]

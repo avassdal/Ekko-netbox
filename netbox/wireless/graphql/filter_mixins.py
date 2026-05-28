@@ -1,26 +1,24 @@
 from dataclasses import dataclass
-from typing import Annotated, TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 import strawberry
 import strawberry_django
-from strawberry_django import FilterLookup
-
-from core.graphql.filter_mixins import BaseFilterMixin
+from strawberry_django import StrFilterLookup
 
 if TYPE_CHECKING:
     from .enums import *
 
 __all__ = (
-    'WirelessAuthenticationBaseFilterMixin',
+    'WirelessAuthenticationFilterMixin',
 )
 
 
 @dataclass
-class WirelessAuthenticationBaseFilterMixin(BaseFilterMixin):
+class WirelessAuthenticationFilterMixin:
     auth_type: Annotated['WirelessAuthTypeEnum', strawberry.lazy('wireless.graphql.enums')] | None = (
         strawberry_django.filter_field()
     )
     auth_cipher: Annotated['WirelessAuthCipherEnum', strawberry.lazy('wireless.graphql.enums')] | None = (
         strawberry_django.filter_field()
     )
-    auth_psk: FilterLookup[str] | None = strawberry_django.filter_field()
+    auth_psk: StrFilterLookup[str] | None = strawberry_django.filter_field()

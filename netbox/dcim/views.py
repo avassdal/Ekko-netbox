@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import EmptyPage, PageNotAnInteger
@@ -12,10 +13,24 @@ from django.utils.translation import gettext_lazy as _
 from django.views.generic import View
 
 from circuits.models import Circuit, CircuitTermination
+from extras.ui.panels import CustomFieldsPanel, ImageAttachmentsPanel, TagsPanel
 from extras.views import ObjectConfigContextView, ObjectRenderConfigView
-from ipam.models import ASN, IPAddress, Prefix, VLANGroup, VLAN
-from ipam.tables import InterfaceVLANTable, VLANTranslationRuleTable
-from netbox.constants import DEFAULT_ACTION_PERMISSIONS
+from ipam.models import ASN, VLAN, IPAddress, Prefix, VLANGroup
+from ipam.tables import VLANTranslationRuleTable
+from ipam.ui.panels import FHRPGroupAssignmentsPanel
+from netbox.object_actions import *
+from netbox.ui import actions, layout
+from netbox.ui.panels import (
+    CommentsPanel,
+    ContextTablePanel,
+    JSONPanel,
+    NestedGroupObjectPanel,
+    ObjectsTablePanel,
+    OrganizationalObjectPanel,
+    Panel,
+    RelatedObjectsPanel,
+    TemplatePanel,
+)
 from netbox.views import generic
 from utilities.forms import ConfirmationForm
 from utilities.paginator import EnhancedPaginator, get_paginate_count
@@ -24,16 +39,24 @@ from utilities.query import count_related
 from utilities.query_functions import CollateAsChar
 from utilities.request import safe_for_redirect
 from utilities.views import (
-    GetRelatedModelsMixin, GetReturnURLMixin, ObjectPermissionRequiredMixin, ViewTab, register_model_view
+    GetRelatedModelsMixin,
+    GetReturnURLMixin,
+    ObjectPermissionRequiredMixin,
+    ViewTab,
+    register_model_view,
 )
 from virtualization.filtersets import VirtualMachineFilterSet
 from virtualization.forms import VirtualMachineFilterForm
 from virtualization.models import Cluster, VirtualMachine
 from virtualization.tables import VirtualMachineTable
 from wireless.models import WirelessLAN
+
 from . import filtersets, forms, tables
 from .choices import DeviceFaceChoices, InterfaceModeChoices
 from .models import *
+from .models.device_components import PortMapping
+from .object_actions import BulkAddComponents, BulkDisconnect
+from .ui import panels
 
 CABLE_TERMINATION_TYPES = {
     'dcim.consoleport': ConsolePort,
@@ -49,11 +72,6 @@ CABLE_TERMINATION_TYPES = {
 
 
 class DeviceComponentsView(generic.ObjectChildrenView):
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-        'bulk_disconnect': {'change'},
-    }
     queryset = Device.objects.all()
 
     def get_children(self, request, parent):
@@ -61,12 +79,8 @@ class DeviceComponentsView(generic.ObjectChildrenView):
 
 
 class DeviceTypeComponentsView(generic.ObjectChildrenView):
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-    }
+    actions = (EditObject, DeleteObject, BulkEdit, BulkRename, BulkDelete)
     queryset = DeviceType.objects.all()
-    template_name = 'dcim/devicetype/component_templates.html'
     viewname = None  # Used for return_url resolution
 
     def get_children(self, request, parent):
@@ -78,9 +92,9 @@ class DeviceTypeComponentsView(generic.ObjectChildrenView):
         }
 
 
-class ModuleTypeComponentsView(DeviceComponentsView):
+class ModuleTypeComponentsView(generic.ObjectChildrenView):
     queryset = ModuleType.objects.all()
-    template_name = 'dcim/moduletype/component_templates.html'
+    actions = (EditObject, DeleteObject, BulkEdit, BulkRename, BulkDelete)
     viewname = None  # Used for return_url resolution
 
     def get_children(self, request, parent):
@@ -229,6 +243,27 @@ class RegionListView(generic.ObjectListView):
 @register_model_view(Region)
 class RegionView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = Region.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            NestedGroupObjectPanel(),
+            TagsPanel(),
+            CustomFieldsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                model='dcim.Region',
+                title=_('Child Regions'),
+                filters={'parent_id': lambda ctx: ctx['object'].pk},
+                actions=[
+                    actions.AddObject('dcim.Region', url_params={'parent': lambda ctx: ctx['object'].pk}),
+                ],
+            ),
+        ]
+    )
 
     def get_extra_context(self, request, instance):
         regions = instance.get_descendants(include_self=True)
@@ -300,6 +335,12 @@ class RegionBulkEditView(generic.BulkEditView):
     form = forms.RegionBulkEditForm
 
 
+@register_model_view(Region, 'bulk_rename', path='rename', detail=False)
+class RegionBulkRenameView(generic.BulkRenameView):
+    queryset = Region.objects.all()
+    filterset = filtersets.RegionFilterSet
+
+
 @register_model_view(Region, 'bulk_delete', path='delete', detail=False)
 class RegionBulkDeleteView(generic.BulkDeleteView):
     queryset = Region.objects.add_related_count(
@@ -334,6 +375,27 @@ class SiteGroupListView(generic.ObjectListView):
 @register_model_view(SiteGroup)
 class SiteGroupView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = SiteGroup.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            NestedGroupObjectPanel(),
+            TagsPanel(),
+            CustomFieldsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                model='dcim.SiteGroup',
+                title=_('Child Groups'),
+                filters={'parent_id': lambda ctx: ctx['object'].pk},
+                actions=[
+                    actions.AddObject('dcim.SiteGroup', url_params={'parent': lambda ctx: ctx['object'].pk}),
+                ],
+            ),
+        ]
+    )
 
     def get_extra_context(self, request, instance):
         groups = instance.get_descendants(include_self=True)
@@ -426,6 +488,12 @@ class SiteGroupBulkEditView(generic.BulkEditView):
     form = forms.SiteGroupBulkEditForm
 
 
+@register_model_view(SiteGroup, 'bulk_rename', path='rename', detail=False)
+class SiteGroupBulkRenameView(generic.BulkRenameView):
+    queryset = SiteGroup.objects.all()
+    filterset = filtersets.SiteGroupFilterSet
+
+
 @register_model_view(SiteGroup, 'bulk_delete', path='delete', detail=False)
 class SiteGroupBulkDeleteView(generic.BulkDeleteView):
     queryset = SiteGroup.objects.add_related_count(
@@ -457,6 +525,39 @@ class SiteListView(generic.ObjectListView):
 @register_model_view(Site)
 class SiteView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = Site.objects.prefetch_related('tenant__group')
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.SitePanel(),
+            CustomFieldsPanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            ImageAttachmentsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                model='dcim.Location',
+                filters={'site_id': lambda ctx: ctx['object'].pk},
+                actions=[
+                    actions.AddObject('dcim.Location', url_params={'site': lambda ctx: ctx['object'].pk}),
+                ],
+            ),
+            ObjectsTablePanel(
+                model='dcim.Device',
+                title=_('Non-Racked Devices'),
+                filters={
+                    'site_id': lambda ctx: ctx['object'].pk,
+                    'rack_id': settings.FILTERS_NULL_CHOICE_VALUE,
+                    'parent_bay_id': settings.FILTERS_NULL_CHOICE_VALUE,
+                },
+                actions=[
+                    actions.AddObject('dcim.Device', url_params={'site': lambda ctx: ctx['object'].pk}),
+                ],
+            ),
+        ]
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -511,6 +612,12 @@ class SiteBulkEditView(generic.BulkEditView):
     form = forms.SiteBulkEditForm
 
 
+@register_model_view(Site, 'bulk_rename', path='rename', detail=False)
+class SiteBulkRenameView(generic.BulkRenameView):
+    queryset = Site.objects.all()
+    filterset = filtersets.SiteFilterSet
+
+
 @register_model_view(Site, 'bulk_delete', path='delete', detail=False)
 class SiteBulkDeleteView(generic.BulkDeleteView):
     queryset = Site.objects.all()
@@ -551,6 +658,52 @@ class LocationListView(generic.ObjectListView):
 @register_model_view(Location)
 class LocationView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = Location.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.LocationPanel(),
+            TagsPanel(),
+            CustomFieldsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            ImageAttachmentsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                model='dcim.Location',
+                title=_('Child Locations'),
+                filters={'parent_id': lambda ctx: ctx['object'].pk},
+                actions=[
+                    actions.AddObject(
+                        'dcim.Location',
+                        url_params={
+                            'site': lambda ctx: ctx['object'].site_id,
+                            'parent': lambda ctx: ctx['object'].pk,
+                        }
+                    ),
+                ],
+            ),
+            ObjectsTablePanel(
+                model='dcim.Device',
+                title=_('Non-Racked Devices'),
+                filters={
+                    'location_id': lambda ctx: ctx['object'].pk,
+                    'rack_id': settings.FILTERS_NULL_CHOICE_VALUE,
+                    'parent_bay_id': settings.FILTERS_NULL_CHOICE_VALUE,
+                },
+                actions=[
+                    actions.AddObject(
+                        'dcim.Device',
+                        url_params={
+                            'site': lambda ctx: ctx['object'].site_id,
+                            'parent': lambda ctx: ctx['object'].pk,
+                        }
+                    ),
+                ],
+            ),
+        ]
+    )
 
     def get_extra_context(self, request, instance):
         locations = instance.get_descendants(include_self=True)
@@ -615,6 +768,12 @@ class LocationBulkEditView(generic.BulkEditView):
     form = forms.LocationBulkEditForm
 
 
+@register_model_view(Location, 'bulk_rename', path='rename', detail=False)
+class LocationBulkRenameView(generic.BulkRenameView):
+    queryset = Location.objects.all()
+    filterset = filtersets.LocationFilterSet
+
+
 @register_model_view(Location, 'bulk_delete', path='delete', detail=False)
 class LocationBulkDeleteView(generic.BulkDeleteView):
     queryset = Location.objects.add_related_count(
@@ -645,6 +804,17 @@ class RackRoleListView(generic.ObjectListView):
 @register_model_view(RackRole)
 class RackRoleView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = RackRole.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.RackRolePanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CustomFieldsPanel(),
+            CommentsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -680,6 +850,12 @@ class RackRoleBulkEditView(generic.BulkEditView):
     form = forms.RackRoleBulkEditForm
 
 
+@register_model_view(RackRole, 'bulk_rename', path='rename', detail=False)
+class RackRoleBulkRenameView(generic.BulkRenameView):
+    queryset = RackRole.objects.all()
+    filterset = filtersets.RackRoleFilterSet
+
+
 @register_model_view(RackRole, 'bulk_delete', path='delete', detail=False)
 class RackRoleBulkDeleteView(generic.BulkDeleteView):
     queryset = RackRole.objects.annotate(
@@ -695,9 +871,7 @@ class RackRoleBulkDeleteView(generic.BulkDeleteView):
 
 @register_model_view(RackType, 'list', path='', detail=False)
 class RackTypeListView(generic.ObjectListView):
-    queryset = RackType.objects.annotate(
-        instance_count=count_related(Rack, 'rack_type')
-    )
+    queryset = RackType.objects.all()
     filterset = filtersets.RackTypeFilterSet
     filterset_form = forms.RackTypeFilterForm
     table = tables.RackTypeTable
@@ -705,7 +879,23 @@ class RackTypeListView(generic.ObjectListView):
 
 @register_model_view(RackType)
 class RackTypeView(GetRelatedModelsMixin, generic.ObjectView):
+    template_name = 'generic/object.html'
     queryset = RackType.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.RackTypePanel(),
+            panels.RackDimensionsPanel(title=_('Dimensions')),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            panels.RackNumberingPanel(title=_('Numbering')),
+            panels.RackWeightPanel(title=_('Weight'), exclude=['total_weight']),
+            CustomFieldsPanel(),
+            RelatedObjectsPanel(),
+            ImageAttachmentsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -737,6 +927,13 @@ class RackTypeBulkEditView(generic.BulkEditView):
     filterset = filtersets.RackTypeFilterSet
     table = tables.RackTypeTable
     form = forms.RackTypeBulkEditForm
+
+
+@register_model_view(RackType, 'bulk_rename', path='rename', detail=False)
+class RackTypeBulkRenameView(generic.BulkRenameView):
+    queryset = RackType.objects.all()
+    field_name = 'model'
+    filterset = filtersets.RackTypeFilterSet
 
 
 @register_model_view(RackType, 'bulk_delete', path='delete', detail=False)
@@ -816,6 +1013,22 @@ class RackElevationListView(generic.ObjectListView):
 @register_model_view(Rack)
 class RackView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = Rack.objects.prefetch_related('site__region', 'tenant__group', 'location', 'role')
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.RackPanel(),
+            panels.RackDimensionsPanel(title=_('Dimensions')),
+            panels.RackNumberingPanel(title=_('Numbering')),
+            panels.RackWeightPanel(title=_('Weight')),
+            CustomFieldsPanel(),
+            TagsPanel(),
+            CommentsPanel(),
+            ImageAttachmentsPanel(),
+        ],
+        right_panels=[
+            TemplatePanel('dcim/panels/rack_elevations.html'),
+            RelatedObjectsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         peer_racks = Rack.objects.restrict(request.user, 'view').filter(site=instance.site)
@@ -918,6 +1131,12 @@ class RackBulkEditView(generic.BulkEditView):
     form = forms.RackBulkEditForm
 
 
+@register_model_view(Rack, 'bulk_rename', path='rename', detail=False)
+class RackBulkRenameView(generic.BulkRenameView):
+    queryset = Rack.objects.all()
+    filterset = filtersets.RackFilterSet
+
+
 @register_model_view(Rack, 'bulk_delete', path='delete', detail=False)
 class RackBulkDeleteView(generic.BulkDeleteView):
     queryset = Rack.objects.all()
@@ -935,11 +1154,25 @@ class RackReservationListView(generic.ObjectListView):
     filterset = filtersets.RackReservationFilterSet
     filterset_form = forms.RackReservationFilterForm
     table = tables.RackReservationTable
+    actions = (AddObject, BulkImport, BulkExport, BulkEdit, BulkDelete)
 
 
 @register_model_view(RackReservation)
 class RackReservationView(generic.ObjectView):
     queryset = RackReservation.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.RackPanel(accessor='object.rack', only=['region', 'site', 'location', 'name']),
+            panels.RackReservationPanel(title=_('Reservation')),
+            CustomFieldsPanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            TemplatePanel(template_name='dcim/panels/rack_reservation_elevations.html'),
+            RelatedObjectsPanel(),
+        ],
+    )
 
 
 @register_model_view(RackReservation, 'add', detail=False)
@@ -1013,6 +1246,10 @@ class ManufacturerListView(generic.ObjectListView):
 @register_model_view(Manufacturer)
 class ManufacturerView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = Manufacturer.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[OrganizationalObjectPanel(), TagsPanel()],
+        right_panels=[RelatedObjectsPanel(), CustomFieldsPanel(), CommentsPanel()],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -1051,6 +1288,12 @@ class ManufacturerBulkEditView(generic.BulkEditView):
     form = forms.ManufacturerBulkEditForm
 
 
+@register_model_view(Manufacturer, 'bulk_rename', path='rename', detail=False)
+class ManufacturerBulkRenameView(generic.BulkRenameView):
+    queryset = Manufacturer.objects.all()
+    filterset = filtersets.ManufacturerFilterSet
+
+
 @register_model_view(Manufacturer, 'bulk_delete', path='delete', detail=False)
 class ManufacturerBulkDeleteView(generic.BulkDeleteView):
     queryset = Manufacturer.objects.annotate(
@@ -1069,9 +1312,7 @@ class ManufacturerBulkDeleteView(generic.BulkDeleteView):
 
 @register_model_view(DeviceType, 'list', path='', detail=False)
 class DeviceTypeListView(generic.ObjectListView):
-    queryset = DeviceType.objects.annotate(
-        instance_count=count_related(Device, 'device_type')
-    )
+    queryset = DeviceType.objects.all()
     filterset = filtersets.DeviceTypeFilterSet
     filterset_form = forms.DeviceTypeFilterForm
     table = tables.DeviceTypeTable
@@ -1080,6 +1321,18 @@ class DeviceTypeListView(generic.ObjectListView):
 @register_model_view(DeviceType)
 class DeviceTypeView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = DeviceType.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.DeviceTypePanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CustomFieldsPanel(),
+            CommentsPanel(),
+            ImageAttachmentsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -1278,6 +1531,7 @@ class DeviceTypeImportView(generic.BulkImportView):
         'interfaces': forms.InterfaceTemplateImportForm,
         'rear-ports': forms.RearPortTemplateImportForm,
         'front-ports': forms.FrontPortTemplateImportForm,
+        'port-mappings': forms.PortTemplateMappingImportForm,
         'module-bays': forms.ModuleBayTemplateImportForm,
         'device-bays': forms.DeviceBayTemplateImportForm,
         'inventory-items': forms.InventoryItemTemplateImportForm,
@@ -1290,19 +1544,22 @@ class DeviceTypeImportView(generic.BulkImportView):
 
 @register_model_view(DeviceType, 'bulk_edit', path='edit', detail=False)
 class DeviceTypeBulkEditView(generic.BulkEditView):
-    queryset = DeviceType.objects.annotate(
-        instance_count=count_related(Device, 'device_type')
-    )
+    queryset = DeviceType.objects.all()
     filterset = filtersets.DeviceTypeFilterSet
     table = tables.DeviceTypeTable
     form = forms.DeviceTypeBulkEditForm
 
 
+@register_model_view(DeviceType, 'bulk_rename', path='rename', detail=False)
+class DeviceTypeBulkRenameView(generic.BulkRenameView):
+    queryset = DeviceType.objects.all()
+    field_name = 'model'
+    filterset = filtersets.DeviceTypeFilterSet
+
+
 @register_model_view(DeviceType, 'bulk_delete', path='delete', detail=False)
 class DeviceTypeBulkDeleteView(generic.BulkDeleteView):
-    queryset = DeviceType.objects.annotate(
-        instance_count=count_related(Device, 'device_type')
-    )
+    queryset = DeviceType.objects.all()
     filterset = filtersets.DeviceTypeFilterSet
     table = tables.DeviceTypeTable
 
@@ -1322,8 +1579,37 @@ class ModuleTypeProfileListView(generic.ObjectListView):
 
 
 @register_model_view(ModuleTypeProfile)
-class ModuleTypeProfileView(GetRelatedModelsMixin, generic.ObjectView):
+class ModuleTypeProfileView(generic.ObjectView):
+    template_name = 'generic/object.html'
     queryset = ModuleTypeProfile.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ModuleTypeProfilePanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            JSONPanel(field_name='schema', title=_('Schema')),
+            CustomFieldsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                model='dcim.ModuleType',
+                title=_('Module Types'),
+                filters={
+                    'profile_id': lambda ctx: ctx['object'].pk,
+                },
+                actions=[
+                    actions.AddObject(
+                        'dcim.ModuleType',
+                        url_params={
+                            'profile': lambda ctx: ctx['object'].pk,
+                        }
+                    ),
+                ],
+            ),
+        ]
+    )
 
 
 @register_model_view(ModuleTypeProfile, 'add', detail=False)
@@ -1354,6 +1640,12 @@ class ModuleTypeProfileBulkEditView(generic.BulkEditView):
     form = forms.ModuleTypeProfileBulkEditForm
 
 
+@register_model_view(ModuleTypeProfile, 'bulk_rename', path='rename', detail=False)
+class ModuleTypeProfileBulkRenameView(generic.BulkRenameView):
+    queryset = ModuleTypeProfile.objects.all()
+    filterset = filtersets.ModuleTypeProfileFilterSet
+
+
 @register_model_view(ModuleTypeProfile, 'bulk_delete', path='delete', detail=False)
 class ModuleTypeProfileBulkDeleteView(generic.BulkDeleteView):
     queryset = ModuleTypeProfile.objects.annotate(
@@ -1369,9 +1661,7 @@ class ModuleTypeProfileBulkDeleteView(generic.BulkDeleteView):
 
 @register_model_view(ModuleType, 'list', path='', detail=False)
 class ModuleTypeListView(generic.ObjectListView):
-    queryset = ModuleType.objects.annotate(
-        instance_count=count_related(Module, 'module_type')
-    )
+    queryset = ModuleType.objects.all()
     filterset = filtersets.ModuleTypeFilterSet
     filterset_form = forms.ModuleTypeFilterForm
     table = tables.ModuleTypeTable
@@ -1380,6 +1670,22 @@ class ModuleTypeListView(generic.ObjectListView):
 @register_model_view(ModuleType)
 class ModuleTypeView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = ModuleType.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ModuleTypePanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            Panel(
+                title=_('Attributes'),
+                template_name='dcim/panels/module_type_attributes.html',
+            ),
+            RelatedObjectsPanel(),
+            CustomFieldsPanel(),
+            ImageAttachmentsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -1546,6 +1852,7 @@ class ModuleTypeImportView(generic.BulkImportView):
         'interfaces': forms.InterfaceTemplateImportForm,
         'rear-ports': forms.RearPortTemplateImportForm,
         'front-ports': forms.FrontPortTemplateImportForm,
+        'port-mappings': forms.PortTemplateMappingImportForm,
         'module-bays': forms.ModuleBayTemplateImportForm,
     }
 
@@ -1562,6 +1869,13 @@ class ModuleTypeBulkEditView(generic.BulkEditView):
     filterset = filtersets.ModuleTypeFilterSet
     table = tables.ModuleTypeTable
     form = forms.ModuleTypeBulkEditForm
+
+
+@register_model_view(ModuleType, 'bulk_rename', path='rename', detail=False)
+class ModuleTypeBulkRenameView(generic.BulkRenameView):
+    queryset = ModuleType.objects.all()
+    filterset = filtersets.ModuleTypeFilterSet
+    field_name = 'model'
 
 
 @register_model_view(ModuleType, 'bulk_delete', path='delete', detail=False)
@@ -2011,6 +2325,27 @@ class DeviceRoleListView(generic.ObjectListView):
 @register_model_view(DeviceRole)
 class DeviceRoleView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = DeviceRole.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.DeviceRolePanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CustomFieldsPanel(),
+            CommentsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                model='dcim.DeviceRole',
+                title=_('Child Device Roles'),
+                filters={'parent_id': lambda ctx: ctx['object'].pk},
+                actions=[
+                    actions.AddObject('dcim.DeviceRole', url_params={'parent': lambda ctx: ctx['object'].pk}),
+                ],
+            ),
+        ]
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -2047,6 +2382,12 @@ class DeviceRoleBulkEditView(generic.BulkEditView):
     form = forms.DeviceRoleBulkEditForm
 
 
+@register_model_view(DeviceRole, 'bulk_rename', path='rename', detail=False)
+class DeviceRoleBulkRenameView(generic.BulkRenameView):
+    queryset = DeviceRole.objects.all()
+    filterset = filtersets.DeviceRoleFilterSet
+
+
 @register_model_view(DeviceRole, 'bulk_delete', path='delete', detail=False)
 class DeviceRoleBulkDeleteView(generic.BulkDeleteView):
     queryset = DeviceRole.objects.annotate(
@@ -2063,9 +2404,18 @@ class DeviceRoleBulkDeleteView(generic.BulkDeleteView):
 
 @register_model_view(Platform, 'list', path='', detail=False)
 class PlatformListView(generic.ObjectListView):
-    queryset = Platform.objects.annotate(
-        device_count=count_related(Device, 'platform'),
-        vm_count=count_related(VirtualMachine, 'platform')
+    queryset = Platform.objects.add_related_count(
+        Platform.objects.add_related_count(
+            Platform.objects.all(),
+            VirtualMachine,
+            'platform',
+            'vm_count',
+            cumulative=True
+        ),
+        Device,
+        'platform',
+        'device_count',
+        cumulative=True
     )
     table = tables.PlatformTable
     filterset = filtersets.PlatformFilterSet
@@ -2075,6 +2425,27 @@ class PlatformListView(generic.ObjectListView):
 @register_model_view(Platform)
 class PlatformView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = Platform.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.PlatformPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CustomFieldsPanel(),
+            CommentsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                model='dcim.Platform',
+                title=_('Child Platforms'),
+                filters={'parent_id': lambda ctx: ctx['object'].pk},
+                actions=[
+                    actions.AddObject('dcim.Platform', url_params={'parent': lambda ctx: ctx['object'].pk}),
+                ],
+            ),
+        ]
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -2108,6 +2479,12 @@ class PlatformBulkEditView(generic.BulkEditView):
     form = forms.PlatformBulkEditForm
 
 
+@register_model_view(Platform, 'bulk_rename', path='rename', detail=False)
+class PlatformBulkRenameView(generic.BulkRenameView):
+    queryset = Platform.objects.all()
+    filterset = filtersets.PlatformFilterSet
+
+
 @register_model_view(Platform, 'bulk_delete', path='delete', detail=False)
 class PlatformBulkDeleteView(generic.BulkDeleteView):
     queryset = Platform.objects.all()
@@ -2125,12 +2502,50 @@ class DeviceListView(generic.ObjectListView):
     filterset = filtersets.DeviceFilterSet
     filterset_form = forms.DeviceFilterForm
     table = tables.DeviceTable
-    template_name = 'dcim/device_list.html'
+    actions = (AddObject, BulkImport, BulkExport, BulkAddComponents, BulkEdit, BulkRename, BulkDelete)
 
 
 @register_model_view(Device)
 class DeviceView(generic.ObjectView):
     queryset = Device.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.DevicePanel(),
+            panels.VirtualChassisMembersPanel(),
+            CustomFieldsPanel(),
+            TagsPanel(),
+            CommentsPanel(),
+            ObjectsTablePanel(
+                model='dcim.VirtualDeviceContext',
+                filters={'device_id': lambda ctx: ctx['object'].pk},
+                actions=[
+                    actions.AddObject('dcim.VirtualDeviceContext', url_params={'device': lambda ctx: ctx['object'].pk}),
+                ],
+            ),
+        ],
+        right_panels=[
+            panels.DeviceManagementPanel(),
+            panels.PowerUtilizationPanel(),
+            ObjectsTablePanel(
+                model='ipam.Service',
+                title=_('Application Services'),
+                filters={'device_id': lambda ctx: ctx['object'].pk},
+                actions=[
+                    actions.AddObject(
+                        'ipam.Service',
+                        url_params={
+                            'parent_object_type': lambda ctx: ContentType.objects.get_for_model(ctx['object']).pk,
+                            'parent': lambda ctx: ctx['object'].pk
+                        }
+                    ),
+                ],
+            ),
+            ImageAttachmentsPanel(),
+            panels.DeviceDeviceTypePanel(),
+            panels.DeviceDimensionsPanel(),
+            TemplatePanel('dcim/panels/device_rack_elevations.html'),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         # VirtualChassis members
@@ -2142,8 +2557,9 @@ class DeviceView(generic.ObjectView):
             vc_members = []
 
         return {
+            'virtual_chassis': instance.virtual_chassis,
             'vc_members': vc_members,
-            'svg_extra': f'highlight=id:{instance.pk}'
+            'svg_extra': f'highlight=id:{instance.pk}',
         }
 
 
@@ -2166,7 +2582,7 @@ class DeviceConsolePortsView(DeviceComponentsView):
     table = tables.DeviceConsolePortTable
     filterset = filtersets.ConsolePortFilterSet
     filterset_form = forms.ConsolePortFilterForm
-    template_name = 'dcim/device/consoleports.html',
+    actions = (EditObject, DeleteObject, BulkEdit, BulkRename, BulkDisconnect, BulkDelete)
     tab = ViewTab(
         label=_('Console Ports'),
         badge=lambda obj: obj.console_port_count,
@@ -2182,7 +2598,7 @@ class DeviceConsoleServerPortsView(DeviceComponentsView):
     table = tables.DeviceConsoleServerPortTable
     filterset = filtersets.ConsoleServerPortFilterSet
     filterset_form = forms.ConsoleServerPortFilterForm
-    template_name = 'dcim/device/consoleserverports.html'
+    actions = (EditObject, DeleteObject, BulkEdit, BulkRename, BulkDisconnect, BulkDelete)
     tab = ViewTab(
         label=_('Console Server Ports'),
         badge=lambda obj: obj.console_server_port_count,
@@ -2198,7 +2614,7 @@ class DevicePowerPortsView(DeviceComponentsView):
     table = tables.DevicePowerPortTable
     filterset = filtersets.PowerPortFilterSet
     filterset_form = forms.PowerPortFilterForm
-    template_name = 'dcim/device/powerports.html'
+    actions = (EditObject, DeleteObject, BulkEdit, BulkRename, BulkDisconnect, BulkDelete)
     tab = ViewTab(
         label=_('Power Ports'),
         badge=lambda obj: obj.power_port_count,
@@ -2214,7 +2630,7 @@ class DevicePowerOutletsView(DeviceComponentsView):
     table = tables.DevicePowerOutletTable
     filterset = filtersets.PowerOutletFilterSet
     filterset_form = forms.PowerOutletFilterForm
-    template_name = 'dcim/device/poweroutlets.html'
+    actions = (EditObject, DeleteObject, BulkEdit, BulkRename, BulkDisconnect, BulkDelete)
     tab = ViewTab(
         label=_('Power Outlets'),
         badge=lambda obj: obj.power_outlet_count,
@@ -2230,6 +2646,7 @@ class DeviceInterfacesView(DeviceComponentsView):
     table = tables.DeviceInterfaceTable
     filterset = filtersets.InterfaceFilterSet
     filterset_form = forms.InterfaceFilterForm
+    actions = (EditObject, DeleteObject, BulkEdit, BulkRename, BulkDisconnect, BulkDelete)
     template_name = 'dcim/device/interfaces.html'
     tab = ViewTab(
         label=_('Interfaces'),
@@ -2252,7 +2669,7 @@ class DeviceFrontPortsView(DeviceComponentsView):
     table = tables.DeviceFrontPortTable
     filterset = filtersets.FrontPortFilterSet
     filterset_form = forms.FrontPortFilterForm
-    template_name = 'dcim/device/frontports.html'
+    actions = (EditObject, DeleteObject, BulkEdit, BulkRename, BulkDisconnect, BulkDelete)
     tab = ViewTab(
         label=_('Front Ports'),
         badge=lambda obj: obj.front_port_count,
@@ -2268,7 +2685,7 @@ class DeviceRearPortsView(DeviceComponentsView):
     table = tables.DeviceRearPortTable
     filterset = filtersets.RearPortFilterSet
     filterset_form = forms.RearPortFilterForm
-    template_name = 'dcim/device/rearports.html'
+    actions = (EditObject, DeleteObject, BulkEdit, BulkRename, BulkDisconnect, BulkDelete)
     tab = ViewTab(
         label=_('Rear Ports'),
         badge=lambda obj: obj.rear_port_count,
@@ -2284,11 +2701,7 @@ class DeviceModuleBaysView(DeviceComponentsView):
     table = tables.DeviceModuleBayTable
     filterset = filtersets.ModuleBayFilterSet
     filterset_form = forms.ModuleBayFilterForm
-    template_name = 'dcim/device/modulebays.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-    }
+    actions = (EditObject, DeleteObject, BulkEdit, BulkRename, BulkDelete)
     tab = ViewTab(
         label=_('Module Bays'),
         badge=lambda obj: obj.module_bay_count,
@@ -2304,11 +2717,7 @@ class DeviceDeviceBaysView(DeviceComponentsView):
     table = tables.DeviceDeviceBayTable
     filterset = filtersets.DeviceBayFilterSet
     filterset_form = forms.DeviceBayFilterForm
-    template_name = 'dcim/device/devicebays.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-    }
+    actions = (EditObject, DeleteObject, BulkEdit, BulkRename, BulkDelete)
     tab = ViewTab(
         label=_('Device Bays'),
         badge=lambda obj: obj.device_bay_count,
@@ -2324,11 +2733,7 @@ class DeviceInventoryView(DeviceComponentsView):
     table = tables.DeviceInventoryItemTable
     filterset = filtersets.InventoryItemFilterSet
     filterset_form = forms.InventoryItemFilterForm
-    template_name = 'dcim/device/inventory.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-    }
+    actions = (EditObject, DeleteObject, BulkEdit, BulkRename, BulkDelete)
     tab = ViewTab(
         label=_('Inventory Items'),
         badge=lambda obj: obj.inventory_item_count,
@@ -2352,6 +2757,7 @@ class DeviceConfigContextView(ObjectConfigContextView):
 class DeviceRenderConfigView(ObjectRenderConfigView):
     queryset = Device.objects.all()
     base_template = 'dcim/device/base.html'
+    additional_permissions = ['dcim.render_config_device']
     tab = ViewTab(
         label=_('Render Config'),
         weight=2100,
@@ -2383,11 +2789,13 @@ class DeviceBulkImportView(generic.BulkImportView):
     model_form = forms.DeviceImportForm
 
     def save_object(self, object_form, request):
+        parent_bay = getattr(object_form.instance, 'parent_bay', None)
         obj = object_form.save()
 
         # For child devices, save the reverse relation to the parent device bay
-        if getattr(obj, 'parent_bay', None):
-            device_bay = obj.parent_bay
+        if parent_bay:
+            device_bay = parent_bay
+            device_bay.snapshot()
             device_bay.installed_device = obj
             device_bay.save()
 
@@ -2402,16 +2810,16 @@ class DeviceBulkEditView(generic.BulkEditView):
     form = forms.DeviceBulkEditForm
 
 
-@register_model_view(Device, 'bulk_delete', path='delete', detail=False)
-class DeviceBulkDeleteView(generic.BulkDeleteView):
-    queryset = Device.objects.prefetch_related('device_type__manufacturer')
+@register_model_view(Device, 'bulk_rename', path='rename', detail=False)
+class DeviceBulkRenameView(generic.BulkRenameView):
+    queryset = Device.objects.all()
     filterset = filtersets.DeviceFilterSet
     table = tables.DeviceTable
 
 
-@register_model_view(Device, 'bulk_rename', path='rename', detail=False)
-class DeviceBulkRenameView(generic.BulkRenameView):
-    queryset = Device.objects.all()
+@register_model_view(Device, 'bulk_delete', path='delete', detail=False)
+class DeviceBulkDeleteView(generic.BulkDeleteView):
+    queryset = Device.objects.prefetch_related('device_type__manufacturer')
     filterset = filtersets.DeviceFilterSet
     table = tables.DeviceTable
 
@@ -2426,11 +2834,27 @@ class ModuleListView(generic.ObjectListView):
     filterset = filtersets.ModuleFilterSet
     filterset_form = forms.ModuleFilterForm
     table = tables.ModuleTable
+    actions = (AddObject, BulkImport, BulkExport, BulkEdit, BulkDelete)
 
 
 @register_model_view(Module)
 class ModuleView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = Module.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ModulePanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            Panel(
+                title=_('Module Type'),
+                template_name='dcim/panels/module_type.html',
+            ),
+            RelatedObjectsPanel(),
+            CustomFieldsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -2481,16 +2905,33 @@ class ConsolePortListView(generic.ObjectListView):
     filterset = filtersets.ConsolePortFilterSet
     filterset_form = forms.ConsolePortFilterForm
     table = tables.ConsolePortTable
-    template_name = 'dcim/component_list.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-    }
 
 
 @register_model_view(ConsolePort)
 class ConsolePortView(generic.ObjectView):
     queryset = ConsolePort.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ConsolePortPanel(),
+            CustomFieldsPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            panels.ConnectionPanel(
+                trace_url_name='dcim:consoleport_trace',
+                connect_options=[
+                    {
+                        'a_type': 'dcim.consoleport',
+                        'b_type': 'dcim.consoleserverport',
+                        'label': _('Console Server Port'),
+                    },
+                    {'a_type': 'dcim.consoleport', 'b_type': 'dcim.frontport', 'label': _('Front Port')},
+                    {'a_type': 'dcim.consoleport', 'b_type': 'dcim.rearport', 'label': _('Rear Port')},
+                ],
+            ),
+            panels.InventoryItemsPanel(),
+        ],
+    )
 
 
 @register_model_view(ConsolePort, 'add', detail=False)
@@ -2528,6 +2969,7 @@ class ConsolePortBulkEditView(generic.BulkEditView):
 @register_model_view(ConsolePort, 'bulk_rename', path='rename', detail=False)
 class ConsolePortBulkRenameView(generic.BulkRenameView):
     queryset = ConsolePort.objects.all()
+    filterset = filtersets.ConsolePortFilterSet
 
 
 @register_model_view(ConsolePort, 'bulk_disconnect', path='disconnect', detail=False)
@@ -2556,16 +2998,29 @@ class ConsoleServerPortListView(generic.ObjectListView):
     filterset = filtersets.ConsoleServerPortFilterSet
     filterset_form = forms.ConsoleServerPortFilterForm
     table = tables.ConsoleServerPortTable
-    template_name = 'dcim/component_list.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-    }
 
 
 @register_model_view(ConsoleServerPort)
 class ConsoleServerPortView(generic.ObjectView):
     queryset = ConsoleServerPort.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ConsoleServerPortPanel(),
+            CustomFieldsPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            panels.ConnectionPanel(
+                trace_url_name='dcim:consoleserverport_trace',
+                connect_options=[
+                    {'a_type': 'dcim.consoleserverport', 'b_type': 'dcim.consoleport', 'label': _('Console Port')},
+                    {'a_type': 'dcim.consoleserverport', 'b_type': 'dcim.frontport', 'label': _('Front Port')},
+                    {'a_type': 'dcim.consoleserverport', 'b_type': 'dcim.rearport', 'label': _('Rear Port')},
+                ],
+            ),
+            panels.InventoryItemsPanel(),
+        ],
+    )
 
 
 @register_model_view(ConsoleServerPort, 'add', detail=False)
@@ -2603,6 +3058,7 @@ class ConsoleServerPortBulkEditView(generic.BulkEditView):
 @register_model_view(ConsoleServerPort, 'bulk_rename', path='rename', detail=False)
 class ConsoleServerPortBulkRenameView(generic.BulkRenameView):
     queryset = ConsoleServerPort.objects.all()
+    filterset = filtersets.ConsoleServerPortFilterSet
 
 
 @register_model_view(ConsoleServerPort, 'bulk_disconnect', path='disconnect', detail=False)
@@ -2631,16 +3087,28 @@ class PowerPortListView(generic.ObjectListView):
     filterset = filtersets.PowerPortFilterSet
     filterset_form = forms.PowerPortFilterForm
     table = tables.PowerPortTable
-    template_name = 'dcim/component_list.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-    }
 
 
 @register_model_view(PowerPort)
 class PowerPortView(generic.ObjectView):
     queryset = PowerPort.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.PowerPortPanel(),
+            CustomFieldsPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            panels.ConnectionPanel(
+                trace_url_name='dcim:powerport_trace',
+                connect_options=[
+                    {'a_type': 'dcim.powerport', 'b_type': 'dcim.poweroutlet', 'label': _('Power Outlet')},
+                    {'a_type': 'dcim.powerport', 'b_type': 'dcim.powerfeed', 'label': _('Power Feed')},
+                ],
+            ),
+            panels.InventoryItemsPanel(),
+        ],
+    )
 
 
 @register_model_view(PowerPort, 'add', detail=False)
@@ -2678,6 +3146,7 @@ class PowerPortBulkEditView(generic.BulkEditView):
 @register_model_view(PowerPort, 'bulk_rename', path='rename', detail=False)
 class PowerPortBulkRenameView(generic.BulkRenameView):
     queryset = PowerPort.objects.all()
+    filterset = filtersets.PowerPortFilterSet
 
 
 @register_model_view(PowerPort, 'bulk_disconnect', path='disconnect', detail=False)
@@ -2706,16 +3175,27 @@ class PowerOutletListView(generic.ObjectListView):
     filterset = filtersets.PowerOutletFilterSet
     filterset_form = forms.PowerOutletFilterForm
     table = tables.PowerOutletTable
-    template_name = 'dcim/component_list.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-    }
 
 
 @register_model_view(PowerOutlet)
 class PowerOutletView(generic.ObjectView):
     queryset = PowerOutlet.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.PowerOutletPanel(),
+            CustomFieldsPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            panels.ConnectionPanel(
+                trace_url_name='dcim:poweroutlet_trace',
+                connect_options=[
+                    {'a_type': 'dcim.poweroutlet', 'b_type': 'dcim.powerport', 'label': _('Power Port')},
+                ],
+            ),
+            panels.InventoryItemsPanel(),
+        ],
+    )
 
 
 @register_model_view(PowerOutlet, 'add', detail=False)
@@ -2753,6 +3233,7 @@ class PowerOutletBulkEditView(generic.BulkEditView):
 @register_model_view(PowerOutlet, 'bulk_rename', path='rename', detail=False)
 class PowerOutletBulkRenameView(generic.BulkRenameView):
     queryset = PowerOutlet.objects.all()
+    filterset = filtersets.PowerOutletFilterSet
 
 
 @register_model_view(PowerOutlet, 'bulk_disconnect', path='disconnect', detail=False)
@@ -2781,16 +3262,50 @@ class InterfaceListView(generic.ObjectListView):
     filterset = filtersets.InterfaceFilterSet
     filterset_form = forms.InterfaceFilterForm
     table = tables.InterfaceTable
-    template_name = 'dcim/component_list.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-    }
 
 
 @register_model_view(Interface)
 class InterfaceView(generic.ObjectView):
     queryset = Interface.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.InterfacePanel(),
+            panels.RelatedInterfacesPanel(),
+            CustomFieldsPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            ContextTablePanel('vdc_table', title=_('Virtual Device Contexts')),
+            panels.InterfaceAddressingPanel(),
+            panels.VirtualCircuitPanel(),
+            panels.InterfaceConnectionPanel(),
+            panels.InterfaceWirelessPanel(),
+            panels.WirelessLANsPanel(),
+            FHRPGroupAssignmentsPanel(),
+            panels.InventoryItemsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                model='ipam.IPAddress',
+                filters={'interface_id': lambda ctx: ctx['object'].pk},
+                title=_('IP Addresses'),
+            ),
+            ObjectsTablePanel(
+                model='dcim.MACAddress',
+                filters={'interface_id': lambda ctx: ctx['object'].pk},
+                title=_('MAC Addresses'),
+            ),
+            ObjectsTablePanel(
+                model='ipam.VLAN',
+                filters={'interface_id': lambda ctx: ctx['object'].pk},
+                title=_('VLANs'),
+            ),
+            ContextTablePanel('lag_interfaces_table', title=_('LAG Members')),
+            ContextTablePanel('vlan_translation_table', title=_('VLAN Translation')),
+            ContextTablePanel('bridge_interfaces_table', title=_('Bridged Interfaces')),
+            ContextTablePanel('child_interfaces_table', title=_('Child Interfaces')),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         # Get assigned VDCs
@@ -2805,37 +3320,29 @@ class InterfaceView(generic.ObjectView):
         vdc_table.configure(request)
 
         # Get bridge interfaces
-        bridge_interfaces = Interface.objects.restrict(request.user, 'view').filter(bridge=instance)
         bridge_interfaces_table = tables.InterfaceTable(
-            bridge_interfaces,
+            Interface.objects.restrict(request.user, 'view').filter(bridge=instance),
             exclude=('device', 'parent'),
             orderable=False
         )
         bridge_interfaces_table.configure(request)
 
         # Get child interfaces
-        child_interfaces = Interface.objects.restrict(request.user, 'view').filter(parent=instance)
         child_interfaces_table = tables.InterfaceTable(
-            child_interfaces,
+            Interface.objects.restrict(request.user, 'view').filter(parent=instance),
             exclude=('device', 'parent'),
             orderable=False
         )
         child_interfaces_table.configure(request)
 
-        # Get assigned VLANs and annotate whether each is tagged or untagged
-        vlans = []
-        if instance.untagged_vlan is not None:
-            vlans.append(instance.untagged_vlan)
-            vlans[0].tagged = False
-        for vlan in instance.tagged_vlans.restrict(request.user).prefetch_related('site', 'group', 'tenant', 'role'):
-            vlan.tagged = True
-            vlans.append(vlan)
-        vlan_table = InterfaceVLANTable(
-            interface=instance,
-            data=vlans,
-            orderable=False
-        )
-        vlan_table.configure(request)
+        # Get LAG members (only for LAG interfaces)
+        lag_interfaces_table = None
+        if instance.is_lag:
+            lag_interfaces_table = tables.InterfaceLAGMemberTable(
+                Interface.objects.restrict(request.user, 'view').filter(lag=instance),
+                orderable=False
+            )
+            lag_interfaces_table.configure(request)
 
         # Get VLAN translation rules
         vlan_translation_table = None
@@ -2850,7 +3357,7 @@ class InterfaceView(generic.ObjectView):
             'vdc_table': vdc_table,
             'bridge_interfaces_table': bridge_interfaces_table,
             'child_interfaces_table': child_interfaces_table,
-            'vlan_table': vlan_table,
+            'lag_interfaces_table': lag_interfaces_table,
             'vlan_translation_table': vlan_translation_table,
         }
 
@@ -2900,6 +3407,7 @@ class InterfaceBulkEditView(generic.BulkEditView):
 @register_model_view(Interface, 'bulk_rename', path='rename', detail=False)
 class InterfaceBulkRenameView(generic.BulkRenameView):
     queryset = Interface.objects.all()
+    filterset = filtersets.InterfaceFilterSet
 
 
 @register_model_view(Interface, 'bulk_disconnect', path='disconnect', detail=False)
@@ -2929,16 +3437,43 @@ class FrontPortListView(generic.ObjectListView):
     filterset = filtersets.FrontPortFilterSet
     filterset_form = forms.FrontPortFilterForm
     table = tables.FrontPortTable
-    template_name = 'dcim/component_list.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-    }
 
 
 @register_model_view(FrontPort)
 class FrontPortView(generic.ObjectView):
     queryset = FrontPort.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.FrontPortPanel(),
+            CustomFieldsPanel(),
+            TagsPanel(),
+            panels.InventoryItemsPanel(),
+        ],
+        right_panels=[
+            panels.ConnectionPanel(
+                trace_url_name='dcim:frontport_trace',
+                show_endpoints=False,
+                connect_options=[
+                    {'a_type': 'dcim.frontport', 'b_type': 'dcim.interface', 'label': _('Interface')},
+                    {'a_type': 'dcim.frontport', 'b_type': 'dcim.consoleserverport', 'label': _('Console Server Port')},
+                    {'a_type': 'dcim.frontport', 'b_type': 'dcim.consoleport', 'label': _('Console Port')},
+                    {'a_type': 'dcim.frontport', 'b_type': 'dcim.frontport', 'label': _('Front Port')},
+                    {'a_type': 'dcim.frontport', 'b_type': 'dcim.rearport', 'label': _('Rear Port')},
+                    {
+                        'a_type': 'dcim.frontport',
+                        'b_type': 'circuits.circuittermination',
+                        'label': _('Circuit Termination'),
+                    },
+                ],
+            ),
+            TemplatePanel('dcim/panels/front_port_mappings.html'),
+        ],
+    )
+
+    def get_extra_context(self, request, instance):
+        return {
+            'rear_port_mappings': PortMapping.objects.filter(front_port=instance).prefetch_related('rear_port'),
+        }
 
 
 @register_model_view(FrontPort, 'add', detail=False)
@@ -2976,6 +3511,7 @@ class FrontPortBulkEditView(generic.BulkEditView):
 @register_model_view(FrontPort, 'bulk_rename', path='rename', detail=False)
 class FrontPortBulkRenameView(generic.BulkRenameView):
     queryset = FrontPort.objects.all()
+    filterset = filtersets.FrontPortFilterSet
 
 
 @register_model_view(FrontPort, 'bulk_disconnect', path='disconnect', detail=False)
@@ -3004,16 +3540,41 @@ class RearPortListView(generic.ObjectListView):
     filterset = filtersets.RearPortFilterSet
     filterset_form = forms.RearPortFilterForm
     table = tables.RearPortTable
-    template_name = 'dcim/component_list.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-    }
 
 
 @register_model_view(RearPort)
 class RearPortView(generic.ObjectView):
     queryset = RearPort.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.RearPortPanel(),
+            CustomFieldsPanel(),
+            TagsPanel(),
+            panels.InventoryItemsPanel(),
+        ],
+        right_panels=[
+            panels.ConnectionPanel(
+                trace_url_name='dcim:rearport_trace',
+                show_endpoints=False,
+                connect_options=[
+                    {'a_type': 'dcim.rearport', 'b_type': 'dcim.interface', 'label': _('Interface')},
+                    {'a_type': 'dcim.rearport', 'b_type': 'dcim.frontport', 'label': _('Front Port')},
+                    {'a_type': 'dcim.rearport', 'b_type': 'dcim.rearport', 'label': _('Rear Port')},
+                    {
+                        'a_type': 'dcim.rearport',
+                        'b_type': 'circuits.circuittermination',
+                        'label': _('Circuit Termination'),
+                    },
+                ],
+            ),
+            TemplatePanel('dcim/panels/rear_port_mappings.html'),
+        ],
+    )
+
+    def get_extra_context(self, request, instance):
+        return {
+            'front_port_mappings': PortMapping.objects.filter(rear_port=instance).prefetch_related('front_port'),
+        }
 
 
 @register_model_view(RearPort, 'add', detail=False)
@@ -3056,6 +3617,7 @@ class RearPortBulkRenameView(generic.BulkRenameView):
 @register_model_view(RearPort, 'bulk_disconnect', path='disconnect', detail=False)
 class RearPortBulkDisconnectView(BulkDisconnectView):
     queryset = RearPort.objects.all()
+    filterset = filtersets.RearPortFilterSet
 
 
 @register_model_view(RearPort, 'bulk_delete', path='delete', detail=False)
@@ -3079,16 +3641,24 @@ class ModuleBayListView(generic.ObjectListView):
     filterset = filtersets.ModuleBayFilterSet
     filterset_form = forms.ModuleBayFilterForm
     table = tables.ModuleBayTable
-    template_name = 'dcim/component_list.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-    }
 
 
 @register_model_view(ModuleBay)
 class ModuleBayView(generic.ObjectView):
     queryset = ModuleBay.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ModuleBayPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            CustomFieldsPanel(),
+            Panel(
+                title=_('Installed Module'),
+                template_name='dcim/panels/installed_module.html',
+            ),
+        ],
+    )
 
 
 @register_model_view(ModuleBay, 'add', detail=False)
@@ -3126,6 +3696,7 @@ class ModuleBayBulkEditView(generic.BulkEditView):
 @register_model_view(ModuleBay, 'bulk_rename', path='rename', detail=False)
 class ModuleBayBulkRenameView(generic.BulkRenameView):
     queryset = ModuleBay.objects.all()
+    filterset = filtersets.ModuleBayFilterSet
 
 
 @register_model_view(ModuleBay, 'bulk_delete', path='delete', detail=False)
@@ -3145,16 +3716,24 @@ class DeviceBayListView(generic.ObjectListView):
     filterset = filtersets.DeviceBayFilterSet
     filterset_form = forms.DeviceBayFilterForm
     table = tables.DeviceBayTable
-    template_name = 'dcim/component_list.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-    }
 
 
 @register_model_view(DeviceBay)
 class DeviceBayView(generic.ObjectView):
     queryset = DeviceBay.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.DeviceBayPanel(),
+            CustomFieldsPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            Panel(
+                title=_('Installed Device'),
+                template_name='dcim/panels/installed_device.html',
+            ),
+        ],
+    )
 
 
 @register_model_view(DeviceBay, 'add', detail=False)
@@ -3273,6 +3852,7 @@ class DeviceBayBulkEditView(generic.BulkEditView):
 @register_model_view(DeviceBay, 'bulk_rename', path='rename', detail=False)
 class DeviceBayBulkRenameView(generic.BulkRenameView):
     queryset = DeviceBay.objects.all()
+    filterset = filtersets.DeviceBayFilterSet
 
 
 @register_model_view(DeviceBay, 'bulk_delete', path='delete', detail=False)
@@ -3292,16 +3872,18 @@ class InventoryItemListView(generic.ObjectListView):
     filterset = filtersets.InventoryItemFilterSet
     filterset_form = forms.InventoryItemFilterForm
     table = tables.InventoryItemTable
-    template_name = 'dcim/component_list.html'
-    actions = {
-        **DEFAULT_ACTION_PERMISSIONS,
-        'bulk_rename': {'change'},
-    }
 
 
 @register_model_view(InventoryItem)
 class InventoryItemView(generic.ObjectView):
     queryset = InventoryItem.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.InventoryItemPanel(),
+            CustomFieldsPanel(),
+            TagsPanel(),
+        ],
+    )
 
 
 @register_model_view(InventoryItem, 'edit')
@@ -3339,6 +3921,7 @@ class InventoryItemBulkEditView(generic.BulkEditView):
 @register_model_view(InventoryItem, 'bulk_rename', path='rename', detail=False)
 class InventoryItemBulkRenameView(generic.BulkRenameView):
     queryset = InventoryItem.objects.all()
+    filterset = filtersets.InventoryItemFilterSet
 
 
 @register_model_view(InventoryItem, 'bulk_delete', path='delete', detail=False)
@@ -3382,12 +3965,23 @@ class InventoryItemRoleListView(generic.ObjectListView):
 
 
 @register_model_view(InventoryItemRole)
-class InventoryItemRoleView(generic.ObjectView):
+class InventoryItemRoleView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = InventoryItemRole.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.InventoryItemRolePanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CustomFieldsPanel(),
+            CommentsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
-            'inventoryitem_count': InventoryItem.objects.filter(role=instance).count(),
+            'related_models': self.get_related_models(request, instance),
         }
 
 
@@ -3417,6 +4011,12 @@ class InventoryItemRoleBulkEditView(generic.BulkEditView):
     filterset = filtersets.InventoryItemRoleFilterSet
     table = tables.InventoryItemRoleTable
     form = forms.InventoryItemRoleBulkEditForm
+
+
+@register_model_view(InventoryItemRole, 'bulk_rename', path='rename', detail=False)
+class InventoryItemRoleBulkRenameView(generic.BulkRenameView):
+    queryset = InventoryItemRole.objects.all()
+    filterset = filtersets.InventoryItemRoleFilterSet
 
 
 @register_model_view(InventoryItemRole, 'bulk_delete', path='delete', detail=False)
@@ -3549,6 +4149,24 @@ class CableListView(generic.ObjectListView):
 @register_model_view(Cable)
 class CableView(generic.ObjectView):
     queryset = Cable.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.CablePanel(),
+            CustomFieldsPanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            Panel(
+                title=_('Termination A'),
+                template_name='dcim/panels/cable_termination_a.html',
+            ),
+            Panel(
+                title=_('Termination B'),
+                template_name='dcim/panels/cable_termination_b.html',
+            ),
+        ],
+    )
 
 
 @register_model_view(Cable, 'add', detail=False)
@@ -3580,19 +4198,6 @@ class CableEditView(generic.ObjectEditView):
 
         return super().alter_object(obj, request, url_args, url_kwargs)
 
-    def get_extra_addanother_params(self, request):
-
-        params = {
-            'a_terminations_type': request.GET.get('a_terminations_type'),
-            'b_terminations_type': request.GET.get('b_terminations_type')
-        }
-
-        for key in request.POST:
-            if 'device' in key or 'power_panel' in key or 'circuit' in key:
-                params.update({key: request.POST.get(key)})
-
-        return params
-
 
 @register_model_view(Cable, 'delete')
 class CableDeleteView(generic.ObjectDeleteView):
@@ -3616,6 +4221,13 @@ class CableBulkEditView(generic.BulkEditView):
     form = forms.CableBulkEditForm
 
 
+@register_model_view(Cable, 'bulk_rename', path='rename', detail=False)
+class CableBulkRenameView(generic.BulkRenameView):
+    queryset = Cable.objects.all()
+    field_name = 'label'
+    filterset = filtersets.CableFilterSet
+
+
 @register_model_view(Cable, 'bulk_delete', path='delete', detail=False)
 class CableBulkDeleteView(generic.BulkDeleteView):
     queryset = Cable.objects.prefetch_related(
@@ -3636,9 +4248,7 @@ class ConsoleConnectionsListView(generic.ObjectListView):
     filterset_form = forms.ConsoleConnectionFilterForm
     table = tables.ConsoleConnectionTable
     template_name = 'dcim/connections_list.html'
-    actions = {
-        'export': {'view'},
-    }
+    actions = (BulkExport,)
 
     def get_extra_context(self, request):
         return {
@@ -3652,9 +4262,7 @@ class PowerConnectionsListView(generic.ObjectListView):
     filterset_form = forms.PowerConnectionFilterForm
     table = tables.PowerConnectionTable
     template_name = 'dcim/connections_list.html'
-    actions = {
-        'export': {'view'},
-    }
+    actions = (BulkExport,)
 
     def get_extra_context(self, request):
         return {
@@ -3668,9 +4276,7 @@ class InterfaceConnectionsListView(generic.ObjectListView):
     filterset_form = forms.InterfaceConnectionFilterForm
     table = tables.InterfaceConnectionTable
     template_name = 'dcim/connections_list.html'
-    actions = {
-        'export': {'view'},
-    }
+    actions = (BulkExport,)
 
     def get_extra_context(self, request):
         return {
@@ -3693,12 +4299,23 @@ class VirtualChassisListView(generic.ObjectListView):
 @register_model_view(VirtualChassis)
 class VirtualChassisView(generic.ObjectView):
     queryset = VirtualChassis.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.VirtualChassisPanel(),
+            TagsPanel(),
+            CustomFieldsPanel(),
+        ],
+        right_panels=[
+            panels.VirtualChassisMembersPanel(),
+            CommentsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
-        members = Device.objects.restrict(request.user).filter(virtual_chassis=instance)
-
+        vc_members = Device.objects.restrict(request.user).filter(virtual_chassis=instance).order_by('vc_position')
         return {
-            'members': members,
+            'virtual_chassis': instance,
+            'vc_members': vc_members,
         }
 
 
@@ -3706,7 +4323,6 @@ class VirtualChassisView(generic.ObjectView):
 class VirtualChassisCreateView(generic.ObjectEditView):
     queryset = VirtualChassis.objects.all()
     form = forms.VirtualChassisCreateForm
-    template_name = 'dcim/virtualchassis_add.html'
 
 
 @register_model_view(VirtualChassis, 'edit')
@@ -3741,6 +4357,7 @@ class VirtualChassisEditView(ObjectPermissionRequiredMixin, GetReturnURLMixin, V
     def post(self, request, pk):
 
         virtual_chassis = get_object_or_404(self.queryset, pk=pk)
+        virtual_chassis.snapshot()
         VCMemberFormSet = modelformset_factory(
             model=Device,
             form=forms.DeviceVCMembershipForm,
@@ -3754,6 +4371,7 @@ class VirtualChassisEditView(ObjectPermissionRequiredMixin, GetReturnURLMixin, V
         formset = VCMemberFormSet(request.POST, queryset=members_queryset)
 
         if vc_form.is_valid() and formset.is_valid():
+            virtual_chassis._changelog_message = vc_form.cleaned_data.pop('changelog_message', '')
 
             with transaction.atomic(using=router.db_for_write(Device)):
 
@@ -3765,6 +4383,7 @@ class VirtualChassisEditView(ObjectPermissionRequiredMixin, GetReturnURLMixin, V
                 members = formset.save(commit=False)
                 devices = Device.objects.filter(pk__in=[m.pk for m in members])
                 for device in devices:
+                    device.snapshot()
                     device.vc_position = None
                     device.save()
                 for member in members:
@@ -3792,9 +4411,7 @@ class VirtualChassisAddMemberView(ObjectPermissionRequiredMixin, GetReturnURLMix
         return 'dcim.change_virtualchassis'
 
     def get(self, request, pk):
-
         virtual_chassis = get_object_or_404(self.queryset, pk=pk)
-
         initial_data = {k: request.GET[k] for k in request.GET}
         member_select_form = forms.VCMemberSelectForm(initial=initial_data)
         membership_form = forms.DeviceVCMembershipForm(initial=initial_data)
@@ -3807,20 +4424,20 @@ class VirtualChassisAddMemberView(ObjectPermissionRequiredMixin, GetReturnURLMix
         })
 
     def post(self, request, pk):
-
         virtual_chassis = get_object_or_404(self.queryset, pk=pk)
-
         member_select_form = forms.VCMemberSelectForm(request.POST)
 
         if member_select_form.is_valid():
-
             device = member_select_form.cleaned_data['device']
+            device.snapshot()
             device.virtual_chassis = virtual_chassis
-            data = {k: request.POST[k] for k in ['vc_position', 'vc_priority']}
+            data = {
+                'vc_position': request.POST['vc_position'],
+                'vc_priority': request.POST['vc_priority'],
+            }
             membership_form = forms.DeviceVCMembershipForm(data=data, validate_vc_position=True, instance=device)
 
             if membership_form.is_valid():
-
                 membership_form.save()
                 messages.success(request, mark_safe(
                     _('Added member <a href="{url}">{device}</a>').format(
@@ -3830,11 +4447,9 @@ class VirtualChassisAddMemberView(ObjectPermissionRequiredMixin, GetReturnURLMix
 
                 if '_addanother' in request.POST and safe_for_redirect(request.get_full_path()):
                     return redirect(request.get_full_path())
-
                 return redirect(self.get_return_url(request, device))
 
         else:
-
             membership_form = forms.DeviceVCMembershipForm(data=request.POST)
 
         return render(request, 'dcim/virtualchassis_add_member.html', {
@@ -3852,7 +4467,6 @@ class VirtualChassisRemoveMemberView(ObjectPermissionRequiredMixin, GetReturnURL
         return 'dcim.change_device'
 
     def get(self, request, pk):
-
         device = get_object_or_404(self.queryset, pk=pk, virtual_chassis__isnull=False)
         form = ConfirmationForm(initial=request.GET)
 
@@ -3863,7 +4477,6 @@ class VirtualChassisRemoveMemberView(ObjectPermissionRequiredMixin, GetReturnURL
         })
 
     def post(self, request, pk):
-
         device = get_object_or_404(self.queryset, pk=pk, virtual_chassis__isnull=False)
         form = ConfirmationForm(request.POST)
 
@@ -3877,13 +4490,11 @@ class VirtualChassisRemoveMemberView(ObjectPermissionRequiredMixin, GetReturnURL
             return redirect(device.get_absolute_url())
 
         if form.is_valid():
-
-            devices = Device.objects.filter(pk=device.pk)
-            for device in devices:
-                device.virtual_chassis = None
-                device.vc_position = None
-                device.vc_priority = None
-                device.save()
+            device.snapshot()
+            device.virtual_chassis = None
+            device.vc_position = None
+            device.vc_priority = None
+            device.save()
 
             msg = _('Removed {device} from virtual chassis {chassis}').format(
                 device=device,
@@ -3914,6 +4525,12 @@ class VirtualChassisBulkEditView(generic.BulkEditView):
     form = forms.VirtualChassisBulkEditForm
 
 
+@register_model_view(VirtualChassis, 'bulk_rename', path='rename', detail=False)
+class VirtualChassisBulkRenameView(generic.BulkRenameView):
+    queryset = VirtualChassis.objects.all()
+    filterset = filtersets.VirtualChassisFilterSet
+
+
 @register_model_view(VirtualChassis, 'bulk_delete', path='delete', detail=False)
 class VirtualChassisBulkDeleteView(generic.BulkDeleteView):
     queryset = VirtualChassis.objects.all()
@@ -3938,6 +4555,27 @@ class PowerPanelListView(generic.ObjectListView):
 @register_model_view(PowerPanel)
 class PowerPanelView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = PowerPanel.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.PowerPanelPanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CustomFieldsPanel(),
+            ImageAttachmentsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                model='dcim.PowerFeed',
+                filters={'power_panel_id': lambda ctx: ctx['object'].pk},
+                actions=[
+                    actions.AddObject('dcim.PowerFeed', url_params={'power_panel': lambda ctx: ctx['object'].pk}),
+                ],
+            ),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -3971,6 +4609,12 @@ class PowerPanelBulkEditView(generic.BulkEditView):
     form = forms.PowerPanelBulkEditForm
 
 
+@register_model_view(PowerPanel, 'bulk_rename', path='rename', detail=False)
+class PowerPanelBulkRenameView(generic.BulkRenameView):
+    queryset = PowerPanel.objects.all()
+    filterset = filtersets.PowerPanelFilterSet
+
+
 @register_model_view(PowerPanel, 'bulk_delete', path='delete', detail=False)
 class PowerPanelBulkDeleteView(generic.BulkDeleteView):
     queryset = PowerPanel.objects.annotate(
@@ -3995,6 +4639,23 @@ class PowerFeedListView(generic.ObjectListView):
 @register_model_view(PowerFeed)
 class PowerFeedView(generic.ObjectView):
     queryset = PowerFeed.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.PowerFeedPanel(),
+            panels.PowerFeedElectricalPanel(),
+            CustomFieldsPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            panels.ConnectionPanel(
+                trace_url_name='dcim:powerfeed_trace',
+                connect_options=[
+                    {'a_type': 'dcim.powerfeed', 'b_type': 'dcim.powerport', 'label': _('Power Port')},
+                ],
+            ),
+            CommentsPanel(),
+        ],
+    )
 
 
 @register_model_view(PowerFeed, 'add', detail=False)
@@ -4021,6 +4682,12 @@ class PowerFeedBulkEditView(generic.BulkEditView):
     filterset = filtersets.PowerFeedFilterSet
     table = tables.PowerFeedTable
     form = forms.PowerFeedBulkEditForm
+
+
+@register_model_view(PowerFeed, 'bulk_rename', path='rename', detail=False)
+class PowerFeedBulkRenameView(generic.BulkRenameView):
+    queryset = PowerFeed.objects.all()
+    filterset = filtersets.PowerFeedFilterSet
 
 
 @register_model_view(PowerFeed, 'bulk_disconnect', path='disconnect', detail=False)
@@ -4051,11 +4718,29 @@ class VirtualDeviceContextListView(generic.ObjectListView):
     filterset = filtersets.VirtualDeviceContextFilterSet
     filterset_form = forms.VirtualDeviceContextFilterForm
     table = tables.VirtualDeviceContextTable
+    actions = (AddObject, BulkImport, BulkEdit, BulkRename, BulkExport, BulkDelete)
 
 
 @register_model_view(VirtualDeviceContext)
 class VirtualDeviceContextView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = VirtualDeviceContext.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.VirtualDeviceContextPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CommentsPanel(),
+            CustomFieldsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                model='dcim.Interface',
+                filters={'vdc_id': lambda ctx: ctx['object'].pk},
+            ),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -4095,6 +4780,12 @@ class VirtualDeviceContextBulkEditView(generic.BulkEditView):
     form = forms.VirtualDeviceContextBulkEditForm
 
 
+@register_model_view(VirtualDeviceContext, 'bulk_rename', path='rename', detail=False)
+class VirtualDeviceContextBulkRenameView(generic.BulkRenameView):
+    queryset = VirtualDeviceContext.objects.all()
+    filterset = filtersets.VirtualDeviceContextFilterSet
+
+
 @register_model_view(VirtualDeviceContext, 'bulk_delete', path='delete', detail=False)
 class VirtualDeviceContextBulkDeleteView(generic.BulkDeleteView):
     queryset = VirtualDeviceContext.objects.all()
@@ -4112,11 +4803,22 @@ class MACAddressListView(generic.ObjectListView):
     filterset = filtersets.MACAddressFilterSet
     filterset_form = forms.MACAddressFilterForm
     table = tables.MACAddressTable
+    actions = (AddObject, BulkImport, BulkExport, BulkEdit, BulkDelete)
 
 
 @register_model_view(MACAddress)
 class MACAddressView(generic.ObjectView):
     queryset = MACAddress.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.MACAddressPanel(),
+            TagsPanel(),
+            CustomFieldsPanel(),
+        ],
+        right_panels=[
+            CommentsPanel(),
+        ],
+    )
 
 
 @register_model_view(MACAddress, 'add', detail=False)

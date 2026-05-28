@@ -1,4 +1,5 @@
 import collections
+
 from django.utils.translation import gettext as _
 
 
@@ -26,6 +27,7 @@ registry = Registry({
     'data_backends': dict(),
     'denormalized_fields': collections.defaultdict(list),
     'event_types': dict(),
+    'filtersets': dict(),
     'model_features': dict(),
     'models': collections.defaultdict(set),
     'plugins': dict(),
@@ -34,5 +36,6 @@ registry = Registry({
     'system_jobs': dict(),
     'tables': collections.defaultdict(dict),
     'views': collections.defaultdict(dict),
+    'webhook_callbacks': list(),
     'widgets': dict(),
 })

@@ -1,4 +1,4 @@
-from typing import Annotated, List, TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Annotated
 
 import strawberry
 import strawberry_django
@@ -6,8 +6,9 @@ import strawberry_django
 from circuits import models
 from dcim.graphql.mixins import CabledObjectMixin
 from extras.graphql.mixins import ContactsMixin, CustomFieldsMixin, TagsMixin
-from netbox.graphql.types import BaseObjectType, NetBoxObjectType, ObjectType, OrganizationalObjectType
+from netbox.graphql.types import BaseObjectType, ObjectType, OrganizationalObjectType, PrimaryObjectType
 from tenancy.graphql.types import TenantType
+
 from .filters import *
 
 if TYPE_CHECKING:
@@ -20,9 +21,9 @@ __all__ = (
     'CircuitTerminationType',
     'CircuitType',
     'CircuitTypeType',
-    'ProviderType',
     'ProviderAccountType',
     'ProviderNetworkType',
+    'ProviderType',
     'VirtualCircuitTerminationType',
     'VirtualCircuitType',
     'VirtualCircuitTypeType',
@@ -35,12 +36,11 @@ __all__ = (
     filters=ProviderFilter,
     pagination=True
 )
-class ProviderType(NetBoxObjectType, ContactsMixin):
-
-    networks: List[Annotated["ProviderNetworkType", strawberry.lazy('circuits.graphql.types')]]
-    circuits: List[Annotated["CircuitType", strawberry.lazy('circuits.graphql.types')]]
-    asns: List[Annotated["ASNType", strawberry.lazy('ipam.graphql.types')]]
-    accounts: List[Annotated["ProviderAccountType", strawberry.lazy('circuits.graphql.types')]]
+class ProviderType(ContactsMixin, PrimaryObjectType):
+    networks: list[Annotated["ProviderNetworkType", strawberry.lazy('circuits.graphql.types')]]
+    circuits: list[Annotated["CircuitType", strawberry.lazy('circuits.graphql.types')]]
+    asns: list[Annotated["ASNType", strawberry.lazy('ipam.graphql.types')]]
+    accounts: list[Annotated["ProviderAccountType", strawberry.lazy('circuits.graphql.types')]]
 
 
 @strawberry_django.type(
@@ -49,10 +49,9 @@ class ProviderType(NetBoxObjectType, ContactsMixin):
     filters=ProviderAccountFilter,
     pagination=True
 )
-class ProviderAccountType(ContactsMixin, NetBoxObjectType):
+class ProviderAccountType(ContactsMixin, PrimaryObjectType):
     provider: Annotated["ProviderType", strawberry.lazy('circuits.graphql.types')]
-
-    circuits: List[Annotated["CircuitType", strawberry.lazy('circuits.graphql.types')]]
+    circuits: list[Annotated["CircuitType", strawberry.lazy('circuits.graphql.types')]]
 
 
 @strawberry_django.type(
@@ -61,10 +60,9 @@ class ProviderAccountType(ContactsMixin, NetBoxObjectType):
     filters=ProviderNetworkFilter,
     pagination=True
 )
-class ProviderNetworkType(NetBoxObjectType):
+class ProviderNetworkType(PrimaryObjectType):
     provider: Annotated["ProviderType", strawberry.lazy('circuits.graphql.types')]
-
-    circuit_terminations: List[Annotated["CircuitTerminationType", strawberry.lazy('circuits.graphql.types')]]
+    circuit_terminations: list[Annotated["CircuitTerminationType", strawberry.lazy('circuits.graphql.types')]]
 
 
 @strawberry_django.type(
@@ -74,16 +72,17 @@ class ProviderNetworkType(NetBoxObjectType):
     pagination=True
 )
 class CircuitTerminationType(CustomFieldsMixin, TagsMixin, CabledObjectMixin, ObjectType):
-    circuit: Annotated["CircuitType", strawberry.lazy('circuits.graphql.types')]
+    circuit: Annotated['CircuitType', strawberry.lazy('circuits.graphql.types')]
 
     @strawberry_django.field
-    def termination(self) -> Annotated[Union[
-        Annotated["LocationType", strawberry.lazy('dcim.graphql.types')],
-        Annotated["RegionType", strawberry.lazy('dcim.graphql.types')],
-        Annotated["SiteGroupType", strawberry.lazy('dcim.graphql.types')],
-        Annotated["SiteType", strawberry.lazy('dcim.graphql.types')],
-        Annotated["ProviderNetworkType", strawberry.lazy('circuits.graphql.types')],
-    ], strawberry.union("CircuitTerminationTerminationType")] | None:
+    def termination(self) -> Annotated[
+        Annotated['LocationType', strawberry.lazy('dcim.graphql.types')]
+        | Annotated['RegionType', strawberry.lazy('dcim.graphql.types')]
+        | Annotated['SiteGroupType', strawberry.lazy('dcim.graphql.types')]
+        | Annotated['SiteType', strawberry.lazy('dcim.graphql.types')]
+        | Annotated['ProviderNetworkType', strawberry.lazy('circuits.graphql.types')],
+        strawberry.union('CircuitTerminationTerminationType'),
+    ] | None:
         return self.termination
 
 
@@ -96,7 +95,7 @@ class CircuitTerminationType(CustomFieldsMixin, TagsMixin, CabledObjectMixin, Ob
 class CircuitTypeType(OrganizationalObjectType):
     color: str
 
-    circuits: List[Annotated["CircuitType", strawberry.lazy('circuits.graphql.types')]]
+    circuits: list[Annotated["CircuitType", strawberry.lazy('circuits.graphql.types')]]
 
 
 @strawberry_django.type(
@@ -105,15 +104,14 @@ class CircuitTypeType(OrganizationalObjectType):
     filters=CircuitFilter,
     pagination=True
 )
-class CircuitType(NetBoxObjectType, ContactsMixin):
+class CircuitType(PrimaryObjectType, ContactsMixin):
     provider: ProviderType
     provider_account: ProviderAccountType | None
     termination_a: CircuitTerminationType | None
     termination_z: CircuitTerminationType | None
     type: CircuitTypeType
     tenant: TenantType | None
-
-    terminations: List[CircuitTerminationType]
+    terminations: list[CircuitTerminationType]
 
 
 @strawberry_django.type(
@@ -133,13 +131,14 @@ class CircuitGroupType(OrganizationalObjectType):
     pagination=True
 )
 class CircuitGroupAssignmentType(TagsMixin, BaseObjectType):
-    group: Annotated["CircuitGroupType", strawberry.lazy('circuits.graphql.types')]
+    group: Annotated['CircuitGroupType', strawberry.lazy('circuits.graphql.types')]
 
     @strawberry_django.field
-    def member(self) -> Annotated[Union[
-        Annotated["CircuitType", strawberry.lazy('circuits.graphql.types')],
-        Annotated["VirtualCircuitType", strawberry.lazy('circuits.graphql.types')],
-    ], strawberry.union("CircuitGroupAssignmentMemberType")] | None:
+    def member(self) -> Annotated[
+        Annotated['CircuitType', strawberry.lazy('circuits.graphql.types')]
+        | Annotated['VirtualCircuitType', strawberry.lazy('circuits.graphql.types')],
+        strawberry.union('CircuitGroupAssignmentMemberType'),
+    ] | None:
         return self.member
 
 
@@ -152,7 +151,7 @@ class CircuitGroupAssignmentType(TagsMixin, BaseObjectType):
 class VirtualCircuitTypeType(OrganizationalObjectType):
     color: str
 
-    virtual_circuits: List[Annotated["VirtualCircuitType", strawberry.lazy('circuits.graphql.types')]]
+    virtual_circuits: list[Annotated["VirtualCircuitType", strawberry.lazy('circuits.graphql.types')]]
 
 
 @strawberry_django.type(
@@ -178,12 +177,11 @@ class VirtualCircuitTerminationType(CustomFieldsMixin, TagsMixin, ObjectType):
     filters=VirtualCircuitFilter,
     pagination=True
 )
-class VirtualCircuitType(NetBoxObjectType):
+class VirtualCircuitType(ContactsMixin, PrimaryObjectType):
     provider_network: ProviderNetworkType = strawberry_django.field(select_related=["provider_network"])
     provider_account: ProviderAccountType | None
     type: Annotated["VirtualCircuitTypeType", strawberry.lazy('circuits.graphql.types')] = strawberry_django.field(
         select_related=["type"]
     )
     tenant: TenantType | None
-
-    terminations: List[VirtualCircuitTerminationType]
+    terminations: list[VirtualCircuitTerminationType]

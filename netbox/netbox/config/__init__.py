@@ -9,10 +9,10 @@ from django.utils.translation import gettext_lazy as _
 from .parameters import PARAMS
 
 __all__ = (
-    'clear_config',
-    'ConfigItem',
-    'get_config',
     'PARAMS',
+    'ConfigItem',
+    'clear_config',
+    'get_config',
 )
 
 _thread_locals = threading.local()
@@ -78,19 +78,23 @@ class Config:
         from core.models import ConfigRevision
 
         try:
-            revision = ConfigRevision.objects.last()
+            # Enforce the creation date as the ordering parameter
+            revision = ConfigRevision.objects.get(active=True)
+            logger.debug(f"Loaded active configuration revision (#{revision.pk})")
+        except (ConfigRevision.DoesNotExist, ConfigRevision.MultipleObjectsReturned):
+            revision = ConfigRevision.objects.order_by('-created').first()
             if revision is None:
-                logger.debug("No previous configuration found in database; proceeding with default values")
+                logger.debug("No configuration found in database; proceeding with default values")
                 return
-            logger.debug("Loaded configuration data from database")
+            logger.debug(f"No active configuration revision found; falling back to most recent (#{revision.pk})")
         except DatabaseError:
             # The database may not be available yet (e.g. when running a management command)
             logger.warning("Skipping config initialization (database unavailable)")
             return
 
-        revision.activate()
-        logger.debug("Filled cache with data from latest ConfigRevision")
+        revision.activate(update_db=False)
         self._populate_from_cache()
+        logger.debug("Filled cache with data from latest ConfigRevision")
 
 
 class ConfigItem:

@@ -10,6 +10,21 @@ Minor releases are published in April, August, and December of each calendar yea
 
 This page contains a history of all major and minor releases since NetBox v2.0. For more detail on a specific patch release, please see the release notes page for that specific minor release.
 
+#### [Version 4.5](./version-4.5.md) (January 2026)
+
+* Lookup Modifiers in Filter Forms ([#7604](https://github.com/netbox-community/netbox/issues/7604))
+* Improved API Authentication Tokens ([#20210](https://github.com/netbox-community/netbox/issues/20210))
+* Object Ownership ([#20304](https://github.com/netbox-community/netbox/issues/20304))
+* Advanced Port Mappings ([#20564](https://github.com/netbox-community/netbox/issues/20564))
+* Cable Profiles ([#20788](https://github.com/netbox-community/netbox/issues/20788))
+
+#### [Version 4.4](./version-4.4.md) (September 2025)
+
+* Background Jobs for Bulk Operations ([#19589](https://github.com/netbox-community/netbox/issues/19589), [#19891](https://github.com/netbox-community/netbox/issues/19891))
+* Logging Mechanism for Background Jobs ([#19816](https://github.com/netbox-community/netbox/issues/19816))
+* Changelog Comments ([#19713](https://github.com/netbox-community/netbox/issues/19713))
+* Config Context Data Validation ([#19377](https://github.com/netbox-community/netbox/issues/19377))
+
 #### [Version 4.3](./version-4.3.md) (May 2025)
 
 * Module Type Profiles & Custom Attributes ([#19002](https://github.com/netbox-community/netbox/issues/19002))

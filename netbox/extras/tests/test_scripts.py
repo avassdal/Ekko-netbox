@@ -1,6 +1,5 @@
-import logging
-import tempfile
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
+from decimal import Decimal
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
@@ -8,7 +7,6 @@ from netaddr import IPAddress, IPNetwork
 
 from dcim.models import DeviceRole
 from extras.scripts import *
-from utilities.testing import disable_logging
 
 CHOICES = (
     ('ff0000', 'Red'),
@@ -32,35 +30,6 @@ JSON_DATA = """
   "Baz": ["A", "B", "C"]
 }
 """
-
-
-class ScriptTest(TestCase):
-
-    def test_load_yaml(self):
-        datafile = tempfile.NamedTemporaryFile()
-        datafile.write(bytes(YAML_DATA, 'UTF-8'))
-        datafile.seek(0)
-
-        with disable_logging(level=logging.WARNING):
-            data = Script().load_yaml(datafile.name)
-        self.assertEqual(data, {
-            'Foo': 123,
-            'Bar': 456,
-            'Baz': ['A', 'B', 'C'],
-        })
-
-    def test_load_json(self):
-        datafile = tempfile.NamedTemporaryFile()
-        datafile.write(bytes(JSON_DATA, 'UTF-8'))
-        datafile.seek(0)
-
-        with disable_logging(level=logging.WARNING):
-            data = Script().load_json(datafile.name)
-        self.assertEqual(data, {
-            'Foo': 123,
-            'Bar': 456,
-            'Baz': ['A', 'B', 'C'],
-        })
 
 
 class ScriptVariablesTest(TestCase):
@@ -137,6 +106,54 @@ class ScriptVariablesTest(TestCase):
         form = TestScript().as_form(data, None)
         self.assertTrue(form.is_valid())
         self.assertEqual(form.cleaned_data['var1'], data['var1'])
+
+    def test_decimalvar(self):
+
+        class TestScript(Script):
+
+            var1 = DecimalVar(
+                min_value=-100.500,
+                max_value=100.500,
+                max_digits=6,
+                decimal_places=3,
+                required=False
+            )
+
+            var2 = DecimalVar(
+                max_digits=3,
+                decimal_places=1,
+                required=False
+            )
+
+        # Validate min_value enforcement
+        data = {'var1': -100.501}
+        form = TestScript().as_form(data, None)
+        self.assertFalse(form.is_valid())
+        self.assertIn('var1', form.errors)
+
+        # Validate max_value enforcement
+        data = {'var1': 100.501}
+        form = TestScript().as_form(data, None)
+        self.assertFalse(form.is_valid())
+        self.assertIn('var1', form.errors)
+
+        # Validate max_digits enforcement
+        data = {'var2': 123.4}
+        form = TestScript().as_form(data, None)
+        self.assertFalse(form.is_valid())
+        self.assertIn('var2', form.errors)
+
+        # Validate decimal_places
+        data = {'var2': 1.23}
+        form = TestScript().as_form(data, None)
+        self.assertFalse(form.is_valid())
+        self.assertIn('var2', form.errors)
+
+        # Validate valid data
+        data = {'var1': '50.123'}
+        form = TestScript().as_form(data, None)
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data['var1'], Decimal(data['var1']))
 
     def test_booleanvar(self):
 
@@ -364,7 +381,7 @@ class ScriptVariablesTest(TestCase):
         self.assertIn('var1', form.errors)
 
         # Validate valid data
-        input_datetime = datetime(2024, 4, 1, 8, 0, 0, 0, timezone.utc)
+        input_datetime = datetime(2024, 4, 1, 8, 0, 0, 0, UTC)
         data = {'var1': input_datetime}
         form = TestScript().as_form(data, None)
         self.assertTrue(form.is_valid())

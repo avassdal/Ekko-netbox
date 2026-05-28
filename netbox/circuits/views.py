@@ -1,21 +1,28 @@
-from django.contrib import messages
-from django.db import router, transaction
-from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext_lazy as _
 
 from dcim.views import PathTraceView
+from extras.ui.panels import CustomFieldsPanel, ImageAttachmentsPanel, TagsPanel
 from ipam.models import ASN
+from netbox.object_actions import AddObject, BulkDelete, BulkEdit, BulkExport, BulkImport
+from netbox.ui import actions, layout
+from netbox.ui.panels import (
+    CommentsPanel,
+    ObjectsTablePanel,
+    Panel,
+    RelatedObjectsPanel,
+)
 from netbox.views import generic
-from utilities.forms import ConfirmationForm
 from utilities.query import count_related
 from utilities.views import GetRelatedModelsMixin, register_model_view
+
 from . import filtersets, forms, tables
 from .models import *
-
+from .ui import panels
 
 #
 # Providers
 #
+
 
 @register_model_view(Provider, 'list', path='', detail=False)
 class ProviderListView(generic.ObjectListView):
@@ -32,6 +39,35 @@ class ProviderListView(generic.ObjectListView):
 @register_model_view(Provider)
 class ProviderView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = Provider.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ProviderPanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CustomFieldsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                model='circuits.ProviderAccount',
+                filters={'provider_id': lambda ctx: ctx['object'].pk},
+                actions=[
+                    actions.AddObject(
+                        'circuits.ProviderAccount', url_params={'provider': lambda ctx: ctx['object'].pk}
+                    ),
+                ],
+            ),
+            ObjectsTablePanel(
+                model='circuits.Circuit',
+                filters={'provider_id': lambda ctx: ctx['object'].pk},
+                actions=[
+                    actions.AddObject('circuits.Circuit', url_params={'provider': lambda ctx: ctx['object'].pk}),
+                ],
+            ),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -47,7 +83,7 @@ class ProviderView(GetRelatedModelsMixin, generic.ObjectView):
                         'provider_id',
                     ),
                 ),
-                ),
+            ),
         }
 
 
@@ -79,6 +115,12 @@ class ProviderBulkEditView(generic.BulkEditView):
     form = forms.ProviderBulkEditForm
 
 
+@register_model_view(Provider, 'bulk_rename', path='rename', detail=False)
+class ProviderBulkRenameView(generic.BulkRenameView):
+    queryset = Provider.objects.all()
+    filterset = filtersets.ProviderFilterSet
+
+
 @register_model_view(Provider, 'bulk_delete', path='delete', detail=False)
 class ProviderBulkDeleteView(generic.BulkDeleteView):
     queryset = Provider.objects.annotate(
@@ -105,6 +147,32 @@ class ProviderAccountListView(generic.ObjectListView):
 @register_model_view(ProviderAccount)
 class ProviderAccountView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = ProviderAccount.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ProviderAccountPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CommentsPanel(),
+            CustomFieldsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                model='circuits.Circuit',
+                filters={'provider_account_id': lambda ctx: ctx['object'].pk},
+                actions=[
+                    actions.AddObject(
+                        'circuits.Circuit',
+                        url_params={
+                            'provider': lambda ctx: ctx['object'].provider.pk,
+                            'provider_account': lambda ctx: ctx['object'].pk,
+                        },
+                    ),
+                ],
+            ),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -141,6 +209,12 @@ class ProviderAccountBulkEditView(generic.BulkEditView):
     form = forms.ProviderAccountBulkEditForm
 
 
+@register_model_view(ProviderAccount, 'bulk_rename', path='rename', detail=False)
+class ProviderAccountBulkRenameView(generic.BulkRenameView):
+    queryset = ProviderAccount.objects.all()
+    filterset = filtersets.ProviderAccountFilterSet
+
+
 @register_model_view(ProviderAccount, 'bulk_delete', path='delete', detail=False)
 class ProviderAccountBulkDeleteView(generic.BulkDeleteView):
     queryset = ProviderAccount.objects.annotate(
@@ -165,6 +239,32 @@ class ProviderNetworkListView(generic.ObjectListView):
 @register_model_view(ProviderNetwork)
 class ProviderNetworkView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = ProviderNetwork.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.ProviderNetworkPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CommentsPanel(),
+            CustomFieldsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                model='circuits.Circuit',
+                filters={'provider_network_id': lambda ctx: ctx['object'].pk},
+            ),
+            ObjectsTablePanel(
+                model='circuits.VirtualCircuit',
+                filters={'provider_network_id': lambda ctx: ctx['object'].pk},
+                actions=[
+                    actions.AddObject(
+                        'circuits.VirtualCircuit', url_params={'provider_network': lambda ctx: ctx['object'].pk}
+                    ),
+                ],
+            ),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -212,6 +312,12 @@ class ProviderNetworkBulkEditView(generic.BulkEditView):
     form = forms.ProviderNetworkBulkEditForm
 
 
+@register_model_view(ProviderNetwork, 'bulk_rename', path='rename', detail=False)
+class ProviderNetworkBulkRenameView(generic.BulkRenameView):
+    queryset = ProviderNetwork.objects.all()
+    filterset = filtersets.ProviderNetworkFilterSet
+
+
 @register_model_view(ProviderNetwork, 'bulk_delete', path='delete', detail=False)
 class ProviderNetworkBulkDeleteView(generic.BulkDeleteView):
     queryset = ProviderNetwork.objects.all()
@@ -236,6 +342,17 @@ class CircuitTypeListView(generic.ObjectListView):
 @register_model_view(CircuitType)
 class CircuitTypeView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = CircuitType.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.CircuitTypePanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CommentsPanel(),
+            CustomFieldsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -271,6 +388,12 @@ class CircuitTypeBulkEditView(generic.BulkEditView):
     form = forms.CircuitTypeBulkEditForm
 
 
+@register_model_view(CircuitType, 'bulk_rename', path='rename', detail=False)
+class CircuitTypeBulkRenameView(generic.BulkRenameView):
+    queryset = CircuitType.objects.all()
+    filterset = filtersets.CircuitTypeFilterSet
+
+
 @register_model_view(CircuitType, 'bulk_delete', path='delete', detail=False)
 class CircuitTypeBulkDeleteView(generic.BulkDeleteView):
     queryset = CircuitType.objects.annotate(
@@ -297,6 +420,20 @@ class CircuitListView(generic.ObjectListView):
 @register_model_view(Circuit)
 class CircuitView(generic.ObjectView):
     queryset = Circuit.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.CircuitPanel(),
+            panels.CircuitGroupAssignmentsPanel(),
+            CustomFieldsPanel(),
+            TagsPanel(),
+            CommentsPanel(),
+        ],
+        right_panels=[
+            panels.CircuitCircuitTerminationPanel(side='A'),
+            panels.CircuitCircuitTerminationPanel(side='Z'),
+            ImageAttachmentsPanel(),
+        ],
+    )
 
 
 @register_model_view(Circuit, 'add', detail=False)
@@ -337,6 +474,13 @@ class CircuitBulkEditView(generic.BulkEditView):
     form = forms.CircuitBulkEditForm
 
 
+@register_model_view(Circuit, 'bulk_rename', path='rename', detail=False)
+class CircuitBulkRenameView(generic.BulkRenameView):
+    queryset = Circuit.objects.all()
+    field_name = 'cid'
+    filterset = filtersets.CircuitFilterSet
+
+
 @register_model_view(Circuit, 'bulk_delete', path='delete', detail=False)
 class CircuitBulkDeleteView(generic.BulkDeleteView):
     queryset = Circuit.objects.prefetch_related(
@@ -344,82 +488,6 @@ class CircuitBulkDeleteView(generic.BulkDeleteView):
     )
     filterset = filtersets.CircuitFilterSet
     table = tables.CircuitTable
-
-
-class CircuitSwapTerminations(generic.ObjectEditView):
-    """
-    Swap the A and Z terminations of a circuit.
-    """
-    queryset = Circuit.objects.all()
-
-    def get(self, request, pk):
-        circuit = get_object_or_404(self.queryset, pk=pk)
-        form = ConfirmationForm()
-
-        # Circuit must have at least one termination to swap
-        if not circuit.termination_a and not circuit.termination_z:
-            messages.error(request, _(
-                "No terminations have been defined for circuit {circuit}."
-            ).format(circuit=circuit))
-            return redirect('circuits:circuit', pk=circuit.pk)
-
-        return render(request, 'circuits/circuit_terminations_swap.html', {
-            'circuit': circuit,
-            'termination_a': circuit.termination_a,
-            'termination_z': circuit.termination_z,
-            'form': form,
-            'panel_class': 'light',
-            'button_class': 'primary',
-            'return_url': circuit.get_absolute_url(),
-        })
-
-    def post(self, request, pk):
-        circuit = get_object_or_404(self.queryset, pk=pk)
-        form = ConfirmationForm(request.POST)
-
-        if form.is_valid():
-
-            termination_a = CircuitTermination.objects.filter(pk=circuit.termination_a_id).first()
-            termination_z = CircuitTermination.objects.filter(pk=circuit.termination_z_id).first()
-
-            if termination_a and termination_z:
-                # Use a placeholder to avoid an IntegrityError on the (circuit, term_side) unique constraint
-                with transaction.atomic(using=router.db_for_write(CircuitTermination)):
-                    termination_a.term_side = '_'
-                    termination_a.save()
-                    termination_z.term_side = 'A'
-                    termination_z.save()
-                    termination_a.term_side = 'Z'
-                    termination_a.save()
-                    circuit.refresh_from_db()
-                    circuit.termination_a = termination_z
-                    circuit.termination_z = termination_a
-                    circuit.save()
-            elif termination_a:
-                termination_a.term_side = 'Z'
-                termination_a.save()
-                circuit.refresh_from_db()
-                circuit.termination_a = None
-                circuit.save()
-            else:
-                termination_z.term_side = 'A'
-                termination_z.save()
-                circuit.refresh_from_db()
-                circuit.termination_z = None
-                circuit.save()
-
-            messages.success(request, _("Swapped terminations for circuit {circuit}.").format(circuit=circuit))
-            return redirect('circuits:circuit', pk=circuit.pk)
-
-        return render(request, 'circuits/circuit_terminations_swap.html', {
-            'circuit': circuit,
-            'termination_a': circuit.termination_a,
-            'termination_z': circuit.termination_z,
-            'form': form,
-            'panel_class': 'default',
-            'button_class': 'primary',
-            'return_url': circuit.get_absolute_url(),
-        })
 
 
 #
@@ -432,11 +500,24 @@ class CircuitTerminationListView(generic.ObjectListView):
     filterset = filtersets.CircuitTerminationFilterSet
     filterset_form = forms.CircuitTerminationFilterForm
     table = tables.CircuitTerminationTable
+    actions = (AddObject, BulkImport, BulkExport, BulkEdit, BulkDelete)
 
 
 @register_model_view(CircuitTermination)
 class CircuitTerminationView(generic.ObjectView):
     queryset = CircuitTermination.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            Panel(
+                template_name='circuits/panels/circuit_termination.html',
+                title=_('Circuit Termination'),
+            )
+        ],
+        right_panels=[
+            CustomFieldsPanel(),
+            TagsPanel(),
+        ],
+    )
 
 
 @register_model_view(CircuitTermination, 'add', detail=False)
@@ -493,6 +574,17 @@ class CircuitGroupListView(generic.ObjectListView):
 @register_model_view(CircuitGroup)
 class CircuitGroupView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = CircuitGroup.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.CircuitGroupPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CommentsPanel(),
+            CustomFieldsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -526,6 +618,12 @@ class CircuitGroupBulkEditView(generic.BulkEditView):
     form = forms.CircuitGroupBulkEditForm
 
 
+@register_model_view(CircuitGroup, 'bulk_rename', path='rename', detail=False)
+class CircuitGroupBulkRenameView(generic.BulkRenameView):
+    queryset = CircuitGroup.objects.all()
+    filterset = filtersets.CircuitGroupFilterSet
+
+
 @register_model_view(CircuitGroup, 'bulk_delete', path='delete', detail=False)
 class CircuitGroupBulkDeleteView(generic.BulkDeleteView):
     queryset = CircuitGroup.objects.all()
@@ -543,11 +641,21 @@ class CircuitGroupAssignmentListView(generic.ObjectListView):
     filterset = filtersets.CircuitGroupAssignmentFilterSet
     filterset_form = forms.CircuitGroupAssignmentFilterForm
     table = tables.CircuitGroupAssignmentTable
+    actions = (AddObject, BulkImport, BulkExport, BulkEdit, BulkDelete)
 
 
 @register_model_view(CircuitGroupAssignment)
 class CircuitGroupAssignmentView(generic.ObjectView):
     queryset = CircuitGroupAssignment.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.CircuitGroupAssignmentPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            CustomFieldsPanel(),
+        ],
+    )
 
 
 @register_model_view(CircuitGroupAssignment, 'add', detail=False)
@@ -600,6 +708,17 @@ class VirtualCircuitTypeListView(generic.ObjectListView):
 @register_model_view(VirtualCircuitType)
 class VirtualCircuitTypeView(GetRelatedModelsMixin, generic.ObjectView):
     queryset = VirtualCircuitType.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.VirtualCircuitTypePanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            RelatedObjectsPanel(),
+            CommentsPanel(),
+            CustomFieldsPanel(),
+        ],
+    )
 
     def get_extra_context(self, request, instance):
         return {
@@ -635,6 +754,12 @@ class VirtualCircuitTypeBulkEditView(generic.BulkEditView):
     form = forms.VirtualCircuitTypeBulkEditForm
 
 
+@register_model_view(VirtualCircuitType, 'bulk_rename', path='rename', detail=False)
+class VirtualCircuitTypeBulkRenameView(generic.BulkRenameView):
+    queryset = VirtualCircuitType.objects.all()
+    filterset = filtersets.VirtualCircuitTypeFilterSet
+
+
 @register_model_view(VirtualCircuitType, 'bulk_delete', path='delete', detail=False)
 class VirtualCircuitTypeBulkDeleteView(generic.BulkDeleteView):
     queryset = VirtualCircuitType.objects.annotate(
@@ -648,6 +773,7 @@ class VirtualCircuitTypeBulkDeleteView(generic.BulkDeleteView):
 # Virtual circuits
 #
 
+@register_model_view(VirtualCircuit, 'list', path='', detail=False)
 class VirtualCircuitListView(generic.ObjectListView):
     queryset = VirtualCircuit.objects.annotate(
         termination_count=count_related(VirtualCircuitTermination, 'virtual_circuit')
@@ -660,8 +786,33 @@ class VirtualCircuitListView(generic.ObjectListView):
 @register_model_view(VirtualCircuit)
 class VirtualCircuitView(generic.ObjectView):
     queryset = VirtualCircuit.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.VirtualCircuitPanel(),
+            TagsPanel(),
+        ],
+        right_panels=[
+            CustomFieldsPanel(),
+            CommentsPanel(),
+            panels.CircuitGroupAssignmentsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                model='circuits.VirtualCircuitTermination',
+                title=_('Terminations'),
+                filters={'virtual_circuit_id': lambda ctx: ctx['object'].pk},
+                actions=[
+                    actions.AddObject(
+                        'circuits.VirtualCircuitTermination',
+                        url_params={'virtual_circuit': lambda ctx: ctx['object'].pk},
+                    ),
+                ],
+            ),
+        ],
+    )
 
 
+@register_model_view(VirtualCircuit, 'add', detail=False)
 @register_model_view(VirtualCircuit, 'edit')
 class VirtualCircuitEditView(generic.ObjectEditView):
     queryset = VirtualCircuit.objects.all()
@@ -673,6 +824,7 @@ class VirtualCircuitDeleteView(generic.ObjectDeleteView):
     queryset = VirtualCircuit.objects.all()
 
 
+@register_model_view(VirtualCircuit, 'bulk_import', path='import', detail=False)
 class VirtualCircuitBulkImportView(generic.BulkImportView):
     queryset = VirtualCircuit.objects.all()
     model_form = forms.VirtualCircuitImportForm
@@ -688,6 +840,7 @@ class VirtualCircuitBulkImportView(generic.BulkImportView):
         return data
 
 
+@register_model_view(VirtualCircuit, 'bulk_edit', path='edit', detail=False)
 class VirtualCircuitBulkEditView(generic.BulkEditView):
     queryset = VirtualCircuit.objects.annotate(
         termination_count=count_related(VirtualCircuitTermination, 'virtual_circuit')
@@ -697,6 +850,14 @@ class VirtualCircuitBulkEditView(generic.BulkEditView):
     form = forms.VirtualCircuitBulkEditForm
 
 
+@register_model_view(VirtualCircuit, 'bulk_rename', path='rename', detail=False)
+class VirtualCircuitBulkRenameView(generic.BulkRenameView):
+    queryset = VirtualCircuit.objects.all()
+    field_name = 'cid'
+    filterset = filtersets.VirtualCircuitFilterSet
+
+
+@register_model_view(VirtualCircuit, 'bulk_delete', path='delete', detail=False)
 class VirtualCircuitBulkDeleteView(generic.BulkDeleteView):
     queryset = VirtualCircuit.objects.annotate(
         termination_count=count_related(VirtualCircuitTermination, 'virtual_circuit')
@@ -714,11 +875,22 @@ class VirtualCircuitTerminationListView(generic.ObjectListView):
     filterset = filtersets.VirtualCircuitTerminationFilterSet
     filterset_form = forms.VirtualCircuitTerminationFilterForm
     table = tables.VirtualCircuitTerminationTable
+    actions = (AddObject, BulkImport, BulkExport, BulkEdit, BulkDelete)
 
 
 @register_model_view(VirtualCircuitTermination)
 class VirtualCircuitTerminationView(generic.ObjectView):
     queryset = VirtualCircuitTermination.objects.all()
+    layout = layout.SimpleLayout(
+        left_panels=[
+            panels.VirtualCircuitTerminationPanel(),
+            TagsPanel(),
+            CustomFieldsPanel(),
+        ],
+        right_panels=[
+            panels.VirtualCircuitTerminationInterfacePanel(),
+        ],
+    )
 
 
 @register_model_view(VirtualCircuitTermination, 'edit')

@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-import netaddr
 
+import netaddr
 from django.utils.translation import gettext_lazy as _
 
 from .constants import *
-from .models import Prefix, VLAN
+from .models import VLAN, Prefix
 
 __all__ = (
     'AvailableIPSpace',
@@ -49,6 +49,9 @@ def add_requested_prefixes(parent, prefix_list, show_available=True, show_assign
     if prefix_list and show_available:
 
         # Find all unallocated space, add fake Prefix objects to child_prefixes.
+        # IMPORTANT: These are unsaved Prefix instances (pk=None). If this is ever changed to use
+        # saved Prefix instances with real pks, bulk delete will fail for mixed-type selections
+        # due to single-model form validation. See: https://github.com/netbox-community/netbox/issues/21176
         available_prefixes = netaddr.IPSet(parent) ^ netaddr.IPSet([p.prefix for p in prefix_list])
         available_prefixes = [Prefix(prefix=p, status=None) for p in available_prefixes.iter_cidrs()]
         child_prefixes = child_prefixes + available_prefixes
@@ -75,12 +78,21 @@ def annotate_ip_space(prefix):
     records = sorted(records, key=lambda x: x[0])
 
     # Determine the first & last valid IP addresses in the prefix
-    if prefix.family == 4 and prefix.mask_length < 31 and not prefix.is_pool:
+    if (
+        prefix.is_pool
+        or (prefix.family == 4 and prefix.mask_length >= 31)
+        or (prefix.family == 6 and prefix.mask_length >= 127)
+    ):
+        # Pool, IPv4 /31-/32 or IPv6 /127-/128 sets are fully usable
+        first_ip_in_prefix = netaddr.IPAddress(prefix.prefix.first)
+        last_ip_in_prefix = netaddr.IPAddress(prefix.prefix.last)
+    elif prefix.family == 4:
         # Ignore the network and broadcast addresses for non-pool IPv4 prefixes larger than /31
         first_ip_in_prefix = netaddr.IPAddress(prefix.prefix.first + 1)
         last_ip_in_prefix = netaddr.IPAddress(prefix.prefix.last - 1)
     else:
-        first_ip_in_prefix = netaddr.IPAddress(prefix.prefix.first)
+        # For IPv6 prefixes, omit the Subnet-Router anycast address (RFC 4291)
+        first_ip_in_prefix = netaddr.IPAddress(prefix.prefix.first + 1)
         last_ip_in_prefix = netaddr.IPAddress(prefix.prefix.last)
 
     if not records:
@@ -164,7 +176,7 @@ def available_vlans_from_range(vlans, vlan_group, vid_range):
         prev_vid = vlan.vid
 
     # Annotate any remaining available VLANs
-    if prev_vid < max_vid:
+    if prev_vid < max_vid - 1:
         new_vlans.append({
             'vid': prev_vid + 1,
             'vlan_group': vlan_group,

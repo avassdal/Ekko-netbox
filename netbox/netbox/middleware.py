@@ -1,28 +1,48 @@
-from contextlib import ExitStack
-
 import logging
 import uuid
-import warnings
 
 from django.conf import settings
 from django.contrib import auth, messages
 from django.contrib.auth.middleware import RemoteUserMiddleware as RemoteUserMiddleware_
 from django.core.exceptions import ImproperlyConfigured
-from django.db import connection, ProgrammingError
+from django.db import ProgrammingError, connection
 from django.db.utils import InternalError
 from django.http import Http404, HttpResponseRedirect
+from django.middleware.common import CommonMiddleware as DjangoCommonMiddleware
+from django_prometheus import middleware
 
 from netbox.config import clear_config, get_config
-from netbox.registry import registry
+from netbox.metrics import Metrics
 from netbox.views import handler_500
-from utilities.api import is_api_request
+from utilities.api import is_api_request, is_graphql_request
 from utilities.error_handlers import handle_rest_api_exception
+from utilities.request import apply_request_processors
 
 __all__ = (
+    'CommonMiddleware',
     'CoreMiddleware',
     'MaintenanceModeMiddleware',
+    'PrometheusAfterMiddleware',
+    'PrometheusBeforeMiddleware',
     'RemoteUserMiddleware',
 )
+
+
+class CommonMiddleware(DjangoCommonMiddleware):
+    """
+    Subclass of Django's CommonMiddleware that suppresses the APPEND_SLASH
+    redirect for REST API requests using an unsafe HTTP method. Redirecting a
+    POST/PUT/PATCH/DELETE to a trailing-slash URL would either drop the request
+    body (clients downgrade to GET on a 302) or raise a RuntimeError when
+    DEBUG is enabled. Letting the original 404 propagate gives the caller a
+    clear, actionable error instead.
+    """
+    UNSAFE_METHODS = frozenset(('DELETE', 'PATCH', 'POST', 'PUT'))
+
+    def should_redirect_with_slash(self, request):
+        if request.method in self.UNSAFE_METHODS and is_api_request(request):
+            return False
+        return super().should_redirect_with_slash(request)
 
 
 class CoreMiddleware:
@@ -36,23 +56,27 @@ class CoreMiddleware:
         request.id = uuid.uuid4()
 
         # Apply all registered request processors
-        with ExitStack() as stack:
-            for request_processor in registry['request_processors']:
-                try:
-                    stack.enter_context(request_processor(request))
-                except Exception as e:
-                    warnings.warn(f'Failed to initialize request processor {request_processor}: {e}')
+        with apply_request_processors(request):
             response = self.get_response(request)
 
-        # Check if language cookie should be renewed
-        if request.user.is_authenticated and settings.SESSION_SAVE_EVERY_REQUEST:
-            if language := request.user.config.get('locale.language'):
-                response.set_cookie(
-                    key=settings.LANGUAGE_COOKIE_NAME,
-                    value=language,
-                    max_age=request.session.get_expiry_age(),
-                    secure=settings.SESSION_COOKIE_SECURE,
-                )
+        # Set or renew the language cookie based on the user's preference. This handles two cases:
+        # 1. The user just logged in (via any auth backend): the user_logged_in signal stores the preferred language on
+        #    the request so we set the cookie here on the login response.
+        # 2. SESSION_SAVE_EVERY_REQUEST is enabled: renew the language cookie on every request to keep it in sync with
+        #    the session expiry.
+        if hasattr(request, '_language_cookie'):
+            language = request._language_cookie
+        elif request.user.is_authenticated and settings.SESSION_SAVE_EVERY_REQUEST:
+            language = request.user.config.get('locale.language')
+        else:
+            language = None
+        if language:
+            response.set_cookie(
+                key=settings.LANGUAGE_COOKIE_NAME,
+                value=language,
+                max_age=request.session.get_expiry_age(),
+                secure=settings.SESSION_COOKIE_SECURE,
+            )
 
         # Attach the unique request ID as an HTTP header.
         response['X-Request-ID'] = request.id
@@ -75,7 +99,7 @@ class CoreMiddleware:
         """
         # Don't catch exceptions when in debug mode
         if settings.DEBUG:
-            return
+            return None
 
         # Cleanly handle exceptions that occur from REST API requests
         if is_api_request(request):
@@ -83,7 +107,7 @@ class CoreMiddleware:
 
         # Ignore Http404s (defer to Django's built-in 404 handling)
         if isinstance(exception, Http404):
-            return
+            return None
 
         # Determine the type of exception. If it's a common issue, return a custom error page with instructions.
         custom_template = None
@@ -97,6 +121,7 @@ class CoreMiddleware:
         # Return a custom error message, or fall back to Django's default 500 error handling
         if custom_template:
             return handler_500(request, template_name=custom_template)
+        return None
 
 
 class RemoteUserMiddleware(RemoteUserMiddleware_):
@@ -143,10 +168,9 @@ class RemoteUserMiddleware(RemoteUserMiddleware_):
         if request.user.is_authenticated:
             if request.user.get_username() == self.clean_username(username, request):
                 return self.get_response(request)
-            else:
-                # An authenticated user is associated with the request, but
-                # it does not match the authorized user in the header.
-                self._remove_invalid_user(request)
+            # An authenticated user is associated with the request, but
+            # it does not match the authorized user in the header.
+            self._remove_invalid_user(request)
 
         # We are seeing this user for the first time in this session, attempt
         # to authenticate the user.
@@ -186,6 +210,30 @@ class RemoteUserMiddleware(RemoteUserMiddleware_):
             groups = []
         logger.debug(f"Groups are {groups}")
         return groups
+
+
+class PrometheusBeforeMiddleware(middleware.PrometheusBeforeMiddleware):
+    metrics_cls = Metrics
+
+
+class PrometheusAfterMiddleware(middleware.PrometheusAfterMiddleware):
+    metrics_cls = Metrics
+
+    def process_response(self, request, response):
+        response = super().process_response(request, response)
+
+        # Increment REST API request counters
+        if is_api_request(request):
+            method = self._method(request)
+            name = self._get_view_name(request)
+            self.label_metric(self.metrics.rest_api_requests, request, method=method).inc()
+            self.label_metric(self.metrics.rest_api_requests_by_view_method, request, method=method, view=name).inc()
+
+        # Increment GraphQL API request counters
+        elif is_graphql_request(request):
+            self.metrics.graphql_api_requests.inc()
+
+        return response
 
 
 class MaintenanceModeMiddleware:
@@ -230,3 +278,4 @@ class MaintenanceModeMiddleware:
 
             messages.error(request, error_message)
             return HttpResponseRedirect(request.path_info)
+        return None

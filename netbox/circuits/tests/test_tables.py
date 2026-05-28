@@ -1,23 +1,46 @@
-from django.test import RequestFactory, tag, TestCase
-
-from circuits.models import CircuitTermination
-from circuits.tables import CircuitTerminationTable
+from circuits.tables import *
+from utilities.testing import TableTestCases
 
 
-@tag('regression')
-class CircuitTerminationTableTest(TestCase):
-    def test_every_orderable_field_does_not_throw_exception(self):
-        terminations = CircuitTermination.objects.all()
-        disallowed = {'actions', }
+class CircuitTypeTableTest(TableTestCases.StandardTableTestCase):
+    table = CircuitTypeTable
 
-        orderable_columns = [
-            column.name for column in CircuitTerminationTable(terminations).columns
-            if column.orderable and column.name not in disallowed
-        ]
-        fake_request = RequestFactory().get("/")
 
-        for col in orderable_columns:
-            for dir in ('-', ''):
-                table = CircuitTerminationTable(terminations)
-                table.order_by = f'{dir}{col}'
-                table.as_html(fake_request)
+class CircuitTableTest(TableTestCases.StandardTableTestCase):
+    table = CircuitTable
+
+
+class CircuitTerminationTableTest(TableTestCases.StandardTableTestCase):
+    table = CircuitTerminationTable
+
+
+class CircuitGroupTableTest(TableTestCases.StandardTableTestCase):
+    table = CircuitGroupTable
+
+
+class CircuitGroupAssignmentTableTest(TableTestCases.StandardTableTestCase):
+    table = CircuitGroupAssignmentTable
+
+
+class ProviderTableTest(TableTestCases.StandardTableTestCase):
+    table = ProviderTable
+
+
+class ProviderAccountTableTest(TableTestCases.StandardTableTestCase):
+    table = ProviderAccountTable
+
+
+class ProviderNetworkTableTest(TableTestCases.StandardTableTestCase):
+    table = ProviderNetworkTable
+
+
+class VirtualCircuitTypeTableTest(TableTestCases.StandardTableTestCase):
+    table = VirtualCircuitTypeTable
+
+
+class VirtualCircuitTableTest(TableTestCases.StandardTableTestCase):
+    table = VirtualCircuitTable
+
+
+class VirtualCircuitTerminationTableTest(TableTestCases.StandardTableTestCase):
+    table = VirtualCircuitTerminationTable

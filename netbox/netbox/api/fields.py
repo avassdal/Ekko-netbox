@@ -1,3 +1,4 @@
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.backends.postgresql.psycopg_any import NumericRange
 from django.utils.translation import gettext as _
@@ -46,8 +47,7 @@ class ChoiceField(serializers.Field):
         if data is None:
             if self.allow_null:
                 return True, None
-            else:
-                data = ''
+            data = ''
         return super().validate_empty_values(data)
 
     def to_representation(self, obj):
@@ -58,6 +58,7 @@ class ChoiceField(serializers.Field):
                 'value': obj,
                 'label': self._choices.get(obj, ''),
             }
+        return None
 
     def to_internal_value(self, data):
         if data == '':
@@ -109,7 +110,7 @@ class ContentTypeField(RelatedField):
     def to_internal_value(self, data):
         try:
             app_label, model = data.split('.')
-            return self.queryset.get(app_label=app_label, model=model)
+            return ContentType.objects.get_by_natural_key(app_label=app_label, model=model)
         except ObjectDoesNotExist:
             self.fail('does_not_exist', content_type=data)
         except (AttributeError, TypeError, ValueError):
@@ -169,7 +170,7 @@ class IntegerRangeSerializer(serializers.Serializer):
         if type(data[0]) is not int or type(data[1]) is not int:
             raise ValidationError(_("Range boundaries must be defined as integers."))
 
-        return NumericRange(data[0], data[1], bounds='[]')
+        return NumericRange(data[0], data[1] + 1, bounds='[)')
 
     def to_representation(self, instance):
         return instance.lower, instance.upper - 1

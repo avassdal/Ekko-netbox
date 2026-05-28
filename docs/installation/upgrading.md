@@ -19,48 +19,28 @@ NetBox requires the following dependencies:
 
 | Dependency | Supported Versions |
 |------------|--------------------|
-| Python     | 3.10, 3.11, 3.12   |
+| Python     | 3.12, 3.13, 3.14   |
 | PostgreSQL | 14+                |
 | Redis      | 4.0+               |
 
 ### Version History
 
-| NetBox Version | Python min | Python max | PostgreSQL min | Redis min |                                           Documentation                                           |
-|:--------------:|:----------:|:----------:|:--------------:|:---------:|:-------------------------------------------------------------------------------------------------:|
-|      4.3       |    3.10    |    3.12    |       14       |    4.0    |     [Link](https://github.com/netbox-community/netbox/blob/v4.3.0/docs/installation/index.md)     |
-|      4.2       |    3.10    |    3.12    |       13       |    4.0    |     [Link](https://github.com/netbox-community/netbox/blob/v4.2.0/docs/installation/index.md)     |
-|      4.1       |    3.10    |    3.12    |       12       |    4.0    |     [Link](https://github.com/netbox-community/netbox/blob/v4.1.0/docs/installation/index.md)     |
-|      4.0       |    3.10    |    3.12    |       12       |    4.0    |     [Link](https://github.com/netbox-community/netbox/blob/v4.0.0/docs/installation/index.md)     |
-|      3.7       |    3.8     |    3.11    |       12       |    4.0    |     [Link](https://github.com/netbox-community/netbox/blob/v3.7.0/docs/installation/index.md)     |
-|      3.6       |    3.8     |    3.11    |       12       |    4.0    |     [Link](https://github.com/netbox-community/netbox/blob/v3.6.0/docs/installation/index.md)     |
-|      3.5       |    3.8     |    3.10    |       11       |    4.0    |     [Link](https://github.com/netbox-community/netbox/blob/v3.5.0/docs/installation/index.md)     |
-|      3.4       |    3.8     |    3.10    |       11       |    4.0    |     [Link](https://github.com/netbox-community/netbox/blob/v3.4.0/docs/installation/index.md)     |
-|      3.3       |    3.8     |    3.10    |       10       |    4.0    |     [Link](https://github.com/netbox-community/netbox/blob/v3.3.0/docs/installation/index.md)     |
-|      3.2       |    3.8     |    3.10    |       10       |    4.0    |     [Link](https://github.com/netbox-community/netbox/blob/v3.2.0/docs/installation/index.md)     |
-|      3.1       |    3.7     |    3.9     |       10       |    4.0    |     [Link](https://github.com/netbox-community/netbox/blob/v3.1.0/docs/installation/index.md)     |
-|      3.0       |    3.7     |    3.9     |      9.6       |    4.0    |     [Link](https://github.com/netbox-community/netbox/blob/v3.0.0/docs/installation/index.md)     |
-|      2.11      |    3.6     |    3.9     |      9.6       |    4.0    |    [Link](https://github.com/netbox-community/netbox/blob/v2.11.0/docs/installation/index.md)     |
-|      2.10      |    3.6     |    3.8     |      9.6       |    4.0    |    [Link](https://github.com/netbox-community/netbox/blob/v2.10.0/docs/installation/index.md)     |
-|      2.9       |    3.6     |    3.8     |      9.5       |    4.0    |     [Link](https://github.com/netbox-community/netbox/blob/v2.9.0/docs/installation/index.md)     |
-|      2.8       |    3.6     |    3.8     |      9.5       |    3.4    |     [Link](https://github.com/netbox-community/netbox/blob/v2.8.0/docs/installation/index.md)     |
-|      2.7       |    3.5     |    3.7     |      9.4       |     -     |     [Link](https://github.com/netbox-community/netbox/blob/v2.7.0/docs/installation/index.md)     |
-|      2.6       |    3.5     |    3.7     |      9.4       |     -     |     [Link](https://github.com/netbox-community/netbox/blob/v2.6.0/docs/installation/index.md)     |
-|      2.5       |    3.5     |    3.7     |      9.4       |     -     |     [Link](https://github.com/netbox-community/netbox/blob/v2.5.0/docs/installation/index.md)     |
-|      2.4       |    3.4     |    3.7     |      9.4       |     -     |     [Link](https://github.com/netbox-community/netbox/blob/v2.4.0/docs/installation/index.md)     |
-|      2.3       |    2.7     |    3.6     |      9.4       |     -     |  [Link](https://github.com/netbox-community/netbox/blob/v2.3.0/docs/installation/postgresql.md)   |
-|      2.2       |    2.7     |    3.6     |      9.4       |     -     |  [Link](https://github.com/netbox-community/netbox/blob/v2.2.0/docs/installation/postgresql.md)   |
-|      2.1       |    2.7     |    3.6     |      9.3       |     -     |  [Link](https://github.com/netbox-community/netbox/blob/v2.1.0/docs/installation/postgresql.md)   |
-|      2.0       |    2.7     |    3.6     |      9.3       |     -     |  [Link](https://github.com/netbox-community/netbox/blob/v2.0.0/docs/installation/postgresql.md)   |
-|      1.9       |    2.7     |    3.5     |      9.2       |     -     | [Link](https://github.com/netbox-community/netbox/blob/v1.9.0-r1/docs/installation/postgresql.md) |
-|      1.8       |    2.7     |    3.5     |      9.2       |     -     |  [Link](https://github.com/netbox-community/netbox/blob/v1.8.0/docs/installation/postgresql.md)   |
-|      1.7       |    2.7     |    3.5     |      9.2       |     -     |  [Link](https://github.com/netbox-community/netbox/blob/v1.7.0/docs/installation/postgresql.md)   |
-|      1.6       |    2.7     |    3.5     |      9.2       |     -     |  [Link](https://github.com/netbox-community/netbox/blob/v1.6.0/docs/installation/postgresql.md)   |
-|      1.5       |    2.7     |    3.5     |      9.2       |     -     |  [Link](https://github.com/netbox-community/netbox/blob/v1.5.0/docs/installation/postgresql.md)   |
-|      1.4       |    2.7     |    3.5     |      9.1       |     -     |  [Link](https://github.com/netbox-community/netbox/blob/v1.4.0/docs/installation/postgresql.md)   |
-|      1.3       |    2.7     |    3.5     |      9.1       |     -     |  [Link](https://github.com/netbox-community/netbox/blob/v1.3.0/docs/installation/postgresql.md)   |
-|      1.2       |    2.7     |    3.5     |      9.1       |     -     |  [Link](https://github.com/netbox-community/netbox/blob/v1.2.0/docs/installation/postgresql.md)   |
-|      1.1       |    2.7     |    3.5     |      9.1       |     -     |      [Link](https://github.com/netbox-community/netbox/blob/v1.1.0/docs/getting-started.md)       |
-|      1.0       |    2.7     |    3.5     |      9.1       |     -     |       [Link](https://github.com/netbox-community/netbox/blob/1.0.0/docs/getting-started.md)       |
+| NetBox Version | Python min | Python max | PostgreSQL min | Redis min |                                       Documentation                                       |
+|:--------------:|:----------:|:----------:|:--------------:|:---------:|:-----------------------------------------------------------------------------------------:|
+|      4.5       |    3.12    |    3.14    |       14       |    4.0    | [Link](https://github.com/netbox-community/netbox/blob/v4.5.0/docs/installation/index.md) |
+|      4.4       |    3.10    |    3.12    |       14       |    4.0    | [Link](https://github.com/netbox-community/netbox/blob/v4.4.0/docs/installation/index.md) |
+|      4.3       |    3.10    |    3.12    |       14       |    4.0    | [Link](https://github.com/netbox-community/netbox/blob/v4.3.0/docs/installation/index.md) |
+|      4.2       |    3.10    |    3.12    |       13       |    4.0    | [Link](https://github.com/netbox-community/netbox/blob/v4.2.0/docs/installation/index.md) |
+|      4.1       |    3.10    |    3.12    |       12       |    4.0    | [Link](https://github.com/netbox-community/netbox/blob/v4.1.0/docs/installation/index.md) |
+|      4.0       |    3.10    |    3.12    |       12       |    4.0    | [Link](https://github.com/netbox-community/netbox/blob/v4.0.0/docs/installation/index.md) |
+|      3.7       |    3.8     |    3.11    |       12       |    4.0    | [Link](https://github.com/netbox-community/netbox/blob/v3.7.0/docs/installation/index.md) |
+|      3.6       |    3.8     |    3.11    |       12       |    4.0    | [Link](https://github.com/netbox-community/netbox/blob/v3.6.0/docs/installation/index.md) |
+|      3.5       |    3.8     |    3.10    |       11       |    4.0    | [Link](https://github.com/netbox-community/netbox/blob/v3.5.0/docs/installation/index.md) |
+|      3.4       |    3.8     |    3.10    |       11       |    4.0    | [Link](https://github.com/netbox-community/netbox/blob/v3.4.0/docs/installation/index.md) |
+|      3.3       |    3.8     |    3.10    |       10       |    4.0    | [Link](https://github.com/netbox-community/netbox/blob/v3.3.0/docs/installation/index.md) |
+|      3.2       |    3.8     |    3.10    |       10       |    4.0    | [Link](https://github.com/netbox-community/netbox/blob/v3.2.0/docs/installation/index.md) |
+|      3.1       |    3.7     |    3.9     |       10       |    4.0    | [Link](https://github.com/netbox-community/netbox/blob/v3.1.0/docs/installation/index.md) |
+|      3.0       |    3.7     |    3.9     |      9.6       |    4.0    | [Link](https://github.com/netbox-community/netbox/blob/v3.0.0/docs/installation/index.md) |
 
 ## 3. Install the Latest Release
 
@@ -85,7 +65,7 @@ Download and extract the latest version:
 
 ```no-highlight
 # Set $NEWVER to the NetBox version being installed
-NEWVER=3.5.0
+NEWVER=4.5.0
 wget https://github.com/netbox-community/netbox/archive/v$NEWVER.tar.gz
 sudo tar -xzf v$NEWVER.tar.gz -C /opt
 sudo ln -sfn /opt/netbox-$NEWVER/ /opt/netbox
@@ -95,7 +75,7 @@ Copy `local_requirements.txt`, `configuration.py`, and `ldap_config.py` (if pres
 
 ```no-highlight
 # Set $OLDVER to the NetBox version currently installed
-OLDVER=3.4.9
+OLDVER=4.4.10
 sudo cp /opt/netbox-$OLDVER/local_requirements.txt /opt/netbox/
 sudo cp /opt/netbox-$OLDVER/netbox/netbox/configuration.py /opt/netbox/netbox/netbox/
 sudo cp /opt/netbox-$OLDVER/netbox/netbox/ldap_config.py /opt/netbox/netbox/netbox/
@@ -136,7 +116,7 @@ Check out the desired release by specifying its tag. For example:
 ```
 cd /opt/netbox && \
 sudo git fetch --tags && \
-sudo git checkout v4.2.7
+sudo git checkout v4.5.0
 ```
 
 ## 4. Run the Upgrade Script
@@ -148,10 +128,10 @@ sudo ./upgrade.sh
 ```
 
 !!! warning
-    If the default version of Python is not at least 3.10, you'll need to pass the path to a supported Python version as an environment variable when calling the upgrade script. For example:
+    If the default version of Python is not **at least 3.12**, you'll need to pass the path to a supported Python version as an environment variable when calling the upgrade script. For example:
 
     ```no-highlight
-    sudo PYTHON=/usr/bin/python3.10 ./upgrade.sh
+    sudo PYTHON=/usr/bin/python3.12 ./upgrade.sh
     ```
 
 !!! note
@@ -183,13 +163,3 @@ Finally, restart the gunicorn and RQ services:
 ```no-highlight
 sudo systemctl restart netbox netbox-rq
 ```
-
-## 6. Verify Housekeeping Scheduling
-
-If upgrading from a release prior to NetBox v3.0, check that a cron task (or similar scheduled process) has been configured to run NetBox's nightly housekeeping command. A shell script which invokes this command is included at `contrib/netbox-housekeeping.sh`. It can be linked from your system's daily cron task directory, or included within the crontab directly. (If NetBox has been installed in a nonstandard path, be sure to update the system paths within this script first.)
-
-```shell
-sudo ln -s /opt/netbox/contrib/netbox-housekeeping.sh /etc/cron.daily/netbox-housekeeping
-```
-
-See the [housekeeping documentation](../administration/housekeeping.md) for further details.

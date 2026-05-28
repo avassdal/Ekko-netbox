@@ -5,11 +5,12 @@ from dcim.choices import *
 from dcim.constants import *
 from dcim.models import Rack, RackReservation, RackRole, RackType
 from netbox.api.fields import ChoiceField, RelatedObjectCountField
-from netbox.api.serializers import NetBoxModelSerializer
+from netbox.api.serializers import OrganizationalModelSerializer, PrimaryModelSerializer
 from netbox.choices import *
 from netbox.config import ConfigItem
 from tenancy.api.serializers_.tenants import TenantSerializer
 from users.api.serializers_.users import UserSerializer
+
 from .manufacturers import ManufacturerSerializer
 from .sites import LocationSerializer, SiteSerializer
 
@@ -22,7 +23,7 @@ __all__ = (
 )
 
 
-class RackRoleSerializer(NetBoxModelSerializer):
+class RackRoleSerializer(OrganizationalModelSerializer):
 
     # Related object counts
     rack_count = RelatedObjectCountField('racks')
@@ -30,13 +31,13 @@ class RackRoleSerializer(NetBoxModelSerializer):
     class Meta:
         model = RackRole
         fields = [
-            'id', 'url', 'display_url', 'display', 'name', 'slug', 'color', 'description', 'tags', 'custom_fields',
-            'created', 'last_updated', 'rack_count',
+            'id', 'url', 'display_url', 'display', 'name', 'slug', 'color', 'description', 'owner', 'comments', 'tags',
+            'custom_fields', 'created', 'last_updated', 'rack_count',
         ]
         brief_fields = ('id', 'url', 'display', 'name', 'slug', 'description', 'rack_count')
 
 
-class RackBaseSerializer(NetBoxModelSerializer):
+class RackBaseSerializer(PrimaryModelSerializer):
     form_factor = ChoiceField(
         choices=RackFormFactorChoices,
         allow_blank=True,
@@ -62,19 +63,18 @@ class RackBaseSerializer(NetBoxModelSerializer):
 
 
 class RackTypeSerializer(RackBaseSerializer):
-    manufacturer = ManufacturerSerializer(
-        nested=True
-    )
+    manufacturer = ManufacturerSerializer(nested=True)
+    rack_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = RackType
         fields = [
             'id', 'url', 'display_url', 'display', 'manufacturer', 'model', 'slug', 'description', 'form_factor',
             'width', 'u_height', 'starting_unit', 'desc_units', 'outer_width', 'outer_height', 'outer_depth',
-            'outer_unit', 'weight', 'max_weight', 'weight_unit', 'mounting_depth', 'description', 'comments', 'tags',
-            'custom_fields', 'created', 'last_updated',
+            'outer_unit', 'weight', 'max_weight', 'weight_unit', 'mounting_depth', 'description', 'owner', 'comments',
+            'tags', 'custom_fields', 'created', 'last_updated', 'rack_count',
         ]
-        brief_fields = ('id', 'url', 'display', 'manufacturer', 'model', 'slug', 'description')
+        brief_fields = ('id', 'url', 'display', 'manufacturer', 'model', 'slug', 'description', 'rack_count')
 
 
 class RackSerializer(RackBaseSerializer):
@@ -130,24 +130,36 @@ class RackSerializer(RackBaseSerializer):
             'id', 'url', 'display_url', 'display', 'name', 'facility_id', 'site', 'location', 'tenant', 'status',
             'role', 'serial', 'asset_tag', 'rack_type', 'form_factor', 'width', 'u_height', 'starting_unit', 'weight',
             'max_weight', 'weight_unit', 'desc_units', 'outer_width', 'outer_height', 'outer_depth', 'outer_unit',
-            'mounting_depth', 'airflow', 'description', 'comments', 'tags', 'custom_fields',
-            'created', 'last_updated', 'device_count', 'powerfeed_count',
+            'mounting_depth', 'airflow', 'description', 'owner', 'comments', 'tags', 'custom_fields', 'created',
+            'last_updated', 'device_count', 'powerfeed_count',
         ]
         brief_fields = ('id', 'url', 'display', 'name', 'description', 'device_count')
 
 
-class RackReservationSerializer(NetBoxModelSerializer):
-    rack = RackSerializer(nested=True)
-    user = UserSerializer(nested=True)
-    tenant = TenantSerializer(nested=True, required=False, allow_null=True)
+class RackReservationSerializer(PrimaryModelSerializer):
+    rack = RackSerializer(
+        nested=True,
+    )
+    status = ChoiceField(
+        choices=RackReservationStatusChoices,
+        required=False,
+    )
+    user = UserSerializer(
+        nested=True,
+    )
+    tenant = TenantSerializer(
+        nested=True,
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = RackReservation
         fields = [
-            'id', 'url', 'display_url', 'display', 'rack', 'units', 'created', 'last_updated', 'user', 'tenant',
-            'description', 'comments', 'tags', 'custom_fields',
+            'id', 'url', 'display_url', 'display', 'rack', 'units', 'status', 'created', 'last_updated', 'user',
+            'tenant', 'description', 'owner', 'comments', 'tags', 'custom_fields',
         ]
-        brief_fields = ('id', 'url', 'display', 'user', 'description', 'units')
+        brief_fields = ('id', 'url', 'display', 'status', 'user', 'description', 'units')
 
 
 class RackElevationDetailFilterSerializer(serializers.Serializer):

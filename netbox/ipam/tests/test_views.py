@@ -7,7 +7,7 @@ from netaddr import IPNetwork
 
 from core.models import ObjectType
 from dcim.constants import InterfaceTypeChoices
-from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site, Interface
+from dcim.models import Device, DeviceRole, DeviceType, Interface, Manufacturer, Site
 from ipam.choices import *
 from ipam.models import *
 from netbox.choices import CSVDelimiterChoices, ImportFormatChoices
@@ -435,13 +435,21 @@ class PrefixTestCase(ViewTestCases.PrimaryObjectViewTestCase):
             'tags': [t.pk for t in tags],
         }
 
-        site = sites[0].pk
-        cls.csv_data = (
-            "vrf,prefix,status,scope_type,scope_id",
-            f"VRF 1,10.4.0.0/16,active,dcim.site,{site}",
-            f"VRF 1,10.5.0.0/16,active,dcim.site,{site}",
-            f"VRF 1,10.6.0.0/16,active,dcim.site,{site}",
-        )
+        site = sites[0]
+        cls.csv_data = {
+            'default': (
+                "vrf,prefix,status,scope_type,scope_id",
+                f"VRF 1,10.4.0.0/16,active,dcim.site,{site.pk}",
+                f"VRF 1,10.5.0.0/16,active,dcim.site,{site.pk}",
+                f"VRF 1,10.6.0.0/16,active,dcim.site,{site.pk}",
+            ),
+            'scope_name': (
+                "vrf,prefix,status,scope_type,scope_name",
+                f"VRF 1,10.4.0.0/16,active,dcim.site,{site.name}",
+                f"VRF 1,10.5.0.0/16,active,dcim.site,{site.name}",
+                f"VRF 1,10.6.0.0/16,active,dcim.site,{site.name}",
+            ),
+        }
 
         cls.csv_update_data = (
             "id,description,status",
@@ -533,6 +541,32 @@ scope_id: {site.pk}
         self.assertEqual(prefix.scope, site)
 
     @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'])
+    def test_prefix_import_with_scope_name(self):
+        """
+        Test YAML-based import using scope_name instead of scope_id.
+        """
+        site = Site.objects.get(name='Site 1')
+        IMPORT_DATA = """
+prefix: 10.1.3.0/24
+status: active
+scope_type: dcim.site
+scope_name: Site 1
+"""
+        # Add all required permissions to the test user
+        self.add_permissions('ipam.view_prefix', 'ipam.add_prefix')
+
+        form_data = {
+            'data': IMPORT_DATA,
+            'format': 'yaml'
+        }
+        response = self.client.post(reverse('ipam:prefix_bulk_import'), data=form_data, follow=True)
+        self.assertHttpStatus(response, 200)
+
+        prefix = Prefix.objects.get(prefix='10.1.3.0/24')
+        self.assertEqual(prefix.status, PrefixStatusChoices.STATUS_ACTIVE)
+        self.assertEqual(prefix.scope, site)
+
+    @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'])
     def test_prefix_import_with_vlan_group(self):
         """
         This test covers a unique import edge case where VLAN group is specified during the import.
@@ -563,6 +597,82 @@ vlan: 102
         self.assertEqual(prefix.status, PrefixStatusChoices.STATUS_ACTIVE)
         self.assertEqual(prefix.vlan.vid, 102)
         self.assertEqual(prefix.scope, site)
+
+    @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'])
+    def test_prefix_import_with_vlan_site_multiple_vlans_same_vid(self):
+        """
+        Test import when multiple VLANs exist with the same vid but different sites.
+        Ref: #20560
+        """
+        site1 = Site.objects.get(name='Site 1')
+        site2 = Site.objects.get(name='Site 2')
+
+        # Create VLANs with the same vid but different sites
+        vlan1 = VLAN.objects.create(vid=1, name='VLAN1-Site1', site=site1)
+        VLAN.objects.create(vid=1, name='VLAN1-Site2', site=site2)  # Create ambiguity
+
+        # Import prefix with vlan_site specified
+        IMPORT_DATA = f"""
+prefix: 10.11.0.0/22
+status: active
+scope_type: dcim.site
+scope_id: {site1.pk}
+vlan_site: {site1.name}
+vlan: 1
+description: LOC02-MGMT
+"""
+
+        # Add all required permissions to the test user
+        self.add_permissions('ipam.view_prefix', 'ipam.add_prefix')
+
+        form_data = {
+            'data': IMPORT_DATA,
+            'format': 'yaml'
+        }
+        response = self.client.post(reverse('ipam:prefix_bulk_import'), data=form_data, follow=True)
+        self.assertHttpStatus(response, 200)
+
+        # Verify the prefix was created with the correct VLAN
+        prefix = Prefix.objects.get(prefix='10.11.0.0/22')
+        self.assertEqual(prefix.vlan, vlan1)
+
+    @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'])
+    def test_prefix_import_with_vlan_site_and_global_vlan(self):
+        """
+        Test import when a global VLAN (no site) and site-specific VLAN exist with same vid.
+        When vlan_site is specified, should prefer the site-specific VLAN.
+        Ref: #20560
+        """
+        site1 = Site.objects.get(name='Site 1')
+
+        # Create a global VLAN (no site) and a site-specific VLAN with the same vid
+        VLAN.objects.create(vid=10, name='VLAN10-Global', site=None)  # Create ambiguity
+        vlan_site = VLAN.objects.create(vid=10, name='VLAN10-Site1', site=site1)
+
+        # Import prefix with vlan_site specified
+        IMPORT_DATA = f"""
+prefix: 10.12.0.0/22
+status: active
+scope_type: dcim.site
+scope_id: {site1.pk}
+vlan_site: {site1.name}
+vlan: 10
+description: Test Site-Specific VLAN
+"""
+
+        # Add all required permissions to the test user
+        self.add_permissions('ipam.view_prefix', 'ipam.add_prefix')
+
+        form_data = {
+            'data': IMPORT_DATA,
+            'format': 'yaml'
+        }
+        response = self.client.post(reverse('ipam:prefix_bulk_import'), data=form_data, follow=True)
+        self.assertHttpStatus(response, 200)
+
+        # Verify the prefix was created with the site-specific VLAN (not the global one)
+        prefix = Prefix.objects.get(prefix='10.12.0.0/22')
+        self.assertEqual(prefix.vlan, vlan_site)
 
 
 class IPRangeTestCase(ViewTestCases.PrimaryObjectViewTestCase):
@@ -808,12 +918,20 @@ class VLANGroupTestCase(ViewTestCases.OrganizationalObjectViewTestCase):
             'tags': [t.pk for t in tags],
         }
 
-        cls.csv_data = (
-            "name,slug,scope_type,scope_id,description",
-            "VLAN Group 4,vlan-group-4,,,Fourth VLAN group",
-            f"VLAN Group 5,vlan-group-5,dcim.site,{sites[0].pk},Fifth VLAN group",
-            f"VLAN Group 6,vlan-group-6,dcim.site,{sites[1].pk},Sixth VLAN group",
-        )
+        cls.csv_data = {
+            'default': (
+                "name,slug,scope_type,scope_id,description",
+                "VLAN Group 4,vlan-group-4,,,Fourth VLAN group",
+                f"VLAN Group 5,vlan-group-5,dcim.site,{sites[0].pk},Fifth VLAN group",
+                f"VLAN Group 6,vlan-group-6,dcim.site,{sites[1].pk},Sixth VLAN group",
+            ),
+            'scope_name': (
+                "name,slug,scope_type,scope_name,description",
+                "VLAN Group 4,vlan-group-4,,,Fourth VLAN group",
+                f"VLAN Group 5,vlan-group-5,dcim.site,{sites[0].name},Fifth VLAN group",
+                f"VLAN Group 6,vlan-group-6,dcim.site,{sites[1].name},Sixth VLAN group",
+            ),
+        }
 
         cls.csv_update_data = (
             "id,name,description",

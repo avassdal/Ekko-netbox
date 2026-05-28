@@ -1,4 +1,5 @@
 from netbox.search import SearchIndex, register_search
+
 from . import models
 
 
@@ -12,6 +13,18 @@ class TunnelIndex(SearchIndex):
         ('comments', 5000),
     )
     display_attrs = ('group', 'status', 'encapsulation', 'tenant', 'tunnel_id', 'description')
+
+
+@register_search
+class TunnelGroupIndex(SearchIndex):
+    model = models.TunnelGroup
+    fields = (
+        ('name', 100),
+        ('slug', 110),
+        ('description', 500),
+        ('comments', 5000),
+    )
+    display_attrs = ('description',)
 
 
 @register_search

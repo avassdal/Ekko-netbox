@@ -6,6 +6,7 @@ from extras.models import Tag
 from netbox.forms.mixins import CustomFieldsMixin
 from utilities.forms import form_from_model
 from utilities.forms.fields import DynamicModelMultipleChoiceField, ExpandableNameField
+
 from .object_create import ComponentCreateForm
 
 __all__ = (
@@ -93,7 +94,7 @@ class InterfaceBulkCreateForm(
 
 
 # class FrontPortBulkCreateForm(
-#     form_from_model(FrontPort, ['label', 'type', 'description', 'tags']),
+#     form_from_model(FrontPort, ['label', 'type', 'color', 'description', 'tags']),
 #     DeviceBulkAddComponentForm
 # ):
 #     pass

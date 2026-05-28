@@ -55,8 +55,8 @@ class ServiceTemplate(ServiceBase, PrimaryModel):
 
     class Meta:
         ordering = ('name',)
-        verbose_name = _('service template')
-        verbose_name_plural = _('service templates')
+        verbose_name = _('application service template')
+        verbose_name_plural = _('application service templates')
 
 
 class Service(ContactsMixin, ServiceBase, PrimaryModel):
@@ -84,15 +84,17 @@ class Service(ContactsMixin, ServiceBase, PrimaryModel):
         related_name='services',
         blank=True,
         verbose_name=_('IP addresses'),
-        help_text=_("The specific IP addresses (if any) to which this service is bound")
+        help_text=_("The specific IP addresses (if any) to which this application service is bound")
     )
 
-    clone_fields = ['protocol', 'ports', 'description', 'parent', 'ipaddresses', ]
+    clone_fields = (
+        'protocol', 'ports', 'description', 'parent_object_type', 'parent_object_id', 'ipaddresses',
+    )
 
     class Meta:
         indexes = (
             models.Index(fields=('parent_object_type', 'parent_object_id')),
         )
         ordering = ('protocol', 'ports', 'pk')  # (protocol, port) may be non-unique
-        verbose_name = _('service')
-        verbose_name_plural = _('services')
+        verbose_name = _('application service')
+        verbose_name_plural = _('application services')

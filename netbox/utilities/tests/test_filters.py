@@ -7,20 +7,34 @@ from taggit.managers import TaggableManager
 
 from dcim.choices import *
 from dcim.fields import MACAddressField
-from dcim.filtersets import DeviceFilterSet, SiteFilterSet, InterfaceFilterSet
+from dcim.filtersets import DeviceFilterSet, InterfaceFilterSet, SiteFilterSet
 from dcim.models import (
-    Device, DeviceRole, DeviceType, Interface, MACAddress, Manufacturer, Platform, Rack, Region, Site
+    Device,
+    DeviceRole,
+    DeviceType,
+    Interface,
+    MACAddress,
+    Manufacturer,
+    Platform,
+    Rack,
+    Region,
+    Site,
 )
 from extras.filters import TagFilter
 from extras.models import TaggedItem
 from ipam.filtersets import ASNFilterSet
-from ipam.models import RIR, ASN
+from ipam.models import ASN, RIR
 from netbox.filtersets import BaseFilterSet
-from wireless.choices import WirelessRoleChoices
 from utilities.filters import (
-    MultiValueCharFilter, MultiValueDateFilter, MultiValueDateTimeFilter, MultiValueMACAddressFilter,
-    MultiValueNumberFilter, MultiValueTimeFilter, TreeNodeMultipleChoiceFilter,
+    MultiValueCharFilter,
+    MultiValueDateFilter,
+    MultiValueDateTimeFilter,
+    MultiValueMACAddressFilter,
+    MultiValueNumberFilter,
+    MultiValueTimeFilter,
+    TreeNodeMultipleChoiceFilter,
 )
+from wireless.choices import WirelessRoleChoices
 
 
 class TreeNodeMultipleChoiceFilterTest(TestCase):
@@ -415,7 +429,8 @@ class DynamicFilterLookupExpressionTest(TestCase):
             Platform(name='Platform 2', slug='platform-2'),
             Platform(name='Platform 3', slug='platform-3'),
         )
-        Platform.objects.bulk_create(platforms)
+        for platform in platforms:
+            platform.save()
 
         regions = (
             Region(name='Region 1', slug='region-1'),

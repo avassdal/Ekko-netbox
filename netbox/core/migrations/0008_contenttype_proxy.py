@@ -1,5 +1,6 @@
-import core.models.contenttypes
 from django.db import migrations
+
+import core.models.object_types
 
 
 class Migration(migrations.Migration):
@@ -19,7 +20,7 @@ class Migration(migrations.Migration):
             },
             bases=('contenttypes.contenttype',),
             managers=[
-                ('objects', core.models.contenttypes.ObjectTypeManager()),
+                ('objects', core.models.object_types.ObjectTypeManager()),
             ],
         ),
     ]

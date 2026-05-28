@@ -20,18 +20,27 @@ function storeColorMode(mode: ColorMode): void {
 }
 
 function updateElements(targetMode: ColorMode): void {
-  const body = document.querySelector('body');
-  if (body && targetMode == 'dark') {
-    body.setAttribute('data-bs-theme', 'dark');
-  } else if (body) {
-    body.setAttribute('data-bs-theme', 'light');
-  }
+  document.documentElement.setAttribute('data-bs-theme', targetMode);
 
   for (const elevation of getElements<HTMLObjectElement>('.rack_elevation')) {
-    const svg = elevation.contentDocument?.querySelector('svg') ?? null;
-    if (svg !== null) {
+    const svg = elevation.firstElementChild ?? null;
+    if (svg !== null && svg.nodeName == 'svg') {
       svg.setAttribute(`data-bs-theme`, targetMode);
     }
+  }
+}
+
+/**
+ * Set the color mode to light of elevations after an htmx call.
+ * Pulls current color mode from document
+ *
+ * @param event htmx listener event details. See: https://htmx.org/events/#htmx:afterSwap
+ */
+function updateElevations(evt: CustomEvent, ): void {
+  const swappedElement = evt.detail.elt
+  if (swappedElement.nodeName == 'svg') {
+    const currentMode = localStorage.getItem(COLOR_MODE_KEY);
+    swappedElement.setAttribute('data-bs-theme', currentMode)
   }
 }
 
@@ -43,6 +52,11 @@ function updateElements(targetMode: ColorMode): void {
 export function setColorMode(mode: ColorMode): void {
   storeColorMode(mode);
   updateElements(mode);
+  window.dispatchEvent(
+    new CustomEvent<ColorModeData>('netbox.colorModeChanged', {
+      detail: { netboxColorMode: mode },
+    }),
+  );
 }
 
 /**
@@ -110,6 +124,7 @@ function initColorModeToggle(): void {
  */
 export function initColorMode(): void {
   window.addEventListener('load', defaultColorMode);
+  window.addEventListener('htmx:afterSwap', updateElevations as EventListener); // Uses a custom event from HTMX
   for (const func of [initColorModeToggle]) {
     func();
   }

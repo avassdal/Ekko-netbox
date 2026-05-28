@@ -1,6 +1,5 @@
 import zoneinfo
 from dataclasses import dataclass
-from typing import Optional
 from urllib.parse import quote
 
 import django_tables2 as tables
@@ -21,7 +20,7 @@ from extras.choices import CustomFieldTypeChoices
 from utilities.object_types import object_type_identifier, object_type_name
 from utilities.permissions import get_permission_for_model
 from utilities.templatetags.builtins.filters import render_markdown
-from utilities.views import get_viewname
+from utilities.views import get_action_url
 
 __all__ = (
     'ActionsColumn',
@@ -39,9 +38,9 @@ __all__ = (
     'DistanceColumn',
     'DurationColumn',
     'LinkedCountColumn',
-    'MarkdownColumn',
-    'ManyToManyColumn',
     'MPTTColumn',
+    'ManyToManyColumn',
+    'MarkdownColumn',
     'TagColumn',
     'TemplateColumn',
     'ToggleColumn',
@@ -61,15 +60,18 @@ class DateColumn(tables.Column):
     def render(self, value):
         if value:
             return value.isoformat()
+        return None
 
     def value(self, value):
         if value:
             return value.isoformat()
+        return None
 
     @classmethod
     def from_field(cls, field, **kwargs):
         if isinstance(field, DateField):
             return cls(**kwargs)
+        return None
 
 
 @library.register
@@ -89,15 +91,18 @@ class DateTimeColumn(tables.Column):
             current_tz = zoneinfo.ZoneInfo(settings.TIME_ZONE)
             value = value.astimezone(current_tz)
             return f"{value.date().isoformat()} {value.time().isoformat(timespec=self.timespec)}"
+        return None
 
     def value(self, value):
         if value:
             return value.isoformat()
+        return None
 
     @classmethod
     def from_field(cls, field, **kwargs):
         if isinstance(field, DateTimeField):
             return cls(**kwargs)
+        return None
 
 
 class DurationColumn(tables.Column):
@@ -223,8 +228,8 @@ class BooleanColumn(tables.Column):
 class ActionsItem:
     title: str
     icon: str
-    permission: Optional[str] = None
-    css_class: Optional[str] = 'secondary'
+    permission: str | None = None
+    css_class: str | None = 'secondary'
 
 
 class ActionsColumn(tables.Column):
@@ -270,7 +275,7 @@ class ActionsColumn(tables.Column):
         if not (self.actions or self.extra_buttons):
             return ''
         # Skip dummy records (e.g. available VLANs or IP ranges replacing individual IPs)
-        if type(record) is not model or not getattr(record, 'pk', None):
+        if not isinstance(record, model) or not getattr(record, 'pk', None):
             return ''
 
         if request := getattr(table, 'context', {}).get('request'):
@@ -289,7 +294,7 @@ class ActionsColumn(tables.Column):
         for idx, (action, attrs) in enumerate(self.actions.items()):
             permission = get_permission_for_model(model, attrs.permission)
             if attrs.permission is None or user.has_perm(permission):
-                url = reverse(get_viewname(model, action), kwargs={'pk': record.pk})
+                url = get_action_url(model, action=action, kwargs={'pk': record.pk})
 
                 # Render a separate button if a) only one action exists, or b) if split_actions is True
                 if len(self.actions) == 1 or (self.split_actions and idx == 0):

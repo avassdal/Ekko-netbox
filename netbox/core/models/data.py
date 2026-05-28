@@ -12,13 +12,14 @@ from django.core.validators import RegexValidator
 from django.db import models
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _
 
 from netbox.constants import CENSOR_TOKEN, CENSOR_TOKEN_CHANGED
 from netbox.models import PrimaryModel
 from netbox.models.features import JobsMixin
 from netbox.registry import registry
 from utilities.querysets import RestrictedQuerySet
+
 from ..choices import *
 from ..exceptions import SyncError
 
@@ -68,7 +69,7 @@ class DataSource(JobsMixin, PrimaryModel):
     ignore_rules = models.TextField(
         verbose_name=_('ignore rules'),
         blank=True,
-        help_text=_("Patterns (one per line) matching files to ignore when syncing")
+        help_text=_("Patterns (one per line) matching files or paths to ignore when syncing")
     )
     parameters = models.JSONField(
         verbose_name=_('parameters'),
@@ -97,6 +98,7 @@ class DataSource(JobsMixin, PrimaryModel):
     def get_type_display(self):
         if backend := registry['data_backends'].get(self.type):
             return backend.label
+        return None
 
     def get_status_color(self):
         return DataSourceStatusChoices.colors.get(self.status)
@@ -128,8 +130,23 @@ class DataSource(JobsMixin, PrimaryModel):
         # Ensure URL scheme matches selected type
         if self.backend_class.is_local and self.url_scheme not in ('file', ''):
             raise ValidationError({
-                'source_url': "URLs for local sources must start with file:// (or specify no scheme)"
+                'source_url': _("URLs for local sources must start with {scheme} (or specify no scheme)").format(
+                    scheme='file://'
+                )
             })
+
+    def save(self, *args, **kwargs):
+
+        # If recurring sync is disabled for an existing DataSource, clear any pending sync jobs for it and reset its
+        # "queued" status
+        if not self._state.adding and not self.sync_interval:
+            self.jobs.filter(status=JobStatusChoices.STATUS_PENDING).delete()
+            if self.status == DataSourceStatusChoices.QUEUED and self.last_synced:
+                self.status = DataSourceStatusChoices.COMPLETED
+            elif self.status == DataSourceStatusChoices.QUEUED:
+                self.status = DataSourceStatusChoices.NEW
+
+        super().save(*args, **kwargs)
 
     def to_objectchange(self, action):
         objectchange = super().to_objectchange(action)
@@ -241,21 +258,22 @@ class DataSource(JobsMixin, PrimaryModel):
             if path.startswith('.'):
                 continue
             for file_name in file_names:
-                if not self._ignore(file_name):
-                    paths.add(os.path.join(path, file_name))
+                file_path = os.path.join(path, file_name)
+                if not self._ignore(file_path):
+                    paths.add(file_path)
 
         logger.debug(f"Found {len(paths)} files")
         return paths
 
-    def _ignore(self, filename):
+    def _ignore(self, file_path):
         """
         Returns a boolean indicating whether the file should be ignored per the DataSource's configured
-        ignore rules.
+        ignore rules. file_path is the full relative path (e.g. "subdir/file.txt").
         """
-        if filename.startswith('.'):
+        if os.path.basename(file_path).startswith('.'):
             return True
         for rule in self.ignore_rules.splitlines():
-            if fnmatchcase(filename, rule):
+            if fnmatchcase(file_path, rule) or fnmatchcase(os.path.basename(file_path), rule):
                 return True
         return False
 

@@ -1101,6 +1101,9 @@ class IPAddressTestCase(TestCase, ChangeLoggedFilterSetTests):
     queryset = IPAddress.objects.all()
     filterset = IPAddressFilterSet
     ignore_fields = ('fhrpgroup',)
+    filter_name_map = {
+        'application_service': 'service',
+    }
 
     @classmethod
     def setUpTestData(cls):
@@ -1569,12 +1572,12 @@ class FHRPGroupAssignmentTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
 
     def test_interface_type(self):
-        params = {'interface_type': 'dcim.interface'}
+        params = {'interface_type': ['dcim.interface']}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
 
     def test_interface(self):
         interfaces = Interface.objects.all()[:2]
-        params = {'interface_type': 'dcim.interface', 'interface_id': [interfaces[0].pk, interfaces[1].pk]}
+        params = {'interface_type': ['dcim.interface'], 'interface_id': [interfaces[0].pk, interfaces[1].pk]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
     def test_priority(self):
@@ -1720,6 +1723,10 @@ class VLANGroupTestCase(TestCase, ChangeLoggedFilterSetTests):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
         params = {'contains_vid': 1}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 8)
+        params = {'contains_vid': 12}  # 11 is NOT in [1,11)
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
+        params = {'contains_vid': 4095}
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 0)
 
     def test_region(self):
         params = {'region': Region.objects.first().pk}

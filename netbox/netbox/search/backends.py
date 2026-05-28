@@ -1,15 +1,15 @@
 from collections import defaultdict
 
+import netaddr
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ImproperlyConfigured
-from django.db.models import F, Window, Q, prefetch_related_objects
+from django.db.models import F, Q, Window, prefetch_related_objects
 from django.db.models.fields.related import ForeignKey
 from django.db.models.functions import window
 from django.db.models.signals import post_delete, post_save
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
-import netaddr
 from netaddr.core import AddrFormatError
 
 from core.models import ObjectType
@@ -18,6 +18,7 @@ from netbox.registry import registry
 from utilities.object_types import object_type_identifier
 from utilities.querysets import RestrictedPrefetch
 from utilities.string import title
+
 from . import FieldTypes, LookupTypes, get_indexer
 
 DEFAULT_LOOKUP_TYPE = LookupTypes.PARTIAL
@@ -187,7 +188,6 @@ class CachedValueSearchBackend(SearchBackend):
         return ret
 
     def cache(self, instances, indexer=None, remove_existing=True):
-        object_type = None
         custom_fields = None
 
         # Convert a single instance to an iterable
@@ -208,15 +208,18 @@ class CachedValueSearchBackend(SearchBackend):
                     except KeyError:
                         break
 
-                # Prefetch any associated custom fields
-                object_type = ObjectType.objects.get_for_model(indexer.model)
-                custom_fields = CustomField.objects.filter(object_types=object_type).exclude(search_weight=0)
+                # Prefetch any associated custom fields (excluding those with a zero search weight)
+                custom_fields = [
+                    cf for cf in CustomField.objects.get_for_model(indexer.model)
+                    if cf.search_weight > 0
+                ]
 
             # Wipe out any previously cached values for the object
             if remove_existing:
                 self.remove(instance)
 
             # Generate cache data
+            object_type = ObjectType.objects.get_for_model(indexer.model)
             for field in indexer.to_cache(instance, custom_fields=custom_fields):
                 buffer.append(
                     CachedValue(
@@ -245,7 +248,7 @@ class CachedValueSearchBackend(SearchBackend):
         try:
             get_indexer(instance)
         except KeyError:
-            return
+            return None
 
         ct = ContentType.objects.get_for_model(instance)
         qs = CachedValue.objects.filter(object_type=ct, object_id=instance.pk)

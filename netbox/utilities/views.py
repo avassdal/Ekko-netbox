@@ -1,13 +1,15 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from django.conf import settings
 from django.contrib.auth.mixins import AccessMixin
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models import QuerySet
+from django.http import HttpResponseForbidden
 from django.urls import reverse
 from django.urls.exceptions import NoReverseMatch
 from django.utils.translation import gettext_lazy as _
+from rest_framework.exceptions import AuthenticationFailed
 
 from netbox.api.authentication import TokenAuthentication
 from netbox.plugins import PluginConfig
@@ -15,6 +17,7 @@ from netbox.registry import registry
 from utilities.relations import get_related_models
 from utilities.request import safe_for_redirect
 from utilities.string import title
+
 from .permissions import resolve_permission
 
 __all__ = (
@@ -25,6 +28,7 @@ __all__ = (
     'ObjectPermissionRequiredMixin',
     'TokenConditionalLoginRequiredMixin',
     'ViewTab',
+    'get_action_url',
     'get_viewname',
     'register_model_view',
 )
@@ -49,10 +53,12 @@ class TokenConditionalLoginRequiredMixin(ConditionalLoginRequiredMixin):
         # Attempt to authenticate the user using a DRF token, if provided
         if settings.LOGIN_REQUIRED and not request.user.is_authenticated:
             authenticator = TokenAuthentication()
-            auth_info = authenticator.authenticate(request)
-            if auth_info is not None:
-                request.user = auth_info[0]  # User object
-                request.auth = auth_info[1]
+            try:
+                if (auth_info := authenticator.authenticate(request)) is not None:
+                    request.user = auth_info[0]  # User object
+                    request.auth = auth_info[1]
+            except AuthenticationFailed:
+                return HttpResponseForbidden("Invalid token")
 
         return super().dispatch(request, *args, **kwargs)
 
@@ -168,7 +174,7 @@ class GetReturnURLMixin:
         # Attempt to dynamically resolve the list view for the object
         if hasattr(self, 'queryset'):
             try:
-                return reverse(get_viewname(self.queryset.model, 'list'))
+                return get_action_url(self.queryset.model, action='list')
             except NoReverseMatch:
                 pass
 
@@ -311,6 +317,22 @@ def get_viewname(model, action=None, rest_api=False):
             viewname = f'{viewname}_{action}'
 
     return viewname
+
+
+def get_action_url(model, action=None, rest_api=False, kwargs=None):
+    """
+    Return the URL for the given model and action, if valid; otherwise raise NoReverseMatch.
+    Will defer to _get_action_url() on the model if it exists.
+
+    :param model: The model or instance to which the URL belongs
+    :param action: A string indicating the desired action (if any); e.g. "add" or "list"
+    :param rest_api: A boolean indicating whether this is a REST API action
+    :param kwargs: A dictionary of keyword arguments for the view to include when resolving its URL path (optional)
+    """
+    if hasattr(model, '_get_action_url'):
+        return model._get_action_url(action, rest_api, kwargs)
+
+    return reverse(get_viewname(model, action, rest_api), kwargs=kwargs)
 
 
 def register_model_view(model, name='', path=None, detail=True, kwargs=None):

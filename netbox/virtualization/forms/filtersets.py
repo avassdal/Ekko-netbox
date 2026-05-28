@@ -1,4 +1,5 @@
 from django import forms
+from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 
 from dcim.choices import *
@@ -6,11 +7,13 @@ from dcim.models import Device, DeviceRole, Location, Platform, Region, Site, Si
 from extras.forms import LocalConfigContextFilterForm
 from extras.models import ConfigTemplate
 from ipam.models import VRF, VLANTranslationPolicy
-from netbox.forms import NetBoxModelFilterSetForm
+from netbox.forms import NetBoxModelFilterSetForm, OrganizationalModelFilterSetForm, PrimaryModelFilterSetForm
+from netbox.forms.mixins import OwnerFilterMixin
 from tenancy.forms import ContactModelFilterForm, TenancyFilterForm
 from utilities.forms import BOOLEAN_WITH_BLANK_CHOICES
 from utilities.forms.fields import DynamicModelMultipleChoiceField, TagFilterField
 from utilities.forms.rendering import FieldSet
+from utilities.forms.utils import get_capacity_unit_label
 from virtualization.choices import *
 from virtualization.models import *
 from vpn.models import L2VPN
@@ -19,33 +22,39 @@ __all__ = (
     'ClusterFilterForm',
     'ClusterGroupFilterForm',
     'ClusterTypeFilterForm',
+    'VMInterfaceFilterForm',
     'VirtualDiskFilterForm',
     'VirtualMachineFilterForm',
-    'VMInterfaceFilterForm',
 )
 
 
-class ClusterTypeFilterForm(NetBoxModelFilterSetForm):
+class ClusterTypeFilterForm(OrganizationalModelFilterSetForm):
     model = ClusterType
+    fieldsets = (
+        FieldSet('q', 'filter_id', 'tag'),
+        FieldSet('owner_group_id', 'owner_id', name=_('Ownership')),
+    )
     tag = TagFilterField(model)
 
 
-class ClusterGroupFilterForm(ContactModelFilterForm, NetBoxModelFilterSetForm):
+class ClusterGroupFilterForm(ContactModelFilterForm, OrganizationalModelFilterSetForm):
     model = ClusterGroup
     tag = TagFilterField(model)
     fieldsets = (
         FieldSet('q', 'filter_id', 'tag'),
+        FieldSet('owner_group_id', 'owner_id', name=_('Ownership')),
         FieldSet('contact', 'contact_role', 'contact_group', name=_('Contacts')),
     )
 
 
-class ClusterFilterForm(TenancyFilterForm, ContactModelFilterForm, NetBoxModelFilterSetForm):
+class ClusterFilterForm(TenancyFilterForm, ContactModelFilterForm, PrimaryModelFilterSetForm):
     model = Cluster
     fieldsets = (
         FieldSet('q', 'filter_id', 'tag'),
         FieldSet('group_id', 'type_id', 'status', name=_('Attributes')),
         FieldSet('region_id', 'site_group_id', 'site_id', 'location_id', name=_('Scope')),
         FieldSet('tenant_group_id', 'tenant_id', name=_('Tenant')),
+        FieldSet('owner_group_id', 'owner_id', name=_('Ownership')),
         FieldSet('contact', 'contact_role', 'contact_group', name=_('Contacts')),
     )
     selector_fields = ('filter_id', 'q', 'group_id')
@@ -97,7 +106,7 @@ class VirtualMachineFilterForm(
     LocalConfigContextFilterForm,
     TenancyFilterForm,
     ContactModelFilterForm,
-    NetBoxModelFilterSetForm
+    PrimaryModelFilterSetForm
 ):
     model = VirtualMachine
     fieldsets = (
@@ -105,10 +114,11 @@ class VirtualMachineFilterForm(
         FieldSet('cluster_group_id', 'cluster_type_id', 'cluster_id', 'device_id', name=_('Cluster')),
         FieldSet('region_id', 'site_group_id', 'site_id', name=_('Location')),
         FieldSet(
-            'status', 'role_id', 'platform_id', 'mac_address', 'has_primary_ip', 'config_template_id',
+            'status', 'start_on_boot', 'role_id', 'platform_id', 'mac_address', 'has_primary_ip', 'config_template_id',
             'local_context_data', 'serial', name=_('Attributes')
         ),
         FieldSet('tenant_group_id', 'tenant_id', name=_('Tenant')),
+        FieldSet('owner_group_id', 'owner_id', name=_('Ownership')),
         FieldSet('contact', 'contact_role', 'contact_group', name=_('Contacts')),
     )
     cluster_group_id = DynamicModelMultipleChoiceField(
@@ -167,6 +177,11 @@ class VirtualMachineFilterForm(
         choices=VirtualMachineStatusChoices,
         required=False
     )
+    start_on_boot = forms.MultipleChoiceField(
+        label=_('Start on boot'),
+        choices=VirtualMachineStartOnBootChoices,
+        required=False
+    )
     platform_id = DynamicModelMultipleChoiceField(
         queryset=Platform.objects.all(),
         required=False,
@@ -196,7 +211,7 @@ class VirtualMachineFilterForm(
     tag = TagFilterField(model)
 
 
-class VMInterfaceFilterForm(NetBoxModelFilterSetForm):
+class VMInterfaceFilterForm(OwnerFilterMixin, NetBoxModelFilterSetForm):
     model = VMInterface
     fieldsets = (
         FieldSet('q', 'filter_id', 'tag'),
@@ -204,6 +219,7 @@ class VMInterfaceFilterForm(NetBoxModelFilterSetForm):
         FieldSet('enabled', name=_('Attributes')),
         FieldSet('vrf_id', 'l2vpn_id', 'mac_address', name=_('Addressing')),
         FieldSet('mode', 'vlan_translation_policy_id', name=_('802.1Q Switching')),
+        FieldSet('owner_group_id', 'owner_id', name=_('Ownership')),
     )
     selector_fields = ('filter_id', 'q', 'virtual_machine_id')
     cluster_id = DynamicModelMultipleChoiceField(
@@ -253,12 +269,13 @@ class VMInterfaceFilterForm(NetBoxModelFilterSetForm):
     tag = TagFilterField(model)
 
 
-class VirtualDiskFilterForm(NetBoxModelFilterSetForm):
+class VirtualDiskFilterForm(OwnerFilterMixin, NetBoxModelFilterSetForm):
     model = VirtualDisk
     fieldsets = (
         FieldSet('q', 'filter_id', 'tag'),
         FieldSet('virtual_machine_id', name=_('Virtual Machine')),
         FieldSet('size', name=_('Attributes')),
+        FieldSet('owner_group_id', 'owner_id', name=_('Ownership')),
     )
     virtual_machine_id = DynamicModelMultipleChoiceField(
         queryset=VirtualMachine.objects.all(),
@@ -266,8 +283,14 @@ class VirtualDiskFilterForm(NetBoxModelFilterSetForm):
         label=_('Virtual machine')
     )
     size = forms.IntegerField(
-        label=_('Size (MB)'),
+        label=_('Size'),
         required=False,
         min_value=1
     )
     tag = TagFilterField(model)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Set unit label based on configured DISK_BASE_UNIT (MB vs MiB)
+        self.fields['size'].label = _('Size ({unit})').format(unit=get_capacity_unit_label(settings.DISK_BASE_UNIT))

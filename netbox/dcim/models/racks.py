@@ -15,13 +15,16 @@ from dcim.constants import *
 from dcim.svg import RackElevationSVG
 from netbox.choices import ColorChoices
 from netbox.models import OrganizationalModel, PrimaryModel
-from netbox.models.mixins import WeightMixin
 from netbox.models.features import ContactsMixin, ImageAttachmentsMixin
+from netbox.models.mixins import WeightMixin
 from utilities.conversion import to_grams
 from utilities.data import array_to_string, drange
-from utilities.fields import ColorField
+from utilities.fields import ColorField, CounterCacheField
+from utilities.tracking import TrackingModelMixin
+
 from .device_components import PowerPort
-from .devices import Device, Module
+from .devices import Device
+from .modules import Module
 from .power import PowerFeed
 
 __all__ = (
@@ -120,7 +123,7 @@ class RackBase(WeightMixin, PrimaryModel):
         abstract = True
 
 
-class RackType(RackBase):
+class RackType(ImageAttachmentsMixin, RackBase):
     """
     Devices are housed within Racks. Each rack has a defined height measured in rack units, and a front and rear face.
     Each Rack is assigned to a Site and (optionally) a Location.
@@ -143,6 +146,10 @@ class RackType(RackBase):
         verbose_name=_('slug'),
         max_length=100,
         unique=True
+    )
+    rack_count = CounterCacheField(
+        to_model='dcim.Rack',
+        to_field='rack_type'
     )
 
     clone_fields = (
@@ -234,7 +241,7 @@ class RackRole(OrganizationalModel):
         verbose_name_plural = _('rack roles')
 
 
-class Rack(ContactsMixin, ImageAttachmentsMixin, RackBase):
+class Rack(ContactsMixin, ImageAttachmentsMixin, TrackingModelMixin, RackBase):
     """
     Devices are housed within Racks. Each rack has a defined height measured in rack units, and a front and rear face.
     Each Rack is assigned to a Site and (optionally) a Location.
@@ -367,7 +374,7 @@ class Rack(ContactsMixin, ImageAttachmentsMixin, RackBase):
         super().clean()
 
         # Validate location/site assignment
-        if self.site and self.location and self.location.site != self.site:
+        if self.site_id and self.location_id and self.location.site_id != self.site_id:
             raise ValidationError(_("Assigned location must belong to parent site ({site}).").format(site=self.site))
 
         # Validate outer dimensions and unit
@@ -509,7 +516,7 @@ class Rack(ContactsMixin, ImageAttachmentsMixin, RackBase):
 
         return [u for u in elevation.values()]
 
-    def get_available_units(self, u_height=1, rack_face=None, exclude=None, ignore_excluded_devices=False):
+    def get_available_units(self, u_height=1.0, rack_face=None, exclude=None, ignore_excluded_devices=False):
         """
         Return a list of units within the rack available to accommodate a device of a given U height (default 1).
         Optionally exclude one or more devices when calculating empty units (needed when moving a device from one
@@ -581,9 +588,10 @@ class Rack(ContactsMixin, ImageAttachmentsMixin, RackBase):
         :param unit_height: Height of each rack unit for the rendered drawing. Note this is not the total
             height of the elevation
         :param legend_width: Width of the unit legend, in pixels
-        :param margin_width: Width of the rigth-hand margin, in pixels
+        :param margin_width: Width of the right-hand margin, in pixels
         :param include_images: Embed front/rear device images where available
         :param base_url: Base URL for links and images. If none, URLs will be relative.
+        :param highlight_params: Dictionary of parameters to be passed to the RackElevationSVG.render_highlight() method
         """
         elevation = RackElevationSVG(
             self,
@@ -673,6 +681,12 @@ class RackReservation(PrimaryModel):
         verbose_name=_('units'),
         base_field=models.PositiveSmallIntegerField()
     )
+    status = models.CharField(
+        verbose_name=_('status'),
+        max_length=50,
+        choices=RackReservationStatusChoices,
+        default=RackReservationStatusChoices.STATUS_ACTIVE
+    )
     tenant = models.ForeignKey(
         to='tenancy.Tenant',
         on_delete=models.PROTECT,
@@ -732,6 +746,9 @@ class RackReservation(PrimaryModel):
     @property
     def unit_list(self):
         return array_to_string(self.units)
+
+    def get_status_color(self):
+        return RackReservationStatusChoices.colors.get(self.status)
 
     def to_objectchange(self, action):
         objectchange = super().to_objectchange(action)

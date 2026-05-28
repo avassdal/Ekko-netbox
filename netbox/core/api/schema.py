@@ -2,20 +2,50 @@ import re
 import typing
 from collections import OrderedDict
 
-from drf_spectacular.extensions import OpenApiSerializerFieldExtension, OpenApiSerializerExtension, _SchemaType
+from drf_spectacular.contrib.django_filters import DjangoFilterExtension
+from drf_spectacular.extensions import OpenApiSerializerExtension, OpenApiSerializerFieldExtension, _SchemaType
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.plumbing import (
-    build_basic_type, build_choice_field, build_media_type_object, build_object_type, get_doc,
+    build_basic_type,
+    build_choice_field,
+    build_media_type_object,
+    build_object_type,
+    follow_field_source,
+    get_doc,
 )
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import Direction
 
 from netbox.api.fields import ChoiceField
 from netbox.api.serializers import WritableNestedSerializer
+from netbox.api.viewsets import NetBoxModelViewSet
 
 # see netbox.api.routers.NetBoxRouter
 BULK_ACTIONS = ("bulk_destroy", "bulk_partial_update", "bulk_update")
 WRITABLE_ACTIONS = ("PATCH", "POST", "PUT")
+
+
+class NetBoxDjangoFilterExtension(DjangoFilterExtension):
+    """
+    Overrides drf-spectacular's DjangoFilterExtension to fix a regression in v0.29.0 where
+    _get_model_field() incorrectly double-appends to_field_name when field_name already ends
+    with that value (e.g. field_name='tags__slug', to_field_name='slug' produces the invalid
+    path ['tags', 'slug', 'slug']). This caused hundreds of spurious warnings during schema
+    generation for filters such as TagFilter, TenancyFilterSet.tenant, and OwnerFilterMixin.owner.
+
+    See: https://github.com/netbox-community/netbox/issues/20787
+         https://github.com/tfranzel/drf-spectacular/issues/1475
+    """
+    priority = 1
+
+    def _get_model_field(self, filter_field, model):
+        if not filter_field.field_name:
+            return None
+        path = filter_field.field_name.split('__')
+        to_field_name = filter_field.extra.get('to_field_name')
+        if to_field_name is not None and path[-1] != to_field_name:
+            path.append(to_field_name)
+        return follow_field_source(model, path, emit_warnings=False)
 
 
 class FixTimeZoneSerializerField(OpenApiSerializerFieldExtension):
@@ -34,7 +64,7 @@ class ChoiceFieldFix(OpenApiSerializerFieldExtension):
         if direction == 'request':
             return build_cf
 
-        elif direction == "response":
+        if direction == "response":
             value = build_cf
             label = {
                 **build_basic_type(OpenApiTypes.STR),
@@ -47,6 +77,15 @@ class ChoiceFieldFix(OpenApiSerializerFieldExtension):
                     "label": label
                 }
             )
+
+        # TODO: This function should never implicitly/explicitly return `None`
+        # The fallback should be well-defined (drf-spectacular expects request/response naming).
+        return None
+
+
+def viewset_handles_bulk_create(view):
+    """Check if view automatically provides list-based bulk create"""
+    return isinstance(view, NetBoxModelViewSet)
 
 
 class NetBoxAutoSchema(AutoSchema):
@@ -65,8 +104,7 @@ class NetBoxAutoSchema(AutoSchema):
     def is_bulk_action(self):
         if hasattr(self.view, "action") and self.view.action in BULK_ACTIONS:
             return True
-        else:
-            return False
+        return False
 
     def get_operation_id(self):
         """
@@ -127,6 +165,36 @@ class NetBoxAutoSchema(AutoSchema):
             return type(response_serializers)(many=True)
 
         return response_serializers
+
+    def _get_request_for_media_type(self, serializer, direction='request'):
+        """
+        Override to generate oneOf schema for serializers that support both
+        single object and array input (NetBoxModelViewSet POST operations).
+
+        Refs: #20638
+        """
+        # Get the standard schema first
+        schema, required = super()._get_request_for_media_type(serializer, direction)
+
+        # If this serializer supports arrays (marked in get_request_serializer),
+        # wrap the schema in oneOf to allow single object OR array
+        if (
+            direction == 'request' and
+            schema is not None and
+            getattr(self.view, 'action', None) == 'create' and
+            viewset_handles_bulk_create(self.view)
+        ):
+            return {
+                'oneOf': [
+                    schema,  # Single object
+                    {
+                        'type': 'array',
+                        'items': schema,  # Array of objects
+                    }
+                ]
+            }, required
+
+        return schema, required
 
     def _get_serializer_name(self, serializer, direction, bypass_extensions=False) -> str:
         name = super()._get_serializer_name(serializer, direction, bypass_extensions)
@@ -276,24 +344,23 @@ class FixSerializedPKRelatedField(OpenApiSerializerFieldExtension):
         if direction == "response":
             component = auto_schema.resolve_serializer(self.target.serializer, direction)
             return component.ref if component else None
-        else:
-            return build_basic_type(OpenApiTypes.INT)
+        return build_basic_type(OpenApiTypes.INT)
 
 
 class FixIntegerRangeSerializerSchema(OpenApiSerializerExtension):
     target_class = 'netbox.api.fields.IntegerRangeSerializer'
+    match_subclasses = True
 
     def map_serializer(self, auto_schema: 'AutoSchema', direction: Direction) -> _SchemaType:
+        # One range = two integers; many=True will wrap this in an outer array
         return {
             'type': 'array',
             'items': {
-                'type': 'array',
-                'items': {
-                    'type': 'integer',
-                },
-                'minItems': 2,
-                'maxItems': 2,
+                'type': 'integer',
             },
+            'minItems': 2,
+            'maxItems': 2,
+            'example': [10, 20],
         }
 
 
