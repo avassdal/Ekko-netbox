@@ -1,15 +1,52 @@
-from django.forms import ValidationError
-from django.test import TestCase
+import tempfile
+from pathlib import Path
 
-from core.models import ObjectType
+from django.forms import ValidationError
+from django.test import tag, TestCase
+
+from core.models import DataSource, ObjectType
 from dcim.models import Device, DeviceRole, DeviceType, Location, Manufacturer, Platform, Region, Site, SiteGroup
-from extras.models import ConfigContext, Tag
+from extras.models import ConfigContext, ConfigTemplate, Tag
 from tenancy.models import Tenant, TenantGroup
 from utilities.exceptions import AbortRequest
 from virtualization.models import Cluster, ClusterGroup, ClusterType, VirtualMachine
 
 
 class TagTest(TestCase):
+
+    def test_default_ordering_weight_then_name_is_set(self):
+        Tag.objects.create(name='Tag 1', slug='tag-1', weight=3000)
+        Tag.objects.create(name='Tag 2', slug='tag-2')  # Default: 1000
+        Tag.objects.create(name='Tag 3', slug='tag-3', weight=2000)
+        Tag.objects.create(name='Tag 4', slug='tag-4', weight=2000)
+
+        tags = Tag.objects.all()
+
+        self.assertEqual(tags[0].slug, 'tag-2')
+        self.assertEqual(tags[1].slug, 'tag-3')
+        self.assertEqual(tags[2].slug, 'tag-4')
+        self.assertEqual(tags[3].slug, 'tag-1')
+
+    def test_tag_related_manager_ordering_weight_then_name(self):
+        tags = [
+            Tag.objects.create(name='Tag 1', slug='tag-1', weight=3000),
+            Tag.objects.create(name='Tag 2', slug='tag-2'),  # Default: 1000
+            Tag.objects.create(name='Tag 3', slug='tag-3', weight=2000),
+            Tag.objects.create(name='Tag 4', slug='tag-4', weight=2000),
+        ]
+
+        site = Site.objects.create(name='Site 1')
+        for _tag in tags:
+            site.tags.add(_tag)
+        site.save()
+
+        site = Site.objects.first()
+        tags = site.tags.all()
+
+        self.assertEqual(tags[0].slug, 'tag-2')
+        self.assertEqual(tags[1].slug, 'tag-3')
+        self.assertEqual(tags[2].slug, 'tag-4')
+        self.assertEqual(tags[3].slug, 'tag-1')
 
     def test_create_tag_unicode(self):
         tag = Tag(name='Testing Unicode: 台灣')
@@ -506,3 +543,66 @@ class ConfigContextTest(TestCase):
         device.local_context_data = 'foo'
         with self.assertRaises(ValidationError):
             device.clean()
+
+
+class ConfigTemplateTest(TestCase):
+    """
+    TODO: These test cases deal with the weighting, ordering, and deep merge logic of config context data.
+    """
+    MAIN_TEMPLATE = """
+    {%- include 'base.j2' %}
+    """.strip()
+    BASE_TEMPLATE = """
+    Hi
+    """.strip()
+
+    @classmethod
+    def _create_template_file(cls, templates_dir, file_name, content):
+        template_file_name = file_name
+        if not template_file_name.endswith('j2'):
+            template_file_name += '.j2'
+        temp_file_path = templates_dir / template_file_name
+
+        with open(temp_file_path, 'w') as f:
+            f.write(content)
+
+    @classmethod
+    def setUpTestData(cls):
+        temp_dir = tempfile.TemporaryDirectory()
+        templates_dir = Path(temp_dir.name) / "templates"
+        templates_dir.mkdir(parents=True, exist_ok=True)
+
+        cls._create_template_file(templates_dir, 'base.j2', cls.BASE_TEMPLATE)
+        cls._create_template_file(templates_dir, 'main.j2', cls.MAIN_TEMPLATE)
+
+        data_source = DataSource(
+            name="Test DataSource",
+            type="local",
+            source_url=str(templates_dir),
+        )
+        data_source.save()
+        data_source.sync()
+
+        base_config_template = ConfigTemplate(
+            name="BaseTemplate",
+            data_file=data_source.datafiles.filter(path__endswith='base.j2').first()
+        )
+        base_config_template.clean()
+        base_config_template.save()
+        cls.base_config_template = base_config_template
+
+        main_config_template = ConfigTemplate(
+            name="MainTemplate",
+            data_file=data_source.datafiles.filter(path__endswith='main.j2').first()
+        )
+        main_config_template.clean()
+        main_config_template.save()
+        cls.main_config_template = main_config_template
+
+    @tag('regression')
+    def test_config_template_with_data_source(self):
+        self.assertEqual(self.BASE_TEMPLATE, self.base_config_template.render({}))
+
+    @tag('regression')
+    def test_config_template_with_data_source_nested_templates(self):
+        self.assertEqual(self.BASE_TEMPLATE, self.main_config_template.render({}))

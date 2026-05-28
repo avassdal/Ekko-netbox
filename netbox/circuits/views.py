@@ -1,12 +1,11 @@
 from django.contrib import messages
-from django.db import transaction
+from django.db import router, transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext_lazy as _
 
 from dcim.views import PathTraceView
 from ipam.models import ASN
 from netbox.views import generic
-from tenancy.views import ObjectContactsView
 from utilities.forms import ConfirmationForm
 from utilities.query import count_related
 from utilities.views import GetRelatedModelsMixin, register_model_view
@@ -89,11 +88,6 @@ class ProviderBulkDeleteView(generic.BulkDeleteView):
     table = tables.ProviderTable
 
 
-@register_model_view(Provider, 'contacts')
-class ProviderContactsView(ObjectContactsView):
-    queryset = Provider.objects.all()
-
-
 #
 # ProviderAccounts
 #
@@ -154,11 +148,6 @@ class ProviderAccountBulkDeleteView(generic.BulkDeleteView):
     )
     filterset = filtersets.ProviderAccountFilterSet
     table = tables.ProviderAccountTable
-
-
-@register_model_view(ProviderAccount, 'contacts')
-class ProviderAccountContactsView(ObjectContactsView):
-    queryset = ProviderAccount.objects.all()
 
 
 #
@@ -395,7 +384,7 @@ class CircuitSwapTerminations(generic.ObjectEditView):
 
             if termination_a and termination_z:
                 # Use a placeholder to avoid an IntegrityError on the (circuit, term_side) unique constraint
-                with transaction.atomic():
+                with transaction.atomic(using=router.db_for_write(CircuitTermination)):
                     termination_a.term_side = '_'
                     termination_a.save()
                     termination_z.term_side = 'A'
@@ -431,11 +420,6 @@ class CircuitSwapTerminations(generic.ObjectEditView):
             'button_class': 'primary',
             'return_url': circuit.get_absolute_url(),
         })
-
-
-@register_model_view(Circuit, 'contacts')
-class CircuitContactsView(ObjectContactsView):
-    queryset = Circuit.objects.all()
 
 
 #

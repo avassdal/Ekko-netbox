@@ -1,23 +1,25 @@
 import logging
+from threading import local
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db.models.fields.reverse_related import ManyToManyRel, ManyToOneRel
 from django.db.models.signals import m2m_changed, post_save, pre_delete
 from django.dispatch import receiver, Signal
+from django.core.signals import request_finished
 from django.utils.translation import gettext_lazy as _
 from django_prometheus.models import model_deletes, model_inserts, model_updates
 
-from core.choices import ObjectChangeActionChoices
+from core.choices import JobStatusChoices, ObjectChangeActionChoices
 from core.events import *
-from core.models import ObjectChange
 from extras.events import enqueue_event
+from extras.models import Tag
 from extras.utils import run_validators
 from netbox.config import get_config
 from netbox.context import current_request, events_queue
 from netbox.models.features import ChangeLoggingMixin
 from utilities.exceptions import AbortRequest
-from .models import ConfigRevision
+from .models import ConfigRevision, DataSource, ObjectChange
 
 __all__ = (
     'clear_events',
@@ -43,6 +45,10 @@ clear_events = Signal()
 # Change logging & event handling
 #
 
+# Used to track received signals per object
+_signals_received = local()
+
+
 @receiver((post_save, m2m_changed))
 def handle_changed_object(sender, instance, **kwargs):
     """
@@ -67,6 +73,17 @@ def handle_changed_object(sender, instance, **kwargs):
         # m2m_changed with objects added or removed
         m2m_changed = True
         event_type = OBJECT_UPDATED
+    elif kwargs.get('action') == 'post_clear':
+        # Handle clearing of an M2M field
+        if kwargs.get('model') == Tag and getattr(instance, '_prechange_snapshot', {}).get('tags'):
+            # Handle generation of M2M changes for Tags which have a previous value (ignoring changes where the
+            # prechange snapshot is empty)
+            m2m_changed = True
+            event_type = OBJECT_UPDATED
+        else:
+            # Other endpoints are unimpacted as they send post_add and post_remove
+            # This will impact changes that utilize clear() however so we may want to give consideration for this branch
+            return
     else:
         return
 
@@ -131,6 +148,16 @@ def handle_deleted_object(sender, instance, **kwargs):
     if request is None:
         return
 
+    # Check whether we've already processed a pre_delete signal for this object. (This can
+    # happen e.g. when both a parent object and its child are deleted simultaneously, due
+    # to cascading deletion.)
+    if not hasattr(_signals_received, 'pre_delete'):
+        _signals_received.pre_delete = set()
+    signature = (ContentType.objects.get_for_model(instance), instance.pk)
+    if signature in _signals_received.pre_delete:
+        return
+    _signals_received.pre_delete.add(signature)
+
     # Record an ObjectChange if applicable
     if hasattr(instance, 'to_objectchange'):
         if hasattr(instance, 'snapshot') and not getattr(instance, '_prechange_snapshot', None):
@@ -163,6 +190,12 @@ def handle_deleted_object(sender, instance, **kwargs):
                 getattr(obj, related_field_name).remove(instance)
             elif type(relation) is ManyToOneRel and relation.field.null is True:
                 setattr(obj, related_field_name, None)
+                # make sure the object hasn't been deleted - in case of
+                # deletion chaining of related objects
+                try:
+                    obj.refresh_from_db()
+                except DoesNotExist:
+                    continue
                 obj.save()
 
     # Enqueue the object for event processing
@@ -172,6 +205,14 @@ def handle_deleted_object(sender, instance, **kwargs):
 
     # Increment metric counters
     model_deletes.labels(instance._meta.model_name).inc()
+
+
+@receiver(request_finished)
+def clear_signal_history(sender, **kwargs):
+    """
+    Clear out the signals history once the request is finished.
+    """
+    _signals_received.pre_delete = set()
 
 
 @receiver(clear_events)
@@ -187,6 +228,25 @@ def clear_events_queue(sender, **kwargs):
 #
 # DataSource handlers
 #
+
+@receiver(post_save, sender=DataSource)
+def enqueue_sync_job(instance, created, **kwargs):
+    """
+    When a DataSource is saved, check its sync_interval and enqueue a sync job if appropriate.
+    """
+    from .jobs import SyncDataSourceJob
+
+    if instance.enabled and instance.sync_interval:
+        SyncDataSourceJob.enqueue_once(instance, interval=instance.sync_interval)
+    elif not created:
+        # Delete any previously scheduled recurring jobs for this DataSource
+        for job in SyncDataSourceJob.get_jobs(instance).defer('data').filter(
+            interval__isnull=False,
+            status=JobStatusChoices.STATUS_SCHEDULED
+        ):
+            # Call delete() per instance to ensure the associated background task is deleted as well
+            job.delete()
+
 
 @receiver(post_sync)
 def auto_sync(instance, **kwargs):

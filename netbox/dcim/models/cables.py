@@ -11,6 +11,7 @@ from dcim.choices import *
 from dcim.constants import *
 from dcim.fields import PathField
 from dcim.utils import decompile_path_node, object_to_path_node
+from netbox.choices import ColorChoices
 from netbox.models import ChangeLoggedModel, PrimaryModel
 from utilities.conversion import to_meters
 from utilities.exceptions import AbortRequest
@@ -155,6 +156,15 @@ class Cable(PrimaryModel):
             self._terminations_modified = True
         self._b_terminations = value
 
+    @property
+    def color_name(self):
+        color_name = ""
+        for hex_code, label in ColorChoices.CHOICES:
+            if hex_code.lower() == self.color.lower():
+                color_name = str(label)
+
+        return color_name
+
     def clean(self):
         super().clean()
 
@@ -261,7 +271,6 @@ class CableTermination(ChangeLoggedModel):
     )
     termination_type = models.ForeignKey(
         to='contenttypes.ContentType',
-        limit_choices_to=CABLE_TERMINATION_MODELS,
         on_delete=models.PROTECT,
         related_name='+'
     )
@@ -301,9 +310,6 @@ class CableTermination(ChangeLoggedModel):
 
     class Meta:
         ordering = ('cable', 'cable_end', 'pk')
-        indexes = (
-            models.Index(fields=('termination_type', 'termination_id')),
-        )
         constraints = (
             models.UniqueConstraint(
                 fields=('termination_type', 'termination_id'),

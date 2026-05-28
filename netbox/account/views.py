@@ -91,10 +91,12 @@ class LoginView(View):
         if request.user.is_authenticated:
             logger = logging.getLogger('netbox.auth.login')
             return self.redirect_to_next(request, logger)
+        login_form_hidden = settings.LOGIN_FORM_HIDDEN
 
         return render(request, self.template_name, {
             'form': form,
             'auth_backends': self.get_auth_backends(request),
+            'login_form_hidden': login_form_hidden,
         })
 
     def post(self, request):
@@ -189,12 +191,10 @@ class ProfileView(LoginRequiredMixin, View):
     def get(self, request):
 
         # Compile changelog table
-        changelog = ObjectChange.objects.valid_models().restrict(request.user, 'view').filter(
-            user=request.user
-        ).prefetch_related(
-            'changed_object_type'
-        )[:20]
+        changelog = ObjectChange.objects.valid_models().restrict(request.user, 'view').filter(user=request.user)[:20]
         changelog_table = ObjectChangeTable(changelog)
+        changelog_table.orderable = False
+        changelog_table.configure(request)
 
         return render(request, self.template_name, {
             'changelog_table': changelog_table,

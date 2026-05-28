@@ -22,6 +22,7 @@ from rq.worker_registration import clean_worker_registry
 
 from core.utils import delete_rq_job, enqueue_rq_job, get_rq_jobs_from_status, requeue_rq_job, stop_rq_job
 from netbox.config import get_config, PARAMS
+from netbox.registry import registry
 from netbox.views import generic
 from netbox.views.generic.base import BaseObjectView
 from netbox.views.generic.mixins import TableMixin
@@ -32,7 +33,6 @@ from utilities.json import ConfigJSONEncoder
 from utilities.query import count_related
 from utilities.views import ContentTypePermissionRequiredMixin, GetRelatedModelsMixin, register_model_view
 from . import filtersets, forms, tables
-from .choices import DataSourceStatusChoices
 from .jobs import SyncDataSourceJob
 from .models import *
 from .plugins import get_catalog_plugins, get_local_plugins
@@ -77,12 +77,8 @@ class DataSourceSyncView(BaseObjectView):
 
     def post(self, request, pk):
         datasource = get_object_or_404(self.queryset, pk=pk)
-
-        # Enqueue the sync job & update the DataSource's status
+        # Enqueue the sync job
         job = SyncDataSourceJob.enqueue(instance=datasource, user=request.user)
-        datasource.status = DataSourceStatusChoices.QUEUED
-        DataSource.objects.filter(pk=datasource.pk).update(status=datasource.status)
-
         messages.success(
             request,
             _("Queued job #{id} to sync {datasource}").format(id=job.pk, datasource=datasource)
@@ -222,6 +218,7 @@ class ObjectChangeView(generic.ObjectView):
             data=related_changes[:50],
             orderable=False
         )
+        related_changes_table.configure(request)
 
         objectchanges = ObjectChange.objects.valid_models().restrict(request.user, 'view').filter(
             changed_object_type=instance.changed_object_type,
@@ -560,7 +557,7 @@ class SystemView(UserPassesTestMixin, View):
             params = [param.name for param in PARAMS]
             data = {
                 **stats,
-                'plugins': settings.PLUGINS,
+                'plugins': registry['plugins']['installed'],
                 'config': {
                     k: getattr(config, k) for k in sorted(params)
                 },
@@ -611,6 +608,8 @@ class PluginListView(BasePluginView):
         plugins = self.get_cached_plugins(request).values()
         if q:
             plugins = [obj for obj in plugins if q.casefold() in obj.title_short.casefold()]
+
+        plugins = [plugin for plugin in plugins if not plugin.hidden]
 
         table = CatalogPluginTable(plugins, user=request.user)
         table.configure(request)

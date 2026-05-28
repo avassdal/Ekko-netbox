@@ -1,7 +1,7 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.contenttypes.models import ContentType
 from django.contrib import messages
-from django.db import transaction
+from django.db import router, transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext_lazy as _
@@ -12,13 +12,19 @@ from core.tables import JobTable, ObjectChangeTable
 from extras.forms import JournalEntryForm
 from extras.models import JournalEntry
 from extras.tables import JournalEntryTable
+from tenancy.models import ContactAssignment
+from tenancy.tables import ContactAssignmentTable
+from tenancy.filtersets import ContactAssignmentFilterSet
+from tenancy.forms import ContactAssignmentFilterForm
 from utilities.permissions import get_permission_for_model
 from utilities.views import ConditionalLoginRequiredMixin, GetReturnURLMixin, ViewTab
 from .base import BaseMultiObjectView
+from .object_views import ObjectChildrenView
 
 __all__ = (
     'BulkSyncDataView',
     'ObjectChangeLogView',
+    'ObjectContactsView',
     'ObjectJobsView',
     'ObjectJournalView',
     'ObjectSyncDataView',
@@ -234,7 +240,7 @@ class BulkSyncDataView(GetReturnURLMixin, BaseMultiObjectView):
             data_file__isnull=False
         )
 
-        with transaction.atomic():
+        with transaction.atomic(using=router.db_for_write(self.queryset.model)):
             for obj in selected_objects:
                 obj.sync(save=True)
 
@@ -244,3 +250,25 @@ class BulkSyncDataView(GetReturnURLMixin, BaseMultiObjectView):
             ))
 
         return redirect(self.get_return_url(request))
+
+
+class ObjectContactsView(ObjectChildrenView):
+    child_model = ContactAssignment
+    table = ContactAssignmentTable
+    filterset = ContactAssignmentFilterSet
+    filterset_form = ContactAssignmentFilterForm
+    template_name = 'tenancy/object_contacts.html'
+    tab = ViewTab(
+        label=_('Contacts'),
+        badge=lambda obj: obj.get_contacts().count(),
+        permission='tenancy.view_contactassignment',
+        weight=5000
+    )
+
+    def dispatch(self, request, *args, **kwargs):
+        model = kwargs.pop('model')
+        self.queryset = model.objects.all()
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_children(self, request, parent):
+        return parent.get_contacts().restrict(request.user, 'view').order_by('priority', 'contact', 'role')

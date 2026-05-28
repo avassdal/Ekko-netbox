@@ -12,6 +12,16 @@ BASE_PATH = 'netbox/'
 
 ---
 
+## DATABASE_ROUTERS
+
+!!! info "This parameter was introduced in NetBox v4.3."
+
+Default: `[]` (empty list)
+
+An iterable of [database routers](https://docs.djangoproject.com/en/stable/topics/db/multi-db/) to use for automatically selecting the appropriate database(s) for a query. This is useful only when [multiple databases](./required-parameters.md#databases) have been configured.
+
+---
+
 ## DEFAULT_LANGUAGE
 
 Default: `en-us` (US English)
@@ -75,6 +85,8 @@ HTTP_PROXIES = {
 }
 ```
 
+If more flexibility is needed in determining which proxy to use for a given request, consider implementing one or more custom proxy routers via the [`PROXY_ROUTERS`](#proxy_routers) parameter.
+
 ---
 
 ## INTERNAL_IPS
@@ -83,7 +95,7 @@ Default: `('127.0.0.1', '::1')`
 
 A list of IP addresses recognized as internal to the system, used to control the display of debugging output. For
 example, the debugging toolbar will be viewable only when a client is accessing NetBox from one of the listed IP
-addresses (and [`DEBUG`](./development.md#debug) is true).
+addresses (and [`DEBUG`](./development.md#debug) is `True`).
 
 ---
 
@@ -91,7 +103,7 @@ addresses (and [`DEBUG`](./development.md#debug) is true).
 
 Default: `False`
 
-Set this configuration parameter to True for NetBox deployments which do not have Internet access. This will disable miscellaneous functionality which depends on access to the Internet.
+Set this configuration parameter to `True` for NetBox deployments which do not have Internet access. This will disable miscellaneous functionality which depends on access to the Internet.
 
 !!! note
     If Internet access is available via a proxy, set [`HTTP_PROXIES`](#http_proxies) instead.
@@ -102,7 +114,7 @@ Set this configuration parameter to True for NetBox deployments which do not hav
 
 Default: `{}`
 
-A dictionary of custom jinja2 filters with the key being the filter name and the value being a callable. For more information see the [Jinja2 documentation](https://jinja.palletsprojects.com/en/3.1.x/api/#custom-filters). For example:
+A dictionary of custom Jinja2 filters with the key being the filter name and the value being a callable. For more information see the [Jinja2 documentation](https://jinja.palletsprojects.com/en/3.1.x/api/#custom-filters). For example:
 
 ```python
 def uppercase(x):
@@ -146,6 +158,7 @@ LOGGING = {
 * `netbox.<app>.<model>` - Generic form for model-specific log messages
 * `netbox.auth.*` - Authentication events
 * `netbox.api.views.*` - Views which handle business logic for the REST API
+* `netbox.event_rules` - Event rules
 * `netbox.reports.*` - Report execution (`module.name`)
 * `netbox.scripts.*` - Custom script execution (`module.name`)
 * `netbox.views.*` - Views which handle business logic for the web UI
@@ -157,6 +170,18 @@ LOGGING = {
 Default: `$INSTALL_ROOT/netbox/media/`
 
 The file path to the location where media files (such as image attachments) are stored. By default, this is the `netbox/media/` directory within the base NetBox installation path.
+
+---
+
+## PROXY_ROUTERS
+
+!!! info "This parameter was introduced in NetBox v4.3."
+
+Default: `["utilities.proxy.DefaultProxyRouter"]`
+
+A list of Python classes responsible for determining which proxy server(s) to use for outbound HTTP requests. Each item in the list can be the class itself or the dotted path to the class.
+
+The `route()` method on each class must return a dictionary of candidate proxies arranged by protocol (e.g. `http` and/or `https`), or None if no viable proxy can be determined. The default class, `DefaultProxyRouter`, simply returns the content of [`HTTP_PROXIES`](#http_proxies).
 
 ---
 
@@ -184,23 +209,46 @@ The dotted path to the desired search backend class. `CachedValueSearchBackend` 
 
 ---
 
-## STORAGE_BACKEND
+## STORAGES
 
-Default: None (local storage)
+The backend storage engine for handling uploaded files such as [image attachments](../models/extras/imageattachment.md) and [custom scripts](../customization/custom-scripts.md). NetBox integrates with the [`django-storages`](https://django-storages.readthedocs.io/en/stable/) and [`django-storage-swift`](https://github.com/dennisv/django-storage-swift) libraries, which provide backends for several popular file storage services. If not configured, local filesystem storage will be used.
 
-The backend storage engine for handling uploaded files (e.g. image attachments). NetBox supports integration with the [`django-storages`](https://django-storages.readthedocs.io/en/stable/) and [`django-storage-swift`](https://github.com/dennisv/django-storage-swift) packages, which provide backends for several popular file storage services. If not configured, local filesystem storage will be used.
+By default, the following configuration is used:
 
-The configuration parameters for the specified storage backend are defined under the `STORAGE_CONFIG` setting.
+```python
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+    "scripts": {
+        "BACKEND": "extras.storage.ScriptFileSystemStorage",
+    },
+}
+```
 
----
+Within the `STORAGES` dictionary, `"default"` is used for image uploads, "staticfiles" is for static files and `"scripts"` is used for custom scripts.
 
-## STORAGE_CONFIG
+If using a remote storage like S3, define the config as `STORAGES[key]["OPTIONS"]` for each storage item as needed. For example:
 
-Default: Empty
+```python
+STORAGES = { 
+    "scripts": { 
+        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage", 
+        "OPTIONS": { 
+            'access_key': 'access key', 
+            'secret_key': 'secret key',
+        }
+    }, 
+}
+```
 
-A dictionary of configuration parameters for the storage backend configured as `STORAGE_BACKEND`. The specific parameters to be used here are specific to each backend; see the documentation for your selected backend ([`django-storages`](https://django-storages.readthedocs.io/en/stable/) or [`django-storage-swift`](https://github.com/dennisv/django-storage-swift)) for more detail.
+The specific configuration settings for each storage backend can be found in the [django-storages documentation](https://django-storages.readthedocs.io/en/latest/index.html).
 
-If `STORAGE_BACKEND` is not defined, this setting will be ignored.
+!!! note
+    Any keys defined in the `STORAGES` configuration parameter replace those in the default configuration. It is only necessary to define keys within the `STORAGES` for the specific backend(s) you wish to configure.
 
 ---
 

@@ -1,7 +1,7 @@
 from functools import cached_property
 
 from django.conf import settings
-from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.urls import reverse
@@ -144,6 +144,12 @@ class NotificationGroup(ChangeLoggedModel):
         blank=True,
         related_name='notification_groups'
     )
+    event_rules = GenericRelation(
+        to='extras.EventRule',
+        content_type_field='action_object_type',
+        object_id_field='action_object_id',
+        related_query_name='+'
+    )
 
     objects = RestrictedQuerySet.as_manager()
 
@@ -167,14 +173,17 @@ class NotificationGroup(ChangeLoggedModel):
             User.objects.filter(groups__in=self.groups.all())
         ).order_by('username')
 
-    def notify(self, **kwargs):
+    def notify(self, object_type, object_id, **kwargs):
         """
         Bulk-create Notifications for all members of this group.
         """
-        Notification.objects.bulk_create([
-            Notification(user=member, **kwargs)
-            for member in self.members
-        ])
+        for user in self.members:
+            Notification.objects.update_or_create(
+                object_type=object_type,
+                object_id=object_id,
+                user=user,
+                defaults=kwargs
+            )
     notify.alters_data = True
 
 
