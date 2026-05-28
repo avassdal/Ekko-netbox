@@ -164,7 +164,7 @@ class Cable(PrimaryModel):
         if self.length is not None and not self.length_unit:
             raise ValidationError(_("Must specify a unit when setting a cable length"))
 
-        if self.pk is None and (not self.a_terminations or not self.b_terminations):
+        if self._state.adding and self.pk is None and (not self.a_terminations or not self.b_terminations):
             raise ValidationError(_("Must define A and B terminations when creating a new cable."))
 
         if self._terminations_modified:
@@ -366,11 +366,11 @@ class CableTermination(ChangeLoggedModel):
     def delete(self, *args, **kwargs):
 
         # Delete the cable association on the terminating object
-        termination_model = self.termination._meta.model
-        termination_model.objects.filter(pk=self.termination_id).update(
-            cable=None,
-            cable_end=''
-        )
+        termination = self.termination._meta.model.objects.get(pk=self.termination_id)
+        termination.snapshot()
+        termination.cable = None
+        termination.cable_end = ''
+        termination.save()
 
         super().delete(*args, **kwargs)
 
@@ -607,6 +607,10 @@ class CablePath(models.Model):
                     cable_end = 'A' if lct.cable_end == 'B' else 'B'
                     q_filter |= Q(cable=lct.cable, cable_end=cable_end)
 
+                # Make sure this filter has been populated; if not, we have probably been given invalid data
+                if not q_filter:
+                    break
+
                 remote_cable_terminations = CableTermination.objects.filter(q_filter)
                 remote_terminations = [ct.termination for ct in remote_cable_terminations]
             else:
@@ -666,6 +670,14 @@ class CablePath(models.Model):
                         rear_port_id=remote_terminations[0].pk,
                         rear_port_position__in=position_stack.pop()
                     )
+                # If all rear ports have a single position, we can just get the front ports
+                elif all([rp.positions == 1 for rp in remote_terminations]):
+                    front_ports = FrontPort.objects.filter(rear_port_id__in=[rp.pk for rp in remote_terminations])
+
+                    if len(front_ports) != len(remote_terminations):
+                        # Some rear ports does not have a front port
+                        is_split = True
+                        break
                 else:
                     # No position indicated: path has split, so we stop at the RearPorts
                     is_split = True

@@ -1,5 +1,3 @@
-import traceback
-
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import EmptyPage, PageNotAnInteger
@@ -11,7 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.html import escape
 from django.utils.safestring import mark_safe
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _
 from django.views.generic import View
 from jinja2.exceptions import TemplateError
 
@@ -35,7 +33,7 @@ from virtualization.forms import VirtualMachineFilterForm
 from virtualization.models import VirtualMachine
 from virtualization.tables import VirtualMachineTable
 from . import filtersets, forms, tables
-from .choices import DeviceFaceChoices
+from .choices import DeviceFaceChoices, InterfaceModeChoices
 from .models import *
 
 CABLE_TERMINATION_TYPES = {
@@ -579,6 +577,58 @@ class RackRoleBulkDeleteView(generic.BulkDeleteView):
     )
     filterset = filtersets.RackRoleFilterSet
     table = tables.RackRoleTable
+
+
+#
+# RackTypes
+#
+
+class RackTypeListView(generic.ObjectListView):
+    queryset = RackType.objects.annotate(
+        instance_count=count_related(Rack, 'rack_type')
+    )
+    filterset = filtersets.RackTypeFilterSet
+    filterset_form = forms.RackTypeFilterForm
+    table = tables.RackTypeTable
+
+
+@register_model_view(RackType)
+class RackTypeView(GetRelatedModelsMixin, generic.ObjectView):
+    queryset = RackType.objects.all()
+
+    def get_extra_context(self, request, instance):
+        return {
+            'related_models': self.get_related_models(request, instance),
+        }
+
+
+@register_model_view(RackType, 'edit')
+class RackTypeEditView(generic.ObjectEditView):
+    queryset = RackType.objects.all()
+    form = forms.RackTypeForm
+
+
+@register_model_view(RackType, 'delete')
+class RackTypeDeleteView(generic.ObjectDeleteView):
+    queryset = RackType.objects.all()
+
+
+class RackTypeBulkImportView(generic.BulkImportView):
+    queryset = RackType.objects.all()
+    model_form = forms.RackTypeImportForm
+
+
+class RackTypeBulkEditView(generic.BulkEditView):
+    queryset = RackType.objects.all()
+    filterset = filtersets.RackTypeFilterSet
+    table = tables.RackTypeTable
+    form = forms.RackTypeBulkEditForm
+
+
+class RackTypeBulkDeleteView(generic.BulkDeleteView):
+    queryset = RackType.objects.all()
+    filterset = filtersets.RackTypeFilterSet
+    table = tables.RackTypeTable
 
 
 #
@@ -1260,6 +1310,21 @@ class ModuleTypeRearPortsView(ModuleTypeComponentsView):
         badge=lambda obj: obj.rearporttemplates.count(),
         permission='dcim.view_rearporttemplate',
         weight=520,
+        hide_if_empty=True
+    )
+
+
+@register_model_view(ModuleType, 'modulebays', path='module-bays')
+class ModuleTypeModuleBaysView(ModuleTypeComponentsView):
+    child_model = ModuleBayTemplate
+    table = tables.ModuleBayTemplateTable
+    filterset = filtersets.ModuleBayTemplateFilterSet
+    viewname = 'dcim:moduletype_modulebays'
+    tab = ViewTab(
+        label=_('Module Bays'),
+        badge=lambda obj: obj.modulebaytemplates.count(),
+        permission='dcim.view_modulebaytemplate',
+        weight=570,
         hide_if_empty=True
     )
 
@@ -2039,7 +2104,8 @@ class DeviceRenderConfigView(generic.ObjectView):
         # If a direct export has been requested, return the rendered template content as a
         # downloadable file.
         if request.GET.get('export'):
-            response = HttpResponse(context['rendered_config'], content_type='text')
+            content = context['rendered_config'] or context['error_message']
+            response = HttpResponse(content, content_type='text')
             filename = f"{instance.name or 'config'}.txt"
             response['Content-Disposition'] = f'attachment; filename="{filename}"'
             return response
@@ -2057,17 +2123,18 @@ class DeviceRenderConfigView(generic.ObjectView):
 
         # Render the config template
         rendered_config = None
+        error_message = None
         if config_template := instance.get_config_template():
             try:
                 rendered_config = config_template.render(context=context_data)
             except TemplateError as e:
-                messages.error(request, _("An error occurred while rendering the template: {error}").format(error=e))
-                rendered_config = traceback.format_exc()
+                error_message = _("An error occurred while rendering the template: {error}").format(error=e)
 
         return {
             'config_template': config_template,
             'context_data': context_data,
             'rendered_config': rendered_config,
+            'error_message': error_message,
         }
 
 
@@ -2548,6 +2615,16 @@ class InterfaceBulkEditView(generic.BulkEditView):
     filterset = filtersets.InterfaceFilterSet
     table = tables.InterfaceTable
     form = forms.InterfaceBulkEditForm
+
+    def post_save_operations(self, form, obj):
+        super().post_save_operations(form, obj)
+
+        # Add/remove tagged VLANs
+        if obj.mode == InterfaceModeChoices.MODE_TAGGED:
+            if form.cleaned_data.get('add_tagged_vlans', None):
+                obj.tagged_vlans.add(*form.cleaned_data['add_tagged_vlans'])
+            if form.cleaned_data.get('remove_tagged_vlans', None):
+                obj.tagged_vlans.remove(*form.cleaned_data['remove_tagged_vlans'])
 
 
 class InterfaceBulkRenameView(generic.BulkRenameView):
@@ -3186,10 +3263,10 @@ class CableEditView(generic.ObjectEditView):
         doesn't currently provide a hook for dynamic class resolution.
         """
         a_terminations_type = CABLE_TERMINATION_TYPES.get(
-            request.GET.get('a_terminations_type') or request.POST.get('a_terminations_type')
+            request.POST.get('a_terminations_type') or request.GET.get('a_terminations_type')
         )
         b_terminations_type = CABLE_TERMINATION_TYPES.get(
-            request.GET.get('b_terminations_type') or request.POST.get('b_terminations_type')
+            request.POST.get('b_terminations_type') or request.GET.get('b_terminations_type')
         )
 
         if obj.pk:

@@ -15,7 +15,6 @@ from django.utils.translation import gettext as _
 
 from core.models import ObjectType
 from extras.choices import BookmarkOrderingChoices
-from netbox.choices import ButtonColorChoices
 from utilities.object_types import object_type_identifier, object_type_name
 from utilities.permissions import get_permission_for_model
 from utilities.querydict import dict_to_querydict
@@ -320,7 +319,7 @@ class RSSFeedWidget(DashboardWidget):
         try:
             response = requests.get(
                 url=self.config['feed_url'],
-                headers={'User-Agent': f'NetBox/{settings.VERSION}'},
+                headers={'User-Agent': f'NetBox/{settings.RELEASE.version}'},
                 proxies=settings.HTTP_PROXIES,
                 timeout=3
             )
