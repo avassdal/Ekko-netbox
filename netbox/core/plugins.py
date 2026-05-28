@@ -47,6 +47,7 @@ class Plugin:
     The representation of a NetBox plugin in the catalog API.
     """
     id: str = ''
+    icon_url: str = ''
     status: str = ''
     title_short: str = ''
     title_long: str = ''
@@ -80,6 +81,13 @@ def get_local_plugins(plugins=None):
         plugin = importlib.import_module(plugin_name)
         plugin_config: PluginConfig = plugin.config
 
+        if plugin_config.author:
+            author = PluginAuthor(
+                name=plugin_config.author,
+            )
+        else:
+            author = None
+
         local_plugins[plugin_config.name] = Plugin(
             config_name=plugin_config.name,
             title_short=plugin_config.verbose_name,
@@ -88,6 +96,7 @@ def get_local_plugins(plugins=None):
             description_short=plugin_config.description,
             is_local=True,
             is_installed=True,
+            author=author,
             installed_version=plugin_config.version,
         )
 
@@ -185,6 +194,7 @@ def get_catalog_plugins():
                 # Populate plugin data
                 plugins[data['config_name']] = Plugin(
                     id=data['id'],
+                    icon_url=data['icon'],
                     status=data['status'],
                     title_short=data['title_short'],
                     title_long=data['title_long'],

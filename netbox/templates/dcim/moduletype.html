@@ -8,7 +8,9 @@
 
 {% block breadcrumbs %}
   {{ block.super }}
-  {%  include 'dcim/inc/devicetype_breadcrumbs.html' %}
+  <li class="breadcrumb-item">
+    <a href="{% url 'dcim:moduletype_list' %}?manufacturer_id={{ object.manufacturer.pk }}">{{ object.manufacturer }}</a>
+  </li>
 {% endblock %}
 
 {% block extra_controls %}
@@ -17,7 +19,7 @@
 
 {% block content %}
   <div class="row">
-    <div class="col col-md-6">
+    <div class="col col-12 col-md-6">
       <div class="card">
         <h2 class="card-header">{% trans "Module Type" %}</h2>
         <table class="table table-hover attr-table">
@@ -57,7 +59,7 @@
       {% include 'inc/panels/comments.html' %}
       {% plugin_left_page object %}
     </div>
-    <div class="col col-md-6">
+    <div class="col col-12 col-md-6">
       {% include 'inc/panels/related_objects.html' %}
       {% include 'inc/panels/custom_fields.html' %}
       {% include 'inc/panels/image_attachments.html' %}

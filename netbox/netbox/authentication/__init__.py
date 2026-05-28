@@ -28,7 +28,7 @@ AUTH_BACKEND_ATTRS = {
     'bitbucket-oauth2': ('BitBucket', 'bitbucket'),
     'digitalocean': ('DigitalOcean', 'digital-ocean'),
     'docker': ('Docker', 'docker'),
-    'github': ('GitHub', 'docker'),
+    'github': ('GitHub', 'github'),
     'github-app': ('GitHub', 'github'),
     'github-org': ('GitHub', 'github'),
     'github-team': ('GitHub', 'github'),
@@ -107,7 +107,7 @@ class ObjectPermissionMixin:
         return perms
 
     def has_perm(self, user_obj, perm, obj=None):
-        app_label, action, model_name = resolve_permission(perm)
+        app_label, __, model_name = resolve_permission(perm)
 
         # Superusers implicitly have all permissions
         if user_obj.is_active and user_obj.is_superuser:

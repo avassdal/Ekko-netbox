@@ -10,7 +10,7 @@
 
 {% block content %}
   <div class="row">
-    <div class="col col-md-6">
+    <div class="col col-12 col-md-6">
       <div class="card">
         <h2 class="card-header">{% trans "Circuit" %}</h2>
         <table class="table table-hover attr-table">
@@ -33,6 +33,16 @@
           <tr>
             <th scope="row">{% trans "Status" %}</th>
             <td>{% badge object.get_status_display bg_color=object.get_status_color %}</td>
+          </tr>
+          <tr>
+            <th scope="row">{% trans "Distance" %}</th>
+            <td>
+              {% if object.distance is not None %}
+                {{ object.distance|floatformat }} {{ object.get_distance_unit_display }}
+              {% else %}
+                {{ ''|placeholder }}
+              {% endif %}
+            </td>
           </tr>
           <tr>
             <th scope="row">{% trans "Tenant" %}</th>
@@ -66,7 +76,7 @@
           {% trans "Group Assignments" %}
           {% if perms.circuits.add_circuitgroupassignment %}
             <div class="card-actions">
-              <a href="{% url 'circuits:circuitgroupassignment_add' %}?circuit={{ object.pk }}&return_url={{ object.get_absolute_url }}" class="btn btn-ghost-primary btn-sm">
+              <a href="{% url 'circuits:circuitgroupassignment_add' %}?member_type={{ object|content_type_id }}&member={{ object.pk }}&return_url={{ object.get_absolute_url }}" class="btn btn-ghost-primary btn-sm">
                 <span class="mdi mdi-plus-thick" aria-hidden="true"></span> {% trans "Assign Group" %}
               </a>
             </div>
@@ -79,7 +89,7 @@
       {% include 'inc/panels/comments.html' %}
       {% plugin_left_page object %}
     </div>
-    <div class="col col-md-6">
+    <div class="col col-12 col-md-6">
       {% include 'circuits/inc/circuit_termination.html' with termination=object.termination_a side='A' %}
       {% include 'circuits/inc/circuit_termination.html' with termination=object.termination_z side='Z' %}
       {% include 'inc/panels/image_attachments.html' %}

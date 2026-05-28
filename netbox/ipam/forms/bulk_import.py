@@ -3,6 +3,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import gettext_lazy as _
 
 from dcim.models import Device, Interface, Site
+from dcim.forms.mixins import ScopedImportForm
 from ipam.choices import *
 from ipam.constants import *
 from ipam.models import *
@@ -29,6 +30,8 @@ __all__ = (
     'ServiceTemplateImportForm',
     'VLANImportForm',
     'VLANGroupImportForm',
+    'VLANTranslationPolicyImportForm',
+    'VLANTranslationRuleImportForm',
     'VRFImportForm',
 )
 
@@ -152,7 +155,7 @@ class RoleImportForm(NetBoxModelImportForm):
         fields = ('name', 'slug', 'weight', 'description', 'tags')
 
 
-class PrefixImportForm(NetBoxModelImportForm):
+class PrefixImportForm(ScopedImportForm, NetBoxModelImportForm):
     vrf = CSVModelChoiceField(
         label=_('VRF'),
         queryset=VRF.objects.all(),
@@ -167,19 +170,19 @@ class PrefixImportForm(NetBoxModelImportForm):
         to_field_name='name',
         help_text=_('Assigned tenant')
     )
-    site = CSVModelChoiceField(
-        label=_('Site'),
-        queryset=Site.objects.all(),
-        required=False,
-        to_field_name='name',
-        help_text=_('Assigned site')
-    )
     vlan_group = CSVModelChoiceField(
         label=_('VLAN group'),
         queryset=VLANGroup.objects.all(),
         required=False,
         to_field_name='name',
         help_text=_("VLAN's group (if any)")
+    )
+    vlan_site = CSVModelChoiceField(
+        label=_('VLAN Site'),
+        queryset=Site.objects.all(),
+        required=False,
+        to_field_name='name',
+        help_text=_("VLAN's site (if any)")
     )
     vlan = CSVModelChoiceField(
         label=_('VLAN'),
@@ -204,9 +207,12 @@ class PrefixImportForm(NetBoxModelImportForm):
     class Meta:
         model = Prefix
         fields = (
-            'prefix', 'vrf', 'tenant', 'site', 'vlan_group', 'vlan', 'status', 'role', 'is_pool', 'mark_utilized',
-            'description', 'comments', 'tags',
+            'prefix', 'vrf', 'tenant', 'vlan_group', 'vlan_site', 'vlan', 'status', 'role', 'scope_type', 'scope_id',
+            'is_pool', 'mark_utilized', 'description', 'comments', 'tags',
         )
+        labels = {
+            'scope_id': _('Scope ID'),
+        }
 
     def __init__(self, data=None, *args, **kwargs):
         super().__init__(data, *args, **kwargs)
@@ -214,19 +220,19 @@ class PrefixImportForm(NetBoxModelImportForm):
         if not data:
             return
 
-        site = data.get('site')
+        vlan_site = data.get('vlan_site')
         vlan_group = data.get('vlan_group')
 
         # Limit VLAN queryset by assigned site and/or group (if specified)
         query = Q()
 
-        if site:
+        if vlan_site:
             query |= Q(**{
-                f"site__{self.fields['site'].to_field_name}": site
+                f"site__{self.fields['vlan_site'].to_field_name}": vlan_site
             })
             # Don't Forget to include VLANs without a site in the filter
             query |= Q(**{
-                f"site__{self.fields['site'].to_field_name}__isnull": True
+                f"site__{self.fields['vlan_site'].to_field_name}__isnull": True
             })
 
         if vlan_group:
@@ -321,6 +327,13 @@ class IPAddressImportForm(NetBoxModelImportForm):
         to_field_name='name',
         help_text=_('Assigned interface')
     )
+    fhrp_group = CSVModelChoiceField(
+        label=_('FHRP Group'),
+        queryset=FHRPGroup.objects.all(),
+        required=False,
+        to_field_name='name',
+        help_text=_('Assigned FHRP Group name')
+    )
     is_primary = forms.BooleanField(
         label=_('Is primary'),
         help_text=_('Make this the primary IP for the assigned device'),
@@ -335,8 +348,8 @@ class IPAddressImportForm(NetBoxModelImportForm):
     class Meta:
         model = IPAddress
         fields = [
-            'address', 'vrf', 'tenant', 'status', 'role', 'device', 'virtual_machine', 'interface', 'is_primary',
-            'is_oob', 'dns_name', 'description', 'comments', 'tags',
+            'address', 'vrf', 'tenant', 'status', 'role', 'device', 'virtual_machine', 'interface', 'fhrp_group',
+            'is_primary', 'is_oob', 'dns_name', 'description', 'comments', 'tags',
         ]
 
     def __init__(self, data=None, *args, **kwargs):
@@ -392,6 +405,8 @@ class IPAddressImportForm(NetBoxModelImportForm):
         # Set interface assignment
         if self.cleaned_data.get('interface'):
             self.instance.assigned_object = self.cleaned_data['interface']
+        if self.cleaned_data.get('fhrp_group'):
+            self.instance.assigned_object = self.cleaned_data['fhrp_group']
 
         ipaddress = super().save(*args, **kwargs)
 
@@ -482,10 +497,46 @@ class VLANImportForm(NetBoxModelImportForm):
         to_field_name='name',
         help_text=_('Functional role')
     )
+    qinq_role = CSVChoiceField(
+        label=_('Q-in-Q role'),
+        choices=VLANQinQRoleChoices,
+        required=False,
+        help_text=_('Operational status')
+    )
+    qinq_svlan = CSVModelChoiceField(
+        label=_('Q-in-Q SVLAN'),
+        queryset=VLAN.objects.all(),
+        required=False,
+        to_field_name='vid',
+        help_text=_("Service VLAN (for Q-in-Q/802.1ad customer VLANs)")
+    )
 
     class Meta:
         model = VLAN
-        fields = ('site', 'group', 'vid', 'name', 'tenant', 'status', 'role', 'description', 'comments', 'tags')
+        fields = (
+            'site', 'group', 'vid', 'name', 'tenant', 'status', 'role', 'description', 'qinq_role', 'qinq_svlan',
+            'comments', 'tags',
+        )
+
+
+class VLANTranslationPolicyImportForm(NetBoxModelImportForm):
+
+    class Meta:
+        model = VLANTranslationPolicy
+        fields = ('name', 'description', 'tags')
+
+
+class VLANTranslationRuleImportForm(NetBoxModelImportForm):
+    policy = CSVModelChoiceField(
+        label=_('Policy'),
+        queryset=VLANTranslationPolicy.objects.all(),
+        to_field_name='name',
+        help_text=_('VLAN translation policy')
+    )
+
+    class Meta:
+        model = VLANTranslationRule
+        fields = ('policy', 'local_vid', 'remote_vid')
 
 
 class ServiceTemplateImportForm(NetBoxModelImportForm):

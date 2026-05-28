@@ -5,12 +5,12 @@ from django.contrib.auth.mixins import AccessMixin
 from django.core.exceptions import ImproperlyConfigured
 from django.urls import reverse
 from django.urls.exceptions import NoReverseMatch
-from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 
 from netbox.plugins import PluginConfig
 from netbox.registry import registry
 from utilities.relations import get_related_models
+from utilities.request import safe_for_redirect
 from .permissions import resolve_permission
 
 __all__ = (
@@ -136,7 +136,7 @@ class GetReturnURLMixin:
         # First, see if `return_url` was specified as a query parameter or form data. Use this URL only if it's
         # considered safe.
         return_url = request.GET.get('return_url') or request.POST.get('return_url')
-        if return_url and url_has_allowed_host_and_scheme(return_url, allowed_hosts=None):
+        if return_url and safe_for_redirect(return_url):
             return return_url
 
         # Next, check if the object being modified (if any) has an absolute URL.
@@ -149,9 +149,8 @@ class GetReturnURLMixin:
 
         # Attempt to dynamically resolve the list view for the object
         if hasattr(self, 'queryset'):
-            model_opts = self.queryset.model._meta
             try:
-                return reverse(f'{model_opts.app_label}:{model_opts.model_name}_list')
+                return reverse(get_viewname(self.queryset.model, 'list'))
             except NoReverseMatch:
                 pass
 
@@ -196,7 +195,10 @@ class GetRelatedModelsMixin:
         ]
         related_models.extend(extra)
 
-        return sorted(related_models, key=lambda x: x[0].model._meta.verbose_name.lower())
+        return sorted(
+            filter(lambda qs: qs[0].exists(), related_models),
+            key=lambda qs: qs[0].model._meta.verbose_name.lower(),
+        )
 
 
 class ViewTab:
@@ -272,7 +274,7 @@ def get_viewname(model, action=None, rest_api=False):
     return viewname
 
 
-def register_model_view(model, name='', path=None, kwargs=None):
+def register_model_view(model, name='', path=None, detail=True, kwargs=None):
     """
     This decorator can be used to "attach" a view to any model in NetBox. This is typically used to inject
     additional tabs within a model's detail view. For example, to add a custom tab to NetBox's dcim.Site model:
@@ -289,6 +291,7 @@ def register_model_view(model, name='', path=None, kwargs=None):
         name: The string used to form the view's name for URL resolution (e.g. via `reverse()`). This will be appended
             to the name of the base view for the model using an underscore. If blank, the model name will be used.
         path: The URL path by which the view can be reached (optional). If not provided, `name` will be used.
+        detail: True if the path applied to an individual object; False if it attaches to the base (list) path.
         kwargs: A dictionary of keyword arguments for the view to include when registering its URL path (optional).
     """
     def _wrapper(cls):
@@ -301,7 +304,8 @@ def register_model_view(model, name='', path=None, kwargs=None):
         registry['views'][app_label][model_name].append({
             'name': name,
             'view': cls,
-            'path': path or name,
+            'path': path if path is not None else name,
+            'detail': detail,
             'kwargs': kwargs or {},
         })
 

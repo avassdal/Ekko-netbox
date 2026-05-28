@@ -14,7 +14,7 @@
 
 {% block content %}
   <div class="row mb-3">
-    <div class="col col-md-6">
+    <div class="col col-12 col-md-6">
       <div class="card">
         <h2 class="card-header">{% trans "Circuit Group Assignment" %}</h2>
         <table class="table table-hover attr-table">
@@ -23,8 +23,12 @@
             <td>{{ object.group|linkify }}</td>
           </tr>
           <tr>
+            <th scope="row">{% trans "Provider" %}</th>
+            <td>{{ object.member.provider|linkify }}</td>
+          </tr>
+          <tr>
             <th scope="row">{% trans "Circuit" %}</th>
-            <td>{{ object.circuit|linkify }}</td>
+            <td>{{ object.member|linkify }}</td>
           </tr>
           <tr>
             <th scope="row">{% trans "Priority" %}</th>
@@ -35,7 +39,7 @@
       {% include 'inc/panels/tags.html' %}
       {% plugin_left_page object %}
     </div>
-    <div class="col col-md-6">
+    <div class="col col-12 col-md-6">
       {% include 'inc/panels/custom_fields.html' %}
       {% plugin_right_page object %}
     </div>

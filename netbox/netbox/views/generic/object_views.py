@@ -20,6 +20,7 @@ from utilities.forms import ConfirmationForm, restrict_form_fields
 from utilities.htmx import htmx_partial
 from utilities.permissions import get_permission_for_model
 from utilities.querydict import normalize_querydict, prepare_cloned_fields
+from utilities.request import safe_for_redirect
 from utilities.views import GetReturnURLMixin, get_viewname
 from .base import BaseObjectView
 from .mixins import ActionsMixin, TableMixin
@@ -233,18 +234,23 @@ class ObjectEditView(GetReturnURLMixin, BaseObjectView):
         form = self.form(instance=obj, initial=initial_data)
         restrict_form_fields(form, request.user)
 
-        # If this is an HTMX request, return only the rendered form HTML
-        if htmx_partial(request):
-            return render(request, self.htmx_template_name, {
-                'model': model,
-                'object': obj,
-                'form': form,
-            })
-
-        return render(request, self.template_name, {
+        context = {
             'model': model,
             'object': obj,
             'form': form,
+        }
+
+        # If the form is being displayed within a "quick add" widget,
+        # use the appropriate template
+        if request.GET.get('_quickadd'):
+            return render(request, 'htmx/quick_add.html', context)
+
+        # If this is an HTMX request, return only the rendered form HTML
+        if htmx_partial(request):
+            return render(request, self.htmx_template_name, context)
+
+        return render(request, self.template_name, {
+            **context,
             'return_url': self.get_return_url(request, obj),
             'prerequisite_model': get_prerequisite_model(self.queryset),
             **self.get_extra_context(request, obj),
@@ -259,6 +265,7 @@ class ObjectEditView(GetReturnURLMixin, BaseObjectView):
         """
         logger = logging.getLogger('netbox.views.ObjectEditView')
         obj = self.get_object(**kwargs)
+        model = self.queryset.model
 
         # Take a snapshot for change logging (if editing an existing object)
         if obj.pk and hasattr(obj, 'snapshot'):
@@ -292,6 +299,12 @@ class ObjectEditView(GetReturnURLMixin, BaseObjectView):
                     msg = f'{msg} {obj}'
                 messages.success(request, msg)
 
+                # Object was created via "quick add" modal
+                if '_quickadd' in request.POST:
+                    return render(request, 'htmx/quick_add_created.html', {
+                        'object': obj,
+                    })
+
                 # If adding another object, redirect back to the edit form
                 if '_addanother' in request.POST:
                     redirect_url = request.path
@@ -303,6 +316,8 @@ class ObjectEditView(GetReturnURLMixin, BaseObjectView):
                         if 'return_url' in request.GET:
                             params['return_url'] = request.GET.get('return_url')
                         redirect_url += f"?{params.urlencode()}"
+                        if not safe_for_redirect(redirect_url):
+                            redirect_url = reverse('home')
 
                     return redirect(redirect_url)
 
@@ -324,12 +339,19 @@ class ObjectEditView(GetReturnURLMixin, BaseObjectView):
         else:
             logger.debug("Form validation failed")
 
-        return render(request, self.template_name, {
+        context = {
+            'model': model,
             'object': obj,
             'form': form,
             'return_url': self.get_return_url(request, obj),
             **self.get_extra_context(request, obj),
-        })
+        }
+
+        # Form was submitted via a "quick add" widget
+        if '_quickadd' in request.POST:
+            return render(request, 'htmx/quick_add.html', context)
+
+        return render(request, self.template_name, context)
 
 
 class ObjectDeleteView(GetReturnURLMixin, BaseObjectView):
@@ -562,7 +584,7 @@ class ComponentCreateView(GetReturnURLMixin, BaseObjectView):
                         ))
 
                         # Redirect user on success
-                        if '_addanother' in request.POST:
+                        if '_addanother' in request.POST and safe_for_redirect(request.get_full_path()):
                             return redirect(request.get_full_path())
                         else:
                             return redirect(self.get_return_url(request))

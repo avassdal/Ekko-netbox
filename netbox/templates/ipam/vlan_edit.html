@@ -5,6 +5,10 @@
 {% load i18n %}
 
 {% block form %}
+  {% for field in form.hidden_fields %}
+    {{ field }}
+  {% endfor %}
+
   <div class="field-group my-5">
     <div class="row">
       <h2 class="col-9 offset-3">{% trans "VLAN" %}</h2>
@@ -15,6 +19,14 @@
     {% render_field form.role %}
     {% render_field form.description %}
     {% render_field form.tags %}
+  </div>
+
+  <div class="field-group my-5">
+    <div class="row">
+      <h2 class="col-9 offset-3">{% trans "Q-in-Q (802.1ad)" %}</h2>
+    </div>
+    {% render_field form.qinq_role %}
+    {% render_field form.qinq_svlan %}
   </div>
 
   <div class="field-group my-5">

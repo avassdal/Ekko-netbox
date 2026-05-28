@@ -5,6 +5,8 @@ from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
 from extras.models import *
+from core.tables import JobTable
+from core.models import Job
 from netbox.constants import EMPTY_TABLE_TEXT
 from netbox.events import get_event_text
 from netbox.tables import BaseTable, NetBoxTable, columns
@@ -26,6 +28,7 @@ __all__ = (
     'SavedFilterTable',
     'ReportResultsTable',
     'ScriptResultsTable',
+    'ScriptJobTable',
     'SubscriptionTable',
     'TaggedItemTable',
     'TagTable',
@@ -498,13 +501,16 @@ class ConfigContextTable(NetBoxTable):
         orderable=False,
         verbose_name=_('Synced')
     )
+    tags = columns.TagColumn(
+        url_name='extras:configcontext_list'
+    )
 
     class Meta(NetBoxTable.Meta):
         model = ConfigContext
         fields = (
             'pk', 'id', 'name', 'weight', 'is_active', 'is_synced', 'description', 'regions', 'sites', 'locations',
             'roles', 'platforms', 'cluster_types', 'cluster_groups', 'clusters', 'tenant_groups', 'tenants',
-            'data_source', 'data_file', 'data_synced', 'created', 'last_updated',
+            'data_source', 'data_file', 'data_synced', 'tags', 'created', 'last_updated',
         )
         default_columns = ('pk', 'name', 'weight', 'is_active', 'is_synced', 'description')
 
@@ -633,6 +639,23 @@ class ScriptResultsTable(BaseTable):
 
     def render_url(self, value):
         return format_html("<a href='{}'>{}</a>", value, value)
+
+
+class ScriptJobTable(JobTable):
+    id = tables.TemplateColumn(
+        template_code="""<a href="{% url 'extras:script_result' job_pk=record.pk %}">{{ record.id }}</a>""",
+        verbose_name=_('ID'),
+    )
+
+    class Meta(NetBoxTable.Meta):
+        model = Job
+        fields = (
+            'pk', 'id', 'object_type', 'object', 'name', 'status', 'created', 'scheduled', 'interval', 'started',
+            'completed', 'user', 'error', 'job_id',
+        )
+        default_columns = (
+            'pk', 'id', 'object_type', 'object', 'name', 'status', 'created', 'started', 'completed', 'user',
+        )
 
 
 class ReportResultsTable(BaseTable):

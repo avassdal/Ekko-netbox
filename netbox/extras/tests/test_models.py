@@ -1,3 +1,4 @@
+from django.forms import ValidationError
 from django.test import TestCase
 
 from core.models import ObjectType
@@ -274,7 +275,7 @@ class ConfigContextTest(TestCase):
             name="Cluster",
             group=cluster_group,
             type=cluster_type,
-            site=site,
+            scope=site,
         )
 
         region_context = ConfigContext.objects.create(
@@ -366,7 +367,7 @@ class ConfigContextTest(TestCase):
         """
         site = Site.objects.first()
         cluster_type = ClusterType.objects.create(name="Cluster Type")
-        cluster = Cluster.objects.create(name="Cluster", type=cluster_type, site=site)
+        cluster = Cluster.objects.create(name="Cluster", type=cluster_type, scope=site)
         vm_role = DeviceRole.objects.first()
 
         # Create a ConfigContext associated with the site
@@ -478,3 +479,30 @@ class ConfigContextTest(TestCase):
         annotated_queryset = Device.objects.filter(name=device.name).annotate_config_context_data()
         self.assertEqual(ConfigContext.objects.get_for_object(device).count(), 2)
         self.assertEqual(device.get_config_context(), annotated_queryset[0].get_config_context())
+
+    def test_valid_local_context_data(self):
+        device = Device.objects.first()
+        device.local_context_data = None
+        device.clean()
+
+        device.local_context_data = {"foo": "bar"}
+        device.clean()
+
+    def test_invalid_local_context_data(self):
+        device = Device.objects.first()
+
+        device.local_context_data = ""
+        with self.assertRaises(ValidationError):
+            device.clean()
+
+        device.local_context_data = 0
+        with self.assertRaises(ValidationError):
+            device.clean()
+
+        device.local_context_data = False
+        with self.assertRaises(ValidationError):
+            device.clean()
+
+        device.local_context_data = 'foo'
+        with self.assertRaises(ValidationError):
+            device.clean()

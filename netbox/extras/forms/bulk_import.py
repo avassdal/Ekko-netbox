@@ -96,7 +96,7 @@ class CustomFieldChoiceSetImportForm(CSVModelForm):
     class Meta:
         model = CustomFieldChoiceSet
         fields = (
-            'name', 'description', 'extra_choices', 'order_alphabetically',
+            'name', 'description', 'base_choices', 'extra_choices', 'order_alphabetically',
         )
 
     def clean_extra_choices(self):
@@ -202,7 +202,7 @@ class EventRuleImportForm(NetBoxModelImportForm):
         model = EventRule
         fields = (
             'name', 'description', 'enabled', 'conditions', 'object_types', 'event_types', 'action_type',
-            'action_object', 'comments', 'tags'
+            'comments', 'tags'
         )
 
     def clean(self):
@@ -223,7 +223,7 @@ class EventRuleImportForm(NetBoxModelImportForm):
                 from extras.scripts import get_module_and_script
                 module_name, script_name = action_object.split('.', 1)
                 try:
-                    module, script = get_module_and_script(module_name, script_name)
+                    script = get_module_and_script(module_name, script_name)[1]
                 except ObjectDoesNotExist:
                     raise forms.ValidationError(_("Script {name} not found").format(name=action_object))
                 self.instance.action_object = script

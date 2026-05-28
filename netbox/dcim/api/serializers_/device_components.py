@@ -1,3 +1,4 @@
+from django.utils.translation import gettext as _
 from django.contrib.contenttypes.models import ContentType
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -8,7 +9,7 @@ from dcim.models import (
     ConsolePort, ConsoleServerPort, DeviceBay, FrontPort, Interface, InventoryItem, ModuleBay, PowerOutlet, PowerPort,
     RearPort, VirtualDeviceContext,
 )
-from ipam.api.serializers_.vlans import VLANSerializer
+from ipam.api.serializers_.vlans import VLANSerializer, VLANTranslationPolicySerializer
 from ipam.api.serializers_.vrfs import VRFSerializer
 from ipam.models import VLAN
 from netbox.api.fields import ChoiceField, ContentTypeField, SerializedPKRelatedField
@@ -21,7 +22,7 @@ from wireless.choices import *
 from wireless.models import WirelessLAN
 from .base import ConnectedEndpointsSerializer
 from .cables import CabledObjectSerializer
-from .devices import DeviceSerializer, ModuleSerializer, VirtualDeviceContextSerializer
+from .devices import DeviceSerializer, MACAddressSerializer, ModuleSerializer, VirtualDeviceContextSerializer
 from .manufacturers import ManufacturerSerializer
 from .nested import NestedInterfaceSerializer
 from .roles import InventoryItemRoleSerializer
@@ -155,7 +156,7 @@ class PowerOutletSerializer(NetBoxModelSerializer, CabledObjectSerializer, Conne
     class Meta:
         model = PowerOutlet
         fields = [
-            'id', 'url', 'display_url', 'display', 'device', 'module', 'name', 'label', 'type', 'power_port',
+            'id', 'url', 'display_url', 'display', 'device', 'module', 'name', 'label', 'type', 'color', 'power_port',
             'feed_leg', 'description', 'mark_connected', 'cable', 'cable_end', 'link_peers', 'link_peers_type',
             'connected_endpoints', 'connected_endpoints_type', 'connected_endpoints_reachable', 'tags', 'custom_fields',
             'created', 'last_updated', '_occupied',
@@ -196,6 +197,8 @@ class InterfaceSerializer(NetBoxModelSerializer, CabledObjectSerializer, Connect
         required=False,
         many=True
     )
+    qinq_svlan = VLANSerializer(nested=True, required=False, allow_null=True)
+    vlan_translation_policy = VLANTranslationPolicySerializer(nested=True, required=False, allow_null=True)
     vrf = VRFSerializer(nested=True, required=False, allow_null=True)
     l2vpn_termination = L2VPNTerminationSerializer(nested=True, read_only=True, allow_null=True)
     wireless_link = NestedWirelessLinkSerializer(read_only=True, allow_null=True)
@@ -208,22 +211,21 @@ class InterfaceSerializer(NetBoxModelSerializer, CabledObjectSerializer, Connect
     )
     count_ipaddresses = serializers.IntegerField(read_only=True)
     count_fhrp_groups = serializers.IntegerField(read_only=True)
-    mac_address = serializers.CharField(
-        required=False,
-        default=None,
-        allow_blank=True,
-        allow_null=True
-    )
+    # Maintains backward compatibility with NetBox <v4.2
+    mac_address = serializers.CharField(allow_null=True, read_only=True)
+    primary_mac_address = MACAddressSerializer(nested=True, required=False, allow_null=True)
+    mac_addresses = MACAddressSerializer(many=True, nested=True, read_only=True, allow_null=True)
     wwn = serializers.CharField(required=False, default=None, allow_blank=True, allow_null=True)
 
     class Meta:
         model = Interface
         fields = [
             'id', 'url', 'display_url', 'display', 'device', 'vdcs', 'module', 'name', 'label', 'type', 'enabled',
-            'parent', 'bridge', 'lag', 'mtu', 'mac_address', 'speed', 'duplex', 'wwn', 'mgmt_only', 'description',
-            'mode', 'rf_role', 'rf_channel', 'poe_mode', 'poe_type', 'rf_channel_frequency', 'rf_channel_width',
-            'tx_power', 'untagged_vlan', 'tagged_vlans', 'mark_connected', 'cable', 'cable_end', 'wireless_link',
-            'link_peers', 'link_peers_type', 'wireless_lans', 'vrf', 'l2vpn_termination', 'connected_endpoints',
+            'parent', 'bridge', 'lag', 'mtu', 'mac_address', 'primary_mac_address', 'mac_addresses', 'speed', 'duplex',
+            'wwn', 'mgmt_only', 'description', 'mode', 'rf_role', 'rf_channel', 'poe_mode', 'poe_type',
+            'rf_channel_frequency', 'rf_channel_width', 'tx_power', 'untagged_vlan', 'tagged_vlans', 'qinq_svlan',
+            'vlan_translation_policy', 'mark_connected', 'cable', 'cable_end', 'wireless_link', 'link_peers',
+            'link_peers_type', 'wireless_lans', 'vrf', 'l2vpn_termination', 'connected_endpoints',
             'connected_endpoints_type', 'connected_endpoints_reachable', 'tags', 'custom_fields', 'created',
             'last_updated', 'count_ipaddresses', 'count_fhrp_groups', '_occupied',
         ]
@@ -231,8 +233,56 @@ class InterfaceSerializer(NetBoxModelSerializer, CabledObjectSerializer, Connect
 
     def validate(self, data):
 
-        # Validate many-to-many VLAN assignments
         if not self.nested:
+
+            # Validate 802.1q mode and vlan(s)
+            mode = None
+            tagged_vlans = []
+
+            # Gather Information
+            if self.instance:
+                mode = data.get('mode') if 'mode' in data.keys() else self.instance.mode
+                untagged_vlan = data.get('untagged_vlan') if 'untagged_vlan' in data.keys() else \
+                    self.instance.untagged_vlan
+                qinq_svlan = data.get('qinq_svlan') if 'qinq_svlan' in data.keys() else \
+                    self.instance.qinq_svlan
+                tagged_vlans = data.get('tagged_vlans') if 'tagged_vlans' in data.keys() else \
+                    self.instance.tagged_vlans.all()
+            else:
+                mode = data.get('mode', None)
+                untagged_vlan = data.get('untagged_vlan') if 'untagged_vlan' in data.keys() else None
+                qinq_svlan = data.get('qinq_svlan') if 'qinq_svlan' in data.keys() else None
+                tagged_vlans = data.get('tagged_vlans') if 'tagged_vlans' in data.keys() else None
+
+            errors = {}
+
+            # Non Q-in-Q mode with service vlan set
+            if mode != InterfaceModeChoices.MODE_Q_IN_Q and qinq_svlan:
+                errors.update({
+                    'qinq_svlan': _("Interface mode does not support q-in-q service vlan")
+                })
+            # Routed mode
+            if not mode:
+                # Untagged vlan
+                if untagged_vlan:
+                    errors.update({
+                        'untagged_vlan': _("Interface mode does not support untagged vlan")
+                    })
+                # Tagged vlan
+                if tagged_vlans:
+                    errors.update({
+                        'tagged_vlans': _("Interface mode does not support tagged vlans")
+                    })
+            # Non-tagged mode
+            elif mode in (InterfaceModeChoices.MODE_TAGGED_ALL, InterfaceModeChoices.MODE_ACCESS) and tagged_vlans:
+                errors.update({
+                    'tagged_vlans': _("Interface mode does not support tagged vlans")
+                })
+
+            if errors:
+                raise serializers.ValidationError(errors)
+
+            # Validate many-to-many VLAN assignments
             device = self.instance.device if self.instance else data.get('device')
             for vlan in data.get('tagged_vlans', []):
                 if vlan.site not in [device.site, None]:
@@ -345,13 +395,14 @@ class InventoryItemSerializer(NetBoxModelSerializer):
     )
     component = serializers.SerializerMethodField(read_only=True, allow_null=True)
     _depth = serializers.IntegerField(source='level', read_only=True)
+    status = ChoiceField(choices=InventoryItemStatusChoices, required=False)
 
     class Meta:
         model = InventoryItem
         fields = [
-            'id', 'url', 'display_url', 'display', 'device', 'parent', 'name', 'label', 'role', 'manufacturer',
-            'part_id', 'serial', 'asset_tag', 'discovered', 'description', 'component_type', 'component_id',
-            'component', 'tags', 'custom_fields', 'created', 'last_updated', '_depth',
+            'id', 'url', 'display_url', 'display', 'device', 'parent', 'name', 'label', 'status', 'role',
+            'manufacturer', 'part_id', 'serial', 'asset_tag', 'discovered', 'description', 'component_type',
+            'component_id', 'component', 'tags', 'custom_fields', 'created', 'last_updated', '_depth',
         ]
         brief_fields = ('id', 'url', 'display', 'device', 'name', 'description', '_depth')
 

@@ -5,6 +5,7 @@ import strawberry_django
 
 from circuits.graphql.types import ProviderType
 from dcim.graphql.types import SiteType
+from extras.graphql.mixins import ContactsMixin
 from ipam import models
 from netbox.graphql.scalars import BigInt
 from netbox.graphql.types import BaseObjectType, NetBoxObjectType, OrganizationalObjectType
@@ -27,6 +28,8 @@ __all__ = (
     'ServiceTemplateType',
     'VLANType',
     'VLANGroupType',
+    'VLANTranslationPolicyType',
+    'VLANTranslationRuleType',
     'VRFType',
 )
 
@@ -81,7 +84,7 @@ class ASNRangeType(NetBoxObjectType):
     fields='__all__',
     filters=AggregateFilter
 )
-class AggregateType(NetBoxObjectType, BaseIPAddressFamilyType):
+class AggregateType(NetBoxObjectType, ContactsMixin, BaseIPAddressFamilyType):
     prefix: str
     rir: Annotated["RIRType", strawberry.lazy('ipam.graphql.types')] | None
     tenant: Annotated["TenantType", strawberry.lazy('tenancy.graphql.types')] | None
@@ -118,7 +121,7 @@ class FHRPGroupAssignmentType(BaseObjectType):
     exclude=('assigned_object_type', 'assigned_object_id', 'address'),
     filters=IPAddressFilter
 )
-class IPAddressType(NetBoxObjectType, BaseIPAddressFamilyType):
+class IPAddressType(NetBoxObjectType, ContactsMixin, BaseIPAddressFamilyType):
     address: str
     vrf: Annotated["VRFType", strawberry.lazy('ipam.graphql.types')] | None
     tenant: Annotated["TenantType", strawberry.lazy('tenancy.graphql.types')] | None
@@ -142,7 +145,7 @@ class IPAddressType(NetBoxObjectType, BaseIPAddressFamilyType):
     fields='__all__',
     filters=IPRangeFilter
 )
-class IPRangeType(NetBoxObjectType):
+class IPRangeType(NetBoxObjectType, ContactsMixin):
     start_address: str
     end_address: str
     vrf: Annotated["VRFType", strawberry.lazy('ipam.graphql.types')] | None
@@ -152,16 +155,24 @@ class IPRangeType(NetBoxObjectType):
 
 @strawberry_django.type(
     models.Prefix,
-    fields='__all__',
+    exclude=('scope_type', 'scope_id', '_location', '_region', '_site', '_site_group'),
     filters=PrefixFilter
 )
-class PrefixType(NetBoxObjectType, BaseIPAddressFamilyType):
+class PrefixType(NetBoxObjectType, ContactsMixin, BaseIPAddressFamilyType):
     prefix: str
-    site: Annotated["SiteType", strawberry.lazy('dcim.graphql.types')] | None
     vrf: Annotated["VRFType", strawberry.lazy('ipam.graphql.types')] | None
     tenant: Annotated["TenantType", strawberry.lazy('tenancy.graphql.types')] | None
     vlan: Annotated["VLANType", strawberry.lazy('ipam.graphql.types')] | None
     role: Annotated["RoleType", strawberry.lazy('ipam.graphql.types')] | None
+
+    @strawberry_django.field
+    def scope(self) -> Annotated[Union[
+        Annotated["LocationType", strawberry.lazy('dcim.graphql.types')],
+        Annotated["RegionType", strawberry.lazy('dcim.graphql.types')],
+        Annotated["SiteGroupType", strawberry.lazy('dcim.graphql.types')],
+        Annotated["SiteType", strawberry.lazy('dcim.graphql.types')],
+    ], strawberry.union("PrefixScopeType")] | None:
+        return self.scope
 
 
 @strawberry_django.type(
@@ -207,7 +218,7 @@ class RouteTargetType(NetBoxObjectType):
     fields='__all__',
     filters=ServiceFilter
 )
-class ServiceType(NetBoxObjectType):
+class ServiceType(NetBoxObjectType, ContactsMixin):
     ports: List[int]
     device: Annotated["DeviceType", strawberry.lazy('dcim.graphql.types')] | None
     virtual_machine: Annotated["VirtualMachineType", strawberry.lazy('virtualization.graphql.types')] | None
@@ -226,7 +237,7 @@ class ServiceTemplateType(NetBoxObjectType):
 
 @strawberry_django.type(
     models.VLAN,
-    fields='__all__',
+    exclude=('qinq_svlan',),
     filters=VLANFilter
 )
 class VLANType(NetBoxObjectType):
@@ -241,6 +252,10 @@ class VLANType(NetBoxObjectType):
     prefixes: List[Annotated["PrefixType", strawberry.lazy('ipam.graphql.types')]]
     interfaces_as_tagged: List[Annotated["InterfaceType", strawberry.lazy('dcim.graphql.types')]]
     vminterfaces_as_tagged: List[Annotated["VMInterfaceType", strawberry.lazy('virtualization.graphql.types')]]
+
+    @strawberry_django.field
+    def qinq_svlan(self) -> Annotated["VLANType", strawberry.lazy('ipam.graphql.types')] | None:
+        return self.qinq_svlan
 
 
 @strawberry_django.type(
@@ -264,6 +279,27 @@ class VLANGroupType(OrganizationalObjectType):
         Annotated["SiteGroupType", strawberry.lazy('dcim.graphql.types')],
     ], strawberry.union("VLANGroupScopeType")] | None:
         return self.scope
+
+
+@strawberry_django.type(
+    models.VLANTranslationPolicy,
+    fields='__all__',
+    filters=VLANTranslationPolicyFilter
+)
+class VLANTranslationPolicyType(NetBoxObjectType):
+    rules: List[Annotated["VLANTranslationRuleType", strawberry.lazy('ipam.graphql.types')]]
+
+
+@strawberry_django.type(
+    models.VLANTranslationRule,
+    fields='__all__',
+    filters=VLANTranslationRuleFilter
+)
+class VLANTranslationRuleType(NetBoxObjectType):
+    policy: Annotated[
+        "VLANTranslationPolicyType",
+        strawberry.lazy('ipam.graphql.types')
+    ] = strawberry_django.field(select_related=["policy"])
 
 
 @strawberry_django.type(

@@ -5,7 +5,7 @@
 
 {% block content %}
 <div class="row">
-  <div class="col col-md-6">
+  <div class="col col-12 col-md-6">
     <div class="card">
       <h2 class="card-header">{% trans "Cluster" %}</h2>
       <table class="table table-hover attr-table">
@@ -39,15 +39,19 @@
             </td>
         </tr>
         <tr>
-          <th scope="row">{% trans "Site" %}</th>
-          <td>{{ object.site|linkify|placeholder }}</td>
+          <th scope="row">{% trans "Scope" %}</th>
+          {% if object.scope %}
+            <td>{{ object.scope|linkify }} ({% trans object.scope_type.name %})</td>
+          {% else %}
+            <td>{{ ''|placeholder }}</td>
+          {% endif %}
         </tr>
       </table>
     </div>
     {% include 'inc/panels/comments.html' %}
     {% plugin_left_page object %}
   </div>
-  <div class="col col-md-6">
+  <div class="col col-12 col-md-6">
     <div class="card">
       <h2 class="card-header">{% trans "Allocated Resources" %}</h2>
       <table class="table table-hover attr-table">
@@ -59,7 +63,7 @@
               <th scope="row"><i class="mdi mdi-chip"></i> {% trans "Memory" %}</th>
               <td>
                   {% if memory_sum %}
-                      <span title={{ memory_sum }}>{{ memory_sum|humanize_megabytes }}</span>
+                      <span title={{ memory_sum }}>{{ memory_sum|humanize_ram_megabytes }}</span>
                   {% else %}
                       {{ ''|placeholder }}
                   {% endif %}
@@ -69,7 +73,7 @@
               <th scope="row"><i class="mdi mdi-harddisk"></i> {% trans "Disk Space" %}</th>
               <td>
                   {% if disk_sum %}
-                      {{ disk_sum|humanize_megabytes }}
+                      {{ disk_sum|humanize_disk_megabytes }}
                   {% else %}
                       {{ ''|placeholder }}
                   {% endif %}
@@ -77,6 +81,7 @@
           </tr>
       </table>
   </div>
+    {% include 'inc/panels/related_objects.html' %}
     {% include 'inc/panels/custom_fields.html' %}
     {% include 'inc/panels/tags.html' %}
     {% plugin_right_page object %}

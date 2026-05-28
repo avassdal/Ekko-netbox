@@ -991,6 +991,7 @@ class InterfaceTypeChoices(ChoiceSet):
 
     # Coaxial
     TYPE_DOCSIS = 'docsis'
+    TYPE_MOCA = 'moca'
 
     # PON
     TYPE_BPON = 'bpon'
@@ -1198,6 +1199,7 @@ class InterfaceTypeChoices(ChoiceSet):
             _('Coaxial'),
             (
                 (TYPE_DOCSIS, 'DOCSIS'),
+                (TYPE_MOCA, 'MoCA'),
             )
         ),
         (
@@ -1290,11 +1292,13 @@ class InterfaceModeChoices(ChoiceSet):
     MODE_ACCESS = 'access'
     MODE_TAGGED = 'tagged'
     MODE_TAGGED_ALL = 'tagged-all'
+    MODE_Q_IN_Q = 'q-in-q'
 
     CHOICES = (
         (MODE_ACCESS, _('Access')),
         (MODE_TAGGED, _('Tagged')),
         (MODE_TAGGED_ALL, _('Tagged (All)')),
+        (MODE_Q_IN_Q, _('Q-in-Q (802.1ad)')),
     )
 
 
@@ -1373,6 +1377,9 @@ class PortTypeChoices(ChoiceSet):
     TYPE_SC_UPC = 'sc-upc'
     TYPE_SC_APC = 'sc-apc'
     TYPE_FC = 'fc'
+    TYPE_FC_PC = 'fc-pc'
+    TYPE_FC_UPC = 'fc-upc'
+    TYPE_FC_APC = 'fc-apc'
     TYPE_LC = 'lc'
     TYPE_LC_PC = 'lc-pc'
     TYPE_LC_UPC = 'lc-upc'
@@ -1456,6 +1463,9 @@ class PortTypeChoices(ChoiceSet):
             'Fiber Optic',
             (
                 (TYPE_FC, 'FC'),
+                (TYPE_FC_PC, 'FC/PC'),
+                (TYPE_FC_UPC, 'FC/UPC'),
+                (TYPE_FC_APC, 'FC/APC'),
                 (TYPE_LC, 'LC'),
                 (TYPE_LC_PC, 'LC/PC'),
                 (TYPE_LC_UPC, 'LC/UPC'),
@@ -1625,24 +1635,6 @@ class CableLengthUnitChoices(ChoiceSet):
     )
 
 
-class WeightUnitChoices(ChoiceSet):
-
-    # Metric
-    UNIT_KILOGRAM = 'kg'
-    UNIT_GRAM = 'g'
-
-    # Imperial
-    UNIT_POUND = 'lb'
-    UNIT_OUNCE = 'oz'
-
-    CHOICES = (
-        (UNIT_KILOGRAM, _('Kilograms')),
-        (UNIT_GRAM, _('Grams')),
-        (UNIT_POUND, _('Pounds')),
-        (UNIT_OUNCE, _('Ounces')),
-    )
-
-
 #
 # CableTerminations
 #
@@ -1726,4 +1718,28 @@ class VirtualDeviceContextStatusChoices(ChoiceSet):
         (STATUS_ACTIVE, _('Active'), 'green'),
         (STATUS_PLANNED, _('Planned'), 'cyan'),
         (STATUS_OFFLINE, _('Offline'), 'red'),
+    ]
+
+
+#
+# InventoryItem
+#
+
+class InventoryItemStatusChoices(ChoiceSet):
+    key = 'InventoryItem.status'
+
+    STATUS_OFFLINE = 'offline'
+    STATUS_ACTIVE = 'active'
+    STATUS_PLANNED = 'planned'
+    STATUS_STAGED = 'staged'
+    STATUS_FAILED = 'failed'
+    STATUS_DECOMMISSIONING = 'decommissioning'
+
+    CHOICES = [
+        (STATUS_OFFLINE, _('Offline'), 'gray'),
+        (STATUS_ACTIVE, _('Active'), 'green'),
+        (STATUS_PLANNED, _('Planned'), 'cyan'),
+        (STATUS_STAGED, _('Staged'), 'blue'),
+        (STATUS_FAILED, _('Failed'), 'red'),
+        (STATUS_DECOMMISSIONING, _('Decommissioning'), 'yellow'),
     ]

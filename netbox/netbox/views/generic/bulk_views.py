@@ -28,6 +28,8 @@ from utilities.forms import BulkRenameForm, ConfirmationForm, restrict_form_fiel
 from utilities.forms.bulk_import import BulkImportForm
 from utilities.htmx import htmx_partial
 from utilities.permissions import get_permission_for_model
+from utilities.query import reapply_model_ordering
+from utilities.request import safe_for_redirect
 from utilities.views import GetReturnURLMixin, get_viewname
 from .base import BaseMultiObjectView
 from .mixins import ActionsMixin, TableMixin
@@ -119,11 +121,18 @@ class ObjectListView(BaseMultiObjectView, ActionsMixin, TableMixin):
             # Strip the `export` param and redirect user to the filtered objects list
             query_params = request.GET.copy()
             query_params.pop('export')
-            return redirect(f'{request.path}?{query_params.urlencode()}')
+            redirect_url = f'{request.path}?{query_params.urlencode()}'
+            if safe_for_redirect(redirect_url):
+                return redirect(redirect_url)
+            return redirect(get_viewname(self.queryset.model, 'list'))
 
     #
     # Request handlers
     #
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return reapply_model_ordering(qs)
 
     def get(self, request):
         """
@@ -279,7 +288,7 @@ class BulkCreateView(GetReturnURLMixin, BaseMultiObjectView):
                 logger.info(msg)
                 messages.success(request, msg)
 
-                if '_addanother' in request.POST:
+                if '_addanother' in request.POST and safe_for_redirect(request.path):
                     return redirect(request.path)
                 return redirect(self.get_return_url(request))
 
@@ -661,15 +670,15 @@ class BulkEditView(GetReturnURLMixin, BaseMultiObjectView):
         elif 'virtual_machine' in request.GET:
             initial_data['virtual_machine'] = request.GET.get('virtual_machine')
 
-        if '_apply' in request.POST:
-            form = self.form(request.POST, initial=initial_data)
-            restrict_form_fields(form, request.user)
+        post_data = request.POST.copy()
+        post_data.setlist('pk', pk_list)
+        form = self.form(post_data, initial=initial_data)
+        restrict_form_fields(form, request.user)
 
+        if '_apply' in request.POST:
             if form.is_valid():
                 logger.debug("Form validation was successful")
-
                 try:
-
                     with transaction.atomic():
                         updated_objects = self._update_objects(form, request)
 
@@ -696,10 +705,6 @@ class BulkEditView(GetReturnURLMixin, BaseMultiObjectView):
 
             else:
                 logger.debug("Form validation failed")
-
-        else:
-            form = self.form(initial=initial_data)
-            restrict_form_fields(form, request.user)
 
         # Retrieve objects being edited
         table = self.table(self.queryset.filter(pk__in=pk_list), orderable=False)
@@ -998,7 +1003,8 @@ class BulkComponentCreateView(GetReturnURLMixin, BaseMultiObjectView):
                                             form.add_error(field, '{}: {}'.format(obj, ', '.join(e)))
 
                         # Enforce object-level permissions
-                        if self.queryset.filter(pk__in=[obj.pk for obj in new_components]).count() != len(new_components):
+                        component_ids = [obj.pk for obj in new_components]
+                        if self.queryset.filter(pk__in=component_ids).count() != len(new_components):
                             raise PermissionsViolation
 
                 except IntegrityError:
