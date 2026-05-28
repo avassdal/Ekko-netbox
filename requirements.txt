@@ -10,6 +10,7 @@ django-prometheus==2.3.1
 django-redis==5.4.0
 django-rich==1.8.0
 django-rq==2.10.2
+rq==1.16.2
 django-taggit==5.0.1
 django-tables2==2.7.0
 django-timezone-field==6.1.0
